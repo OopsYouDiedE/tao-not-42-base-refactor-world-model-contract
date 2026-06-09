@@ -1,0 +1,12 @@
+torch
+torchvision
+numpy
+opencv-python
+tensorflow
+tensorflow-datasets
+h5py
+wandb
+ultralytics
+scipy
+# optional but recommended for real Mamba acceleration:
+# mamba-ssm

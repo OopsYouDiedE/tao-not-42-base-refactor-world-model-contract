@@ -1,0 +1,59 @@
+# Python / Build
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter
+.ipynb_checkpoints
+
+# Virtual environments
+venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Project specifics
+*.ts
+*.pt
+vis_outputs/
+wandb/
+*.npz
+world_probe*.png   # 探针生成的图,属产物不入库
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# runs/ — 下载数据/checkpoints/日志,不入库
+runs/
+
+# Test coverage and cache
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+cov.xml
+colab_quickstart.ipynb

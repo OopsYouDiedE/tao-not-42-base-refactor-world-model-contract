@@ -82,10 +82,44 @@ def roll_append(a_raw, action):
     return torch.cat([a_raw[:, 1:], action.unsqueeze(1)], dim=1)
 
 
+_GPU_UTIL_FN = None  # 探测一次后缓存采样函数
+
+
+def _resolve_gpu_util():
+    """探测可用的 GPU 利用率采样方式:优先 torch+NVML,兜底 nvidia-smi。"""
+    try:
+        torch.cuda.utilization()                       # 需 nvidia-ml-py
+        return torch.cuda.utilization
+    except Exception:
+        pass
+    import shutil, subprocess
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        def _via_smi():
+            try:
+                out = subprocess.run(
+                    [smi, "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=5)
+                return float(out.stdout.strip().splitlines()[0])
+            except Exception:
+                return None
+        return _via_smi
+    return lambda: None
+
+
+def _gpu_util():
+    """瞬时 GPU 利用率(%);CPU 或无法采样时返回 None。"""
+    global _GPU_UTIL_FN
+    if _GPU_UTIL_FN is None:
+        _GPU_UTIL_FN = _resolve_gpu_util()
+    return _GPU_UTIL_FN()
+
+
 def train_epoch(model, sigreg, loader, opt, device, k_bptt, alpha_inv, beta_sigreg):
     model.train()
     agg = {k: 0.0 for k in ["loss", "pred", "inv", "mouse", "kb", "sigreg", "n"]}
     c_last = None
+    gpu_samples = []
 
     for batch in loader:
         img = batch["img"].to(device)          # [B,T,3,H,W]
@@ -142,6 +176,9 @@ def train_epoch(model, sigreg, loader, opt, device, k_bptt, alpha_inv, beta_sigr
         opt.step()
         agg["n"] += steps
         c_last = c.detach()
+        u = _gpu_util()
+        if u is not None:
+            gpu_samples.append(u)
 
     n = max(agg["n"], 1)
     cv = c_last.squeeze(-1).flatten()
@@ -152,6 +189,7 @@ def train_epoch(model, sigreg, loader, opt, device, k_bptt, alpha_inv, beta_sigr
         "sigreg": agg["sigreg"] / max(len(loader), 1),
         "c_mean": cv.mean().item(), "c_std": cv.std().item(),
         "c_min": cv.min().item(), "c_max": cv.max().item(),
+        "gpu_util": (sum(gpu_samples) / len(gpu_samples)) if gpu_samples else None,
     }
 
 
@@ -228,13 +266,26 @@ def main():
     print(f"params: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M | "
           f"clips≈{len(ds.videos)} | steps/epoch≈{len(loader)}")
 
+    is_cuda = str(dev).startswith("cuda")
+    if is_cuda:
+        torch.cuda.reset_peak_memory_stats()
+    util_hist = []
+
     for ep in range(args.epochs):
         r = train_epoch(model, sigreg, loader, opt, dev,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg)
+        if r.get("gpu_util") is not None:
+            util_hist.append(r["gpu_util"])
         if ep % 5 == 0 or ep == args.epochs - 1:
+            gpu = f" | gpu {r['gpu_util']:.0f}%" if r.get("gpu_util") is not None else ""
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f} "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f}) "
-                  f"sig {r['sigreg']:.2f} | c mean={r['c_mean']:.3f} std={r['c_std']:.3f}")
+                  f"sig {r['sigreg']:.2f} | c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
+
+    if util_hist:
+        peak = torch.cuda.max_memory_allocated() / 1e9
+        print(f"\n[GPU] 训练平均利用率 {sum(util_hist) / len(util_hist):.0f}% "
+              f"(每 epoch 末采样, {len(util_hist)} 点) | 峰值显存 {peak:.2f} GB")
 
     print("\n--- 最终评估:逆动力学(从画面变化反推按键)---")
     e = evaluate(model, loader, dev)

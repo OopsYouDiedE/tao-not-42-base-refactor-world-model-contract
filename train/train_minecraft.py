@@ -241,9 +241,14 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     """逆动力学键盘平衡准确率:能否从隐变量变化里反推出"按了哪些键"。
 
     视觉卷积与目标编码按整条序列批量(no_grad 无显存压力),只有 Transformer 逐步。
+
+    额外报告**跳变**指标(onset/release recall):VPT 数据里 w/attack 等键常整段
+    按住,逐帧 balanced acc 会被"输出基率常数"的平凡解灌高;只有按下/松开瞬间
+    的检出率才证明模型从 ΔZ 里读出了动作,而非记住了哪些键常亮。
     """
     model.eval()
     tp = fp = fn = tn = 0
+    on_tp = on_n = off_tp = off_n = 0
     for batch in itertools.islice(loader, steps):
         img = _to_float_img(batch["img"].to(device))
         action = batch["action"].to(device)
@@ -259,6 +264,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
         Z = torch.zeros(B, model.N, model.d, device=device)
         h = torch.zeros(B, 1, model.d, device=device)
         a_raw = torch.zeros(B, model.J, ACT_DIM, device=device)
+        prev_true = None
         for t in range(T - 1):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
                 a_raw = roll_append(a_raw, action[:, t])
@@ -268,9 +274,17 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             kb_true = (action[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
             fn += (~kb_pred & kb_true).sum().item();  tn += (~kb_pred & ~kb_true).sum().item()
+            if prev_true is not None:
+                onset = kb_true & ~prev_true; release = ~kb_true & prev_true
+                on_tp += (kb_pred & onset).sum().item();    on_n += onset.sum().item()
+                off_tp += (~kb_pred & release).sum().item(); off_n += release.sum().item()
+            prev_true = kb_true
             Z, h = out["mu"], out["h_next"]
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
-    return {"kb_recall": recall, "kb_spec": spec, "kb_bal_acc": 0.5 * (recall + spec)}
+    return {"kb_recall": recall, "kb_spec": spec, "kb_bal_acc": 0.5 * (recall + spec),
+            "kb_onset_recall": on_tp / max(on_n, 1),
+            "kb_release_recall": off_tp / max(off_n, 1),
+            "kb_edges": on_n + off_n}
 
 
 def main():
@@ -278,8 +292,9 @@ def main():
     ap.add_argument("--data_dir", default="runs/vpt_sample", help="VPTDataset 数据目录(.mp4+.jsonl)")
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--steps_per_epoch", type=int, default=50, help="每 epoch 迭代多少个 batch(流式)")
-    ap.add_argument("--batch", type=int, default=8,
-                    help="每步随机取几个序列(旧默认 2 喂不饱 GPU 且 SIGReg 检验功效≈0)")
+    ap.add_argument("--batch", type=int, default=16,
+                    help="每步随机取几个序列(batch=8 时实测 L4 显存仅用 ~0.9GB/24GB、"
+                         "利用率 ~16%%——显存余量极大,默认提到 16;SIGReg 检验功效同步受益)")
     ap.add_argument("--seq_len", type=int, default=60)
     ap.add_argument("--fps", type=int, default=20)
     ap.add_argument("--img_size", type=int, default=128,
@@ -287,8 +302,9 @@ def main():
     ap.add_argument("--camera_scale", type=float, default=None,
                     help="鼠标 dx/dy 归一化尺度,固定超参(None=用 vpt_action.CAMERA_SCALE 默认 10;"
                          "真 BASALT 转身 ±190 用 ~20)")
-    ap.add_argument("--workers", type=int, default=2,
-                    help="DataLoader 并行加载进程数(窗口解码是 CPU 大头,Colab 上调到 vCPU 数)")
+    ap.add_argument("--workers", type=int, default=None,
+                    help="DataLoader 并行加载进程数;默认 None=自动取 CPU 核数-1(上限 8)。"
+                         "窗口解码是 CPU 大头,旧默认 2 是 GPU 利用率 ~16%% 的主因")
     ap.add_argument("--cache_size", type=int, default=32, help="每个 worker 缓存的动作表文件数")
     ap.add_argument("--refresh_every", type=int, default=64, help="已废弃(窗口化解码无整段缓存),仅保留兼容")
     ap.add_argument("--viz_every", type=int, default=10,
@@ -333,13 +349,17 @@ def main():
 
     img_size = args.img_size if args.img_size > 0 else None
     cam_scale = args.camera_scale if args.camera_scale is not None else CAMERA_SCALE
+    n_workers = args.workers if args.workers is not None \
+        else max(2, min(8, (os.cpu_count() or 2) - 1))
     ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                           cache_size=args.cache_size, refresh_every=args.refresh_every,
                           seed=args.seed, img_size=img_size, camera_scale=cam_scale)
-    loader = DataLoader(ds, batch_size=args.batch, num_workers=args.workers,
+    # prefetch_factor=4:窗口解码耗时方差大(seek 距关键帧远近不一),更深的预取
+    # 队列吸收抖动,避免 GPU 周期性空转等数据。
+    loader = DataLoader(ds, batch_size=args.batch, num_workers=n_workers,
                         pin_memory=is_cuda,
-                        persistent_workers=(args.workers > 0),
-                        prefetch_factor=(2 if args.workers > 0 else None))
+                        persistent_workers=(n_workers > 0),
+                        prefetch_factor=(4 if n_workers > 0 else None))
 
     viz_batch = None
     if args.viz_every > 0:
@@ -351,12 +371,11 @@ def main():
         os.makedirs(args.viz_dir, exist_ok=True)
 
     model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM).to(dev)
-    model.J = args.J            # 历史动作长度(MinecraftWorldModel 不强制,训练循环按此构造 a_raw)
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     print(f"params: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M | "
-          f"batch={args.batch} workers={args.workers} steps/epoch={args.steps_per_epoch}")
+          f"batch={args.batch} workers={n_workers} steps/epoch={args.steps_per_epoch}")
 
     if is_cuda:
         torch.cuda.reset_peak_memory_stats()
@@ -394,12 +413,16 @@ def main():
     e = evaluate(model, loader, dev, max(args.steps_per_epoch, 20), amp_dev, use_amp)
     print(f"键盘 recall {e['kb_recall']:.3f} | spec {e['kb_spec']:.3f} | "
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")
+    print(f"跳变检出 onset {e['kb_onset_recall']:.3f} | release {e['kb_release_recall']:.3f} "
+          f"({e['kb_edges']} 次跳变;常按键灌不高这两项,是更硬的证据)")
     ok = e["kb_bal_acc"] > 0.6
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
 
     if use_wandb:
         wandb.log({"eval/kb_recall": e["kb_recall"], "eval/kb_spec": e["kb_spec"],
-                   "eval/kb_bal_acc": e["kb_bal_acc"]})
+                   "eval/kb_bal_acc": e["kb_bal_acc"],
+                   "eval/kb_onset_recall": e["kb_onset_recall"],
+                   "eval/kb_release_recall": e["kb_release_recall"]})
         wandb.summary["kb_bal_acc"] = e["kb_bal_acc"]
         wandb.finish()
 

@@ -166,7 +166,11 @@ class VPTStreamDataset(IterableDataset):
                 "task": task, "n": n}
 
     def _decode_window(self, mp4, start, T):
-        """seek 到 start 解码 T 帧 → uint8 [T,3,H,W];不足返回 None。"""
+        """seek 到 start 解码 T 帧 → uint8 [T,3,H,W];不足返回 None。
+
+        先 resize 再 cvtColor:色彩转换在 128×128 上做比在 360×640 上做省 ~14×
+        像素量,INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
+        """
         cap = cv2.VideoCapture(mp4)
         if start > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
@@ -175,10 +179,10 @@ class VPTStreamDataset(IterableDataset):
             ret, f = cap.read()
             if not ret:
                 break
-            f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
             if self.img_size:
                 f = cv2.resize(f, (self.img_size, self.img_size),
                                interpolation=cv2.INTER_AREA)
+            f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
             frames.append(torch.from_numpy(f))
         cap.release()
         if len(frames) < T:
@@ -187,6 +191,10 @@ class VPTStreamDataset(IterableDataset):
 
     def __iter__(self):
         wi = get_worker_info()
+        if wi is not None:
+            # 多 worker 时禁用 cv2 内部线程池:N 个 worker × cv2 默认全核线程
+            # 会把 vCPU 超订成上下文切换,窗口解码吞吐反而下降。
+            cv2.setNumThreads(0)
         rng = random.Random(self.seed + (wi.id if wi is not None else 0))
         meta_cache, fails = {}, 0
         while True:

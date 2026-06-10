@@ -92,7 +92,12 @@ def collect_rollout(model, img, action, t_vec, device, open_loop_from=None):
 
 
 def _attn_overlays(attn_map, frame, n_show=3):
-    """挑最局部化(峰值-均值最大)的 n_show 个 slot,返回 [(slot_idx, HxW 热图)]。"""
+    """挑最局部化(峰值-均值最大)且**空间互异**的 n_show 个 slot。
+
+    只按 peakiness 排序时,多个冗余 slot 盯同一显著区域(如快捷栏 UI)会霸占
+    全部面板,看不出 slot 间有没有分化——贪心跳过峰值位置与已选 slot 过近者,
+    凑不够再用次峰值的补足。返回 [(slot_idx, HxW 热图)]。
+    """
     import cv2
     N, M = attn_map.shape
     g = int(round(M ** 0.5))
@@ -100,12 +105,24 @@ def _attn_overlays(attn_map, frame, n_show=3):
         return []
     H, W = frame.shape[:2]
     peaky = attn_map.max(axis=1) - attn_map.mean(axis=1)
-    order = np.argsort(-peaky)[:n_show]
+    order = np.argsort(-peaky)
+    peak_yx = np.stack(np.unravel_index(attn_map.argmax(axis=1), (g, g)), axis=1)
+    chosen, min_dist = [], g / 4.0
+    for si in order:                      # 第一轮:要求峰值位置互异
+        if len(chosen) >= n_show:
+            break
+        if all(np.linalg.norm(peak_yx[si] - peak_yx[sj]) >= min_dist for sj in chosen):
+            chosen.append(int(si))
+    for si in order:                      # 补足:全都挤在一处时退化为纯 peakiness 排序
+        if len(chosen) >= n_show:
+            break
+        if int(si) not in chosen:
+            chosen.append(int(si))
     outs = []
-    for si in order:
+    for si in chosen:
         m = attn_map[si].reshape(g, g)
         m = (m - m.min()) / max(m.max() - m.min(), 1e-8)
-        outs.append((int(si), cv2.resize(m, (W, H), interpolation=cv2.INTER_LINEAR)))
+        outs.append((si, cv2.resize(m, (W, H), interpolation=cv2.INTER_LINEAR)))
     return outs
 
 
@@ -126,12 +143,23 @@ def render_panel(traj, out_path, title=""):
     fig = plt.figure(figsize=(16, 10))
     gs = fig.add_gridspec(3, 4, hspace=0.45, wspace=0.3)
 
-    # A. 预测误差 vs persistence,开环区灰色
+    # A. 预测误差 vs persistence,开环区灰色。
+    # 对数轴:模型误差与 persistence 基线可能差几个量级,线性轴会把基线压成
+    # 一条贴零的直线,完全读不出两者的相对关系(正是要看的东西)。
     ax = fig.add_subplot(gs[0, 0:2])
-    ax.plot(steps, traj["pred_err"], "r-", lw=2, label="model |mu - z_next|")
-    ax.plot(steps, traj["pers_err"], "g--", lw=1.5, label="persistence |z_now - z_next|")
+    pred_e = np.maximum(traj["pred_err"], 1e-6)
+    pers_e = np.maximum(traj["pers_err"], 1e-6)
+    ax.plot(steps, pred_e, "r-", lw=2, label="model |mu - z_next|")
+    ax.plot(steps, pers_e, "g--", lw=1.5, label="persistence |z_now - z_next|")
     ax.axvspan(olf, Tm1 - 1, color="gray", alpha=0.18, label="OPEN-LOOP (blind)")
-    ax.set_xlabel("step"); ax.set_ylabel("latent RMS error")
+    ax.set_yscale("log")
+    ratio = pred_e.mean() / max(pers_e.mean(), 1e-6)
+    ax.text(0.02, 0.04,
+            f"closed {pred_e[:olf].mean():.3g} | open {pred_e[olf:].mean():.3g} | "
+            f"pers {pers_e.mean():.3g} | model/pers = {ratio:.2f} (<1 = beats copy)",
+            transform=ax.transAxes, fontsize=7,
+            bbox=dict(fc="white", alpha=0.7, ec="none"))
+    ax.set_xlabel("step"); ax.set_ylabel("latent RMS error (log)")
     ax.set_title("Latent prediction vs copy-baseline (lower & stable in blind zone = real model)")
     ax.legend(fontsize=8)
 

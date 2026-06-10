@@ -91,6 +91,7 @@ class MinecraftWorldModel(nn.Module):
         self.d = d
         self.N = N # 实体槽数量
         self.K = K # 动作查询数量
+        self.J = J # 历史动作长度(训练/可视化按此构造 a_raw)
         
         # 多模态骨干
         self.vision_encoder = MockDINOv2(d)
@@ -110,8 +111,12 @@ class MinecraftWorldModel(nn.Module):
             nn.Linear(d*2, out_dim)
         )
         
-        # Transformer
-        layer = nn.TransformerEncoderLayer(d_model=d, nhead=8, dim_feedforward=d*4, batch_first=True, activation="gelu")
+        # Transformer。dropout=0(PyTorch 默认 0.1):本模型的 mu 直接喂 JEPA 回归损失,
+        # train 模式下 dropout 的随机置零+1/(1-p) 重缩放会让 train/eval 前向输出系统性
+        # 不一致——已观测到 eval 期 |mu-z_tg| 比训练期大数倍,可视化/评估全部失真。
+        # 正则交给 SIGReg 与 patch 掩码,不用 dropout。
+        layer = nn.TransformerEncoderLayer(d_model=d, nhead=8, dim_feedforward=d*4,
+                                           batch_first=True, activation="gelu", dropout=0.0)
         self.blocks = nn.TransformerEncoder(layer, num_layers=4)
         
         # 复合动作
@@ -125,24 +130,34 @@ class MinecraftWorldModel(nn.Module):
 
     @torch.no_grad()
     def encode_target(self, img_next):
-        """JEPA 内容目标:vision → binder(固定锚 slots),stop-grad。
+        """JEPA 内容目标:vision → binder(固定锚 slots) − 锚,stop-grad。
 
         不注入绝对时间 PE(数学原因):目标若含 PE(t_next),mu 被迫精确预测纯时钟
         相位——与任务零互信息的 nuisance;且 t_vec 带 [0,1e4] 随机偏移,该分量在
         样本间剧烈变化,抬高早期 loss 地板、占用 slot 容量。时间条件保留在在线侧
         (encode_vision)即可。固定锚与递归状态解耦的原因见 slots 定义处注释。
+
+        减锚(同一 nuisance 论证):binder 输出 = anchor + gate·LN(δ),其中 anchor
+        是与帧内容零互信息的常数(逐元素 RMS≈1),而内容项 gate·LN(δ) 的跨帧变化
+        远小于它——保留锚则 |mu−z_tg| 几乎全在度量"复现一个静态随机向量",
+        persistence 基线(锚自动抵消)≈0 而模型误差被锚主导,预测质量完全不可读;
+        inv-dyn 的 (z_tg−Z_enc) 也被同一常数偏置淹没。减锚后目标=纯内容增量,
+        pred 损失、persistence 基线、inv-dyn 残差三者在同一坐标系下可比。
         """
         patch = self.vision_encoder(img_next)
         anchor = self.slots.expand(img_next.shape[0], -1, -1)
-        return self.binder(anchor, patch)
+        return self.binder(anchor, patch) - anchor
 
     def encode_vision(self, patch_tokens, t_vec, Z_prev):
         """带时间戳注入的视觉编码"""
-        # 1. 空间掩码 (Spatial Masking) - 随机丢弃 30% Patches
+        # 1. 空间掩码:掩码率逐样本 ~U(0, 0.3),而非恒定 30%。
+        #    恒定掩码率下模型从未见过"全 patch"输入,eval(无掩码)成为分布外前向,
+        #    binder/Transformer 的输出统计随之偏移;把 0 纳入训练分布后,
+        #    eval 行为=掩码率取下确界,train/eval 一致。
         if self.training:
             B, M, d = patch_tokens.shape
-            mask = torch.rand(B, M, device=patch_tokens.device) > 0.3
-            # 这里简单处理：被遮挡的赋予零向量
+            ratio = torch.rand(B, 1, device=patch_tokens.device) * 0.3
+            mask = torch.rand(B, M, device=patch_tokens.device) >= ratio
             patch_tokens = patch_tokens * mask.unsqueeze(-1)
             
         # 3. 注入绝对时间戳 (Time Anchoring)

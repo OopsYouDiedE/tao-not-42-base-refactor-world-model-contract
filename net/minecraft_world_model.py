@@ -23,18 +23,14 @@ class MinecraftDecoderHeads(nn.Module):
         self.plan_dur = nn.Linear(d, 1)               # 按住多久(秒)
         self.plan_exist = nn.Linear(d, 1)             # 该计划槽是否有效
 
-    def decode_action(self, u_token):
-        mouse = self.mouse_head(u_token)
-        kb_logits = self.keyboard_head(u_token)
-        kb_prob = torch.sigmoid(kb_logits)
-        return torch.cat([mouse, kb_prob], dim=-1)
-
     def decode_action_plan(self, u_tokens):
-        """预测未来长程动作计划"""
+        """预测未来长程动作计划。onset 累积 softplus 参数化 ⇒ 沿查询维单调,
+        消除查询置换对称(与 tao 版 DecoderHeads.decode_action_plan 同理)。"""
+        onset_inc = F.softplus(self.plan_onset(u_tokens)).squeeze(-1)   # [B,K] 正增量
         return {
-            "mouse": self.plan_mouse(u_tokens), 
+            "mouse": self.plan_mouse(u_tokens),
             "keyboard": torch.sigmoid(self.plan_keyboard(u_tokens)),
-            "onset": F.softplus(self.plan_onset(u_tokens)).squeeze(-1),
+            "onset": torch.cumsum(onset_inc, dim=1),
             "duration": F.softplus(self.plan_dur(u_tokens)).squeeze(-1),
             "exist": torch.sigmoid(self.plan_exist(u_tokens)).squeeze(-1)
         }
@@ -98,10 +94,10 @@ class MinecraftWorldModel(nn.Module):
         
         # 多模态骨干
         self.vision_encoder = MockDINOv2(d)
-        self.text_proj = nn.Linear(768, d) # 假设从 DistilBERT 的 768 映射过来
         
-        # 槽位记忆
-        self.slots = nn.Parameter(torch.randn(1, N, d))
+        # JEPA 目标编码的固定查询锚(buffer 不训练):目标 = binder(slots, patch_next),
+        # 只是下一帧观察的函数,与递归状态解耦(消除 binder 增益→0 的平凡不动点)。
+        self.register_buffer("slots", torch.randn(1, N, d))
         from net.tao_not_42 import SlotBinder
         self.binder = SlotBinder(d)
         
@@ -125,8 +121,20 @@ class MinecraftWorldModel(nn.Module):
         
         # Placeholders
         self.u_placeholder = nn.Parameter(torch.randn(1, K, d))
-        self.text_placeholder = nn.Parameter(torch.randn(1, 1, d)) # 如果任务没有文本时的占位
-        self.h_placeholder = nn.Parameter(torch.randn(1, 1, d))
+        self.text_placeholder = nn.Parameter(torch.randn(1, 1, d))
+
+    @torch.no_grad()
+    def encode_target(self, img_next):
+        """JEPA 内容目标:vision → binder(固定锚 slots),stop-grad。
+
+        不注入绝对时间 PE(数学原因):目标若含 PE(t_next),mu 被迫精确预测纯时钟
+        相位——与任务零互信息的 nuisance;且 t_vec 带 [0,1e4] 随机偏移,该分量在
+        样本间剧烈变化,抬高早期 loss 地板、占用 slot 容量。时间条件保留在在线侧
+        (encode_vision)即可。固定锚与递归状态解耦的原因见 slots 定义处注释。
+        """
+        patch = self.vision_encoder(img_next)
+        anchor = self.slots.expand(img_next.shape[0], -1, -1)
+        return self.binder(anchor, patch)
 
     def encode_vision(self, patch_tokens, t_vec, Z_prev):
         """带时间戳注入的视觉编码"""
@@ -145,26 +153,13 @@ class MinecraftWorldModel(nn.Module):
         Z_new = self.binder(Z_prev, patch_tokens)
         return Z_new
 
-    def forward(self, patch_tokens, Z, h, a_raw, t_vec, task_feat=None, drop_frame=False):
+    def forward(self, patch_tokens, Z, h, a_raw, t_vec):
         B = patch_tokens.shape[0]
-        
-        # 视觉感知与时空掩码
-        if drop_frame and self.training:
-            # 时间丢帧 (Blind Rollout): 直接沿用 Z，不看画面
-            Z_new = Z
-        else:
-            Z_new = self.encode_vision(patch_tokens, t_vec, Z)
-            
-        # 任务文本编码
-        if task_feat is not None:
-            text_token = self.text_proj(task_feat).unsqueeze(1) # [B, 1, d]
-        else:
-            text_token = self.text_placeholder.expand(B, -1, -1)
-            
-        # 序列拼接
-        a_tokens = self.action_enc(a_raw) # [B, J, d] (历史动作)
+        Z_new = self.encode_vision(patch_tokens, t_vec, Z)
+        text_token = self.text_placeholder.expand(B, -1, -1)
+        a_tokens = self.action_enc(a_raw)
         u_p = self.u_placeholder.expand(B, -1, -1)
-        h_token = h if h is not None else self.h_placeholder.expand(B, -1, -1)
+        h_token = h
         
         # [N slots, 1 text, 1 h, J actions, K action_queries]
         X = torch.cat([Z_new, text_token, h_token, a_tokens, u_p], dim=1)
@@ -182,13 +177,15 @@ class MinecraftWorldModel(nn.Module):
         out_state = self.state_dec(out_Z)
         mu = out_state[:, :, :self.d]
         sigma = F.softplus(out_state[:, :, self.d:2*self.d]) + 1e-4
-        c = torch.sigmoid(out_state[:, :, 2*self.d:3*self.d]) # [B, N, 1]
+        c = torch.sigmoid(out_state[:, :, 2*self.d:3*self.d]) # [B, N, d] 逐维可控闸(注意:tao 版为逐 slot 标量)
         exist_p = torch.sigmoid(out_state[:, :, 3*self.d:])
-        
+
         action_plan = self.heads.decode_action_plan(out_u)
-        
+
         return {
             "mu": mu, "sigma": sigma, "c": c, "exist_p": exist_p,
-            "Z_out": out_Z, "h_next": out_h,
+            "Z_out": out_Z,
+            "Z_enc": Z_new,   # 纯感知编码(未经 Transformer、未见动作):逆动力学专用,防动作直通作弊
+            "h_next": out_h,
             "action_plan": action_plan
         }

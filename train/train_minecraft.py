@@ -31,8 +31,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from net.minecraft_world_model import MinecraftWorldModel, sinusoidal_time_encoding
+from net.minecraft_world_model import MinecraftWorldModel
 from utils.vpt_dataset import VPTStreamDataset
+from utils.vpt_action import CAMERA_SCALE
+from utils.minecraft_viz import visualize_minecraft
 from blocks.primitives import SIGReg
 
 EPS = 1e-4          # I1
@@ -45,15 +47,27 @@ N_MOUSE = 2
 # =====================================================================
 
 def jepa_pred_loss(mu, sigma, c, z_target):
-    """JEPA 前向预测损失(加权 NLL)。可控槽(c→1)退化为 MSE;不可控槽 σ 兜底方差。"""
+    """JEPA 前向预测损失(加权 NLL)。可控槽(c→1)退化为 MSE;不可控槽 σ 兜底方差。
+
+    c 在本损失中 detach:对 σ 取最优(σ²=diff²)时 NLL 支路值为 1+log diff²,
+    由 log x ≤ x−1 知它 ≤ diff²(MSE 支路)对一切 diff² 恒成立 ⇒ 若让梯度流向 c,
+    本损失会无条件把 c 推向 0,与"可控→c→1"的设计意图相反。
+    c 的极化只由逆动力学损失驱动(动作可解释→c↑;噪声槽稀释池化特征→c↓),
+    这里 c 仅作为固定权重参与加权。
+    """
     diff_sq = (mu - z_target).square()
     sigma_sq = sigma.square().clamp(min=EPS)
+    c = c.detach()
     nll = c * diff_sq + (1 - c) * (diff_sq / sigma_sq + sigma_sq.log())
     return nll.mean()
 
 
-def minecraft_inv_dyn_loss(z_t, z_target, c, true_action, inv_dyn_head, mouse_w=0.05):
-    """Minecraft 逆动力学:从 (Z_next - Z_t)⊙c 反推混合动作。鼠标 MSE + 键盘 BCE。"""
+def minecraft_inv_dyn_loss(z_t, z_target, c, true_action, inv_dyn_head, mouse_w=1.0):
+    """Minecraft 逆动力学:从 (Z_next - Z_t)⊙c 反推混合动作。鼠标 MSE + 键盘 BCE。
+
+    mouse_w=1.0:数据集端已把鼠标按 CAMERA_SCALE 归一到 ~[-1,1],MSE 与键盘 BCE
+    同量纲(旧 0.05 是对像素尺度 dx 方差≈36 的补偿,归一化后再用会让鼠标项被忽略)。
+    """
     delta_z = (z_target - z_t) * c
     pred = inv_dyn_head(delta_z)                          # [B, ACT_DIM] = cat(mouse(2), kb_prob(20))
     mouse_pred, kb_pred = pred[:, :N_MOUSE], pred[:, N_MOUSE:]
@@ -63,12 +77,9 @@ def minecraft_inv_dyn_loss(z_t, z_target, c, true_action, inv_dyn_head, mouse_w=
     return l_kb + mouse_w * l_mouse, l_mouse.detach(), l_kb.detach()
 
 
-def encode_target(model, img_next, t_next, Z_out):
-    """干净(无空间掩码)的 stop-grad JEPA 目标:复刻 encode_vision 但跳过训练期掩码。"""
-    with torch.no_grad():
-        patch = model.vision_encoder(img_next)
-        patch = patch + sinusoidal_time_encoding(t_next, model.d)
-        return model.binder(Z_out.detach(), patch)
+def _to_float_img(img):
+    """uint8 [.,3,H,W] → float∈[0,1](归一化推迟到 GPU 上做,PCIe 传 uint8 省 4×)。"""
+    return img.float().div_(255.0) if img.dtype == torch.uint8 else img.float()
 
 
 # =====================================================================
@@ -118,50 +129,73 @@ def roll_append(a_raw, action):
 
 def _run_sequence(model, sigreg, img, action, t_vec, device, k_bptt,
                   alpha_inv, beta_sigreg, amp_dev, use_amp, scaler, acc):
-    """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。"""
+    """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
+
+    GPU 利用率关键:视觉卷积按 BPTT 窗口**批量**执行(在线 B·k 帧一次、目标 B·k 帧
+    一次),取代旧版逐帧 2 次小卷积——Colab 上 batch 小(2~8)时逐帧卷积喂不饱 GPU。
+    只有 Transformer 递归本身保持逐步(固有串行)。
+    """
     B, T = img.shape[0], img.shape[1]
     Z = torch.zeros(B, model.N, model.d, device=device)
     h = torch.zeros(B, 1, model.d, device=device)
     a_raw = torch.zeros(B, model.J, ACT_DIM, device=device)
-    accum = torch.zeros((), device=device)
-    z_collect = []
+    n_win = -(-(T - 1) // k_bptt)        # ceil:窗口数,用于 SIGReg 权重尺度归一
     last_c = None
 
-    for t in range(T - 1):
+    for w0 in range(0, T - 1, k_bptt):
+        w1 = min(w0 + k_bptt, T - 1)
+        k = w1 - w0
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
-            patch = model.vision_encoder(img[:, t])
-            a_raw = roll_append(a_raw, action[:, t])
-            out = model(patch, Z, h, a_raw, t_vec[:, t])
-            z_target = encode_target(model, img[:, t + 1], t_vec[:, t + 1], out["Z_out"])
+            # 在线 patch:窗口 B·k 帧一次性卷积(带梯度;掩码在 model.encode_vision 内逐步加)
+            patch_on = model.vision_encoder(
+                img[:, w0:w1].reshape(B * k, *img.shape[2:])
+            ).view(B, k, -1, model.d)
+            # JEPA 目标:t+1 帧批量 vision+binder(model.encode_target 内部 no_grad、
+            # 固定锚、不加绝对时间 PE——内容目标,理由见该方法 docstring)
+            z_tg_all = model.encode_target(
+                img[:, w0 + 1:w1 + 1].reshape(B * k, *img.shape[2:])
+            ).view(B, k, model.N, model.d)
 
-        # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,NLL/逆动力学在 fp32 更稳)
-        mu, sigma, c = out["mu"].float(), out["sigma"].float(), out["c"].float()
-        zt = z_target.float()
-        l_pred = jepa_pred_loss(mu, sigma, c, zt)
-        l_inv, l_mouse, l_kb = minecraft_inv_dyn_loss(
-            out["Z_out"].float(), zt, c, action[:, t], model.inv_dyn)
+        accum = torch.zeros((), device=device)
+        z_collect = []
+        for i in range(k):
+            t = w0 + i
+            with torch.autocast(device_type=amp_dev, enabled=use_amp):
+                a_raw = roll_append(a_raw, action[:, t])
+                out = model(patch_on[:, i], Z, h, a_raw, t_vec[:, t])
 
-        accum = accum + (l_pred + alpha_inv * l_inv) / (T - 1)
-        z_collect.append(out["Z_out"])
-        last_c = c
-        # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
-        acc["pred"] += l_pred.detach(); acc["inv"] += l_inv.detach()
-        acc["mouse"] += l_mouse; acc["kb"] += l_kb; acc["inner"] += 1
+            # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,NLL/逆动力学在 fp32 更稳)
+            mu, sigma, c = out["mu"].float(), out["sigma"].float(), out["c"].float()
+            zt = z_tg_all[:, i].float()
+            l_pred = jepa_pred_loss(mu, sigma, c, zt)
+            # 逆动力学吃纯感知编码 Z_enc(未见动作)。a_raw 在 forward 前已滚入当前动作,
+            # 若用 Z_out(经 Transformer、见过 a_raw)则模型可把动作藏进 Z_out 让 inv-dyn
+            # 不经视觉直接读回——逆动力学的"视觉护栏"作用就失效了。
+            l_inv, l_mouse, l_kb = minecraft_inv_dyn_loss(
+                out["Z_enc"].float(), zt, c, action[:, t], model.inv_dyn)
 
-        if (t + 1) % k_bptt == 0 or (t + 1) == (T - 1):
-            z_stack = torch.stack(z_collect, dim=0).float()   # [G,B,N,d];SIGReg 全程 fp32
-            l_sig = z_stack.new_zeros(())
-            for si in range(z_stack.shape[2]):
-                l_sig = l_sig + sigreg(z_stack[:, :, si, :])
-            l_sig = l_sig / z_stack.shape[2]
-            scaler.scale(accum + beta_sigreg * l_sig).backward()
-            acc["loss"] += (accum + beta_sigreg * l_sig).detach()
-            acc["sigreg"] += l_sig.detach(); acc["win"] += 1
-            accum = torch.zeros((), device=device)
-            z_collect = []
-            Z, h = out["mu"].detach(), out["h_next"].detach()
-        else:
-            Z, h = out["mu"], out["h_next"]
+            accum = accum + (l_pred + alpha_inv * l_inv) / (T - 1)
+            z_collect.append(out["Z_out"])
+            last_c = c
+            # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
+            acc["pred"] += l_pred.detach(); acc["inv"] += l_inv.detach()
+            acc["mouse"] += l_mouse; acc["kb"] += l_kb; acc["inner"] += 1
+            if i < k - 1:
+                Z, h = out["mu"], out["h_next"]      # 窗口内保留梯度(截断 BPTT)
+
+        # SIGReg:单次调用——slot 为分组、(窗口时间 × batch) 为样本维。
+        # 数学原因:Colab batch=2 时仅以 batch 维做 ECF 检验,2 个样本的经验特征函数
+        # 几乎无检验功效(防坍缩形同虚设);把窗口内时间步并入样本维(近似平稳假设)
+        # 把样本数提到 k·B。除以 n_win:总 SIGReg 权重 = β·mean_w(sig),不随
+        # rollout 长度/k_bptt 改变与 pred 项的相对比例(旧版总权重 = β·n_win,
+        # seq_len=60/k_bptt=4 时被静默放大 15×)。
+        z_stack = torch.stack(z_collect, dim=0).float()              # [k,B,N,d] fp32
+        l_sig = sigreg(z_stack.permute(2, 0, 1, 3).reshape(model.N, k * B, model.d))
+        win_loss = accum + (beta_sigreg / n_win) * l_sig
+        scaler.scale(win_loss).backward()
+        acc["loss"] += win_loss.detach()
+        acc["sigreg"] += l_sig.detach(); acc["win"] += 1
+        Z, h = out["mu"].detach(), out["h_next"].detach()            # 窗口边界截断
     return last_c
 
 
@@ -173,7 +207,7 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
     gpu_samples, c_last, n_batches = [], None, 0
 
     for batch in itertools.islice(loader, steps):
-        img = batch["img"].to(device, non_blocking=True)
+        img = _to_float_img(batch["img"].to(device, non_blocking=True))
         action = batch["action"].to(device, non_blocking=True)
         t_vec = batch["t_vec"].to(device, non_blocking=True)
 
@@ -204,23 +238,32 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
 
 @torch.no_grad()
 def evaluate(model, loader, device, steps, amp_dev, use_amp):
-    """逆动力学键盘平衡准确率:能否从隐变量变化里反推出"按了哪些键"。"""
+    """逆动力学键盘平衡准确率:能否从隐变量变化里反推出"按了哪些键"。
+
+    视觉卷积与目标编码按整条序列批量(no_grad 无显存压力),只有 Transformer 逐步。
+    """
     model.eval()
     tp = fp = fn = tn = 0
     for batch in itertools.islice(loader, steps):
-        img = batch["img"].to(device); action = batch["action"].to(device)
+        img = _to_float_img(batch["img"].to(device))
+        action = batch["action"].to(device)
         t_vec = batch["t_vec"].to(device)
         B, T = img.shape[0], img.shape[1]
+        with torch.autocast(device_type=amp_dev, enabled=use_amp):
+            patch_all = model.vision_encoder(
+                img[:, :T - 1].reshape(B * (T - 1), *img.shape[2:])
+            ).view(B, T - 1, -1, model.d)
+            z_tg_all = model.encode_target(
+                img[:, 1:].reshape(B * (T - 1), *img.shape[2:])
+            ).view(B, T - 1, model.N, model.d)
         Z = torch.zeros(B, model.N, model.d, device=device)
         h = torch.zeros(B, 1, model.d, device=device)
         a_raw = torch.zeros(B, model.J, ACT_DIM, device=device)
         for t in range(T - 1):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
-                patch = model.vision_encoder(img[:, t])
                 a_raw = roll_append(a_raw, action[:, t])
-                out = model(patch, Z, h, a_raw, t_vec[:, t])
-                z_target = encode_target(model, img[:, t + 1], t_vec[:, t + 1], out["Z_out"])
-                pred = model.inv_dyn((z_target - out["Z_out"]) * out["c"])
+                out = model(patch_all[:, t], Z, h, a_raw, t_vec[:, t])
+                pred = model.inv_dyn((z_tg_all[:, t] - out["Z_enc"]) * out["c"])
             kb_pred = (pred[:, N_MOUSE:] > 0.5)
             kb_true = (action[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
@@ -235,12 +278,22 @@ def main():
     ap.add_argument("--data_dir", default="runs/vpt_sample", help="VPTDataset 数据目录(.mp4+.jsonl)")
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--steps_per_epoch", type=int, default=50, help="每 epoch 迭代多少个 batch(流式)")
-    ap.add_argument("--batch", type=int, default=2, help="每步随机取几个序列")
+    ap.add_argument("--batch", type=int, default=8,
+                    help="每步随机取几个序列(旧默认 2 喂不饱 GPU 且 SIGReg 检验功效≈0)")
     ap.add_argument("--seq_len", type=int, default=60)
     ap.add_argument("--fps", type=int, default=20)
-    ap.add_argument("--workers", type=int, default=2, help="DataLoader 并行加载进程数")
-    ap.add_argument("--cache_size", type=int, default=32, help="每个 worker 缓存的已解码序列上限")
-    ap.add_argument("--refresh_every", type=int, default=64, help="每多少样本换出一个旧片段")
+    ap.add_argument("--img_size", type=int, default=128,
+                    help="训练分辨率(数据集端 INTER_AREA 下采样;0=保持原始分辨率)")
+    ap.add_argument("--camera_scale", type=float, default=None,
+                    help="鼠标 dx/dy 归一化尺度,固定超参(None=用 vpt_action.CAMERA_SCALE 默认 10;"
+                         "真 BASALT 转身 ±190 用 ~20)")
+    ap.add_argument("--workers", type=int, default=2,
+                    help="DataLoader 并行加载进程数(窗口解码是 CPU 大头,Colab 上调到 vCPU 数)")
+    ap.add_argument("--cache_size", type=int, default=32, help="每个 worker 缓存的动作表文件数")
+    ap.add_argument("--refresh_every", type=int, default=64, help="已废弃(窗口化解码无整段缓存),仅保留兼容")
+    ap.add_argument("--viz_every", type=int, default=10,
+                    help="每多少 epoch 输出一次可视化面板(0=关闭)")
+    ap.add_argument("--viz_dir", default="runs/mc_viz")
     ap.add_argument("--d", type=int, default=384)
     ap.add_argument("--N", type=int, default=16, help="实体槽数")
     ap.add_argument("--K", type=int, default=5, help="动作查询数")
@@ -278,12 +331,24 @@ def main():
         print(f"[!] 数据目录 '{args.data_dir}' 里没有 .mp4。先准备数据(download_sample_data.py / colab 转换)。")
         sys.exit(1)
 
+    img_size = args.img_size if args.img_size > 0 else None
+    cam_scale = args.camera_scale if args.camera_scale is not None else CAMERA_SCALE
     ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
-                          cache_size=args.cache_size, refresh_every=args.refresh_every, seed=args.seed)
+                          cache_size=args.cache_size, refresh_every=args.refresh_every,
+                          seed=args.seed, img_size=img_size, camera_scale=cam_scale)
     loader = DataLoader(ds, batch_size=args.batch, num_workers=args.workers,
                         pin_memory=is_cuda,
                         persistent_workers=(args.workers > 0),
                         prefetch_factor=(2 if args.workers > 0 else None))
+
+    viz_batch = None
+    if args.viz_every > 0:
+        # 固定一条可视化序列(独立 seed,跨 epoch 同一窗口 → 面板可前后对比)
+        viz_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
+                                  cache_size=4, seed=args.seed + 999, img_size=img_size,
+                                  camera_scale=cam_scale)
+        viz_batch = next(iter(DataLoader(viz_ds, batch_size=1)))
+        os.makedirs(args.viz_dir, exist_ok=True)
 
     model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM).to(dev)
     model.J = args.J            # 历史动作长度(MinecraftWorldModel 不强制,训练循环按此构造 a_raw)
@@ -312,6 +377,13 @@ def main():
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f} "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f}) "
                   f"sig {r['sigreg']:.2f} | c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
+        if viz_batch is not None and (ep % args.viz_every == 0 or ep == args.epochs - 1):
+            p = visualize_minecraft(model, viz_batch, dev,
+                                    os.path.join(args.viz_dir, f"ep{ep:04d}.png"))
+            if p:
+                print(f"  [viz] {p}")
+                if use_wandb:
+                    wandb.log({"viz/panel": wandb.Image(p)}, step=ep)
 
     if util_hist:
         peak = torch.cuda.max_memory_allocated() / 1e9

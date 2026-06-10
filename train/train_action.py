@@ -19,7 +19,9 @@ import sys
 
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.tao_not_42 import TaoNot42Model
 from utils.rhythm_env import ProceduralRhythmEnv
@@ -49,7 +51,7 @@ def run_rollout(env, model, K, B, dt, rollout_len, device, opt=None):
     """逐步 backward:显存 O(1) 不随 rollout 长度涨;指标累积为 tensor,热路径零同步。"""
     env.reset()
     Z, h, a_raw, g = make_inputs(B, model, device)
-    dt_vec = torch.full((B,), dt, device=device)
+    dt_vec = torch.ones(B, device=device)  # τ 以帧为单位(ContinuousTimeEncoding 契约,传秒会退化);env.step 仍吃秒 dt
     env.step(dt); img = env.render()
     if opt is not None:
         opt.zero_grad()

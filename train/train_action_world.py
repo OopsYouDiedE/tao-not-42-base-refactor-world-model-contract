@@ -104,11 +104,12 @@ def run(env, model, probe, B, dt, rollout, device, opt=None, shuffle_probe=False
         action = sample_actions(env)
         a_raw = torch.cat([a_raw[:, 1:], action.unsqueeze(1)], dim=1)   # 滚动追加当前动作
         out = model(img, Z, h, a_raw, dt_vec, g)
-        loss_now = lane_loss(probe(out["Z_out"].mean(1)), gt_now)
+        # LaneProbe 吃完整 slot 集 [B,N,d](内部 lane-query cross-attn),勿 mean 池化
+        loss_now = lane_loss(probe(out["Z_out"]), gt_now)
         env.step(dt, action)
         img_next = env.render()
         gt_next = env.get_lane_state()
-        pred_next = probe(out["mu"].mean(1))
+        pred_next = probe(out["mu"])
         loss_next = lane_loss(pred_next, gt_next)
         # 聚焦损失:仅在"当前可命中"的 lane 上罚 next-hittable —— 那里按了→0、没按→还在,
         # 模型**必须用动作**才能预测对。破"易多数淹没动作信号"。
@@ -121,7 +122,7 @@ def run(env, model, probe, B, dt, rollout, device, opt=None, shuffle_probe=False
         total = total + loss.detach()
 
         with torch.no_grad():
-            pred_h = probe(out["mu"].mean(1))["hittable"]            # [B,4] 预测下一帧 hittable(多音符下唯一干净信号)
+            pred_h = probe(out["mu"])["hittable"]                    # [B,4] 预测下一帧 hittable(多音符下唯一干净信号)
             hit = env.last_hit                                       # 被命中(was hittable & pressed)
             stay = ((gt_now["hittable"] > 0.5) & (action < 0.5)).float()  # 在窗内但没按
             m["ph"] += (pred_h * hit).sum();   m["nh"] += hit.sum()
@@ -136,7 +137,7 @@ def run(env, model, probe, B, dt, rollout, device, opt=None, shuffle_probe=False
                 out_s = model(img, Z, h, a_raw[perm], dt_vec, g)
                 den = hw.sum().clamp(min=1)                          # 只在"当前可命中"lane 上测(去稀释)
                 m["lr"] += (F.binary_cross_entropy(pred_h, gt_next["hittable"], reduction="none") * hw).sum() / den
-                m["ls"] += (F.binary_cross_entropy(probe(out_s["mu"].mean(1))["hittable"], gt_next["hittable"], reduction="none") * hw).sum() / den
+                m["ls"] += (F.binary_cross_entropy(probe(out_s["mu"])["hittable"], gt_next["hittable"], reduction="none") * hw).sum() / den
 
         Z = out["mu"].detach(); h = out["h_next"].detach()
         g = tuple(x.detach() for x in out["gaze"])

@@ -22,7 +22,9 @@ import sys
 import torch
 import torch.nn.functional as F
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.tao_not_42 import TaoNot42Model
 from net.world_probe import WorldProbeDecoder
@@ -56,7 +58,7 @@ def train_rollout(env, model, probe, B, dt, rollout_len, device, memory, opt):
     """逐步 backward:显存 O(1) 不随 rollout 长度涨(递归 carry 本就 detach,每步图独立)。"""
     env.reset()
     Z, h, a_raw, g = make_inputs(B, model, device)
-    dt_vec = torch.full((B,), dt, device=device)
+    dt_vec = torch.ones(B, device=device)  # τ 以帧为单位(ContinuousTimeEncoding 契约,传秒会退化);env.step 仍吃秒 dt
     env.step(dt); img = env.render()
     total = torch.zeros((), device=device)
     opt.zero_grad()
@@ -86,7 +88,7 @@ def evaluate(env, model, probe, B, dt, rollout_len, device, memory):
     """对比 model / persistence / oracle,按遮挡-可见拆分,出 skill。收集 b0 轨迹画图。"""
     env.reset()
     Z, h, a_raw, g = make_inputs(B, model, device)
-    dt_vec = torch.full((B,), dt, device=device)
+    dt_vec = torch.ones(B, device=device)  # τ 以帧为单位(契约同 train_rollout)
     env.step(dt); img = env.render()
 
     last_y = env.get_tracer_state()["y"].clone()   # 最后一次可见的 y
@@ -145,7 +147,7 @@ def eval_horizon(env, model, probe, B, dt, device, warmup=6, horizon=30):
     """开环视野曲线:可见 warmup 让 Z 锁定音符后,全屏涂黑,逐步记录 |pred_y - true_y| vs 视野。"""
     env.reset()
     Z, h, a_raw, g = make_inputs(B, model, device)
-    dt_vec = torch.full((B,), dt, device=device)
+    dt_vec = torch.ones(B, device=device)  # τ 以帧为单位(契约同 train_rollout)
     for _ in range(warmup):
         env.step(dt); img = env.render()
         out = model(img, Z, h, a_raw, dt_vec, g)

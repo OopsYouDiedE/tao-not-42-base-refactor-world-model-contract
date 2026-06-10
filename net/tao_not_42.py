@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from blocks.primitives import (
-    GlobalTransformApply, PreLNAttn, GatedResidual, BoundedActivation,
+    PreLNAttn, GatedResidual, BoundedActivation,
     ContinuousTimeEncoding, SpatialPosEmbed, PositionalEmbed
 )
 
@@ -116,28 +116,37 @@ class FoveatedVision(nn.Module):
 # =====================================================================
 
 class SlotBinder(nn.Module):
-    """将全局与局部感知 Token 绑定到实体 Slot 上。"""
-    
+    """将全局与局部感知 Token 绑定到实体 Slot 上。
+
+    贝叶斯滤波视角:Z' = Z + K·innovation。增益 K 逐 slot 由 (slot 状态, 感知修正量)
+    条件化预测——被遮挡实体应 K→0 维持先验,新出现/观测清晰的实体应 K→1 接收观测。
+    全模型共享单标量增益是该增益函数空间里最受限的一档,无法表达上述区分。
+    gate 权重零初始化、bias=0.1 ⇒ 冷启动时逐 slot 增益恒等于旧版全局 sigmoid(0.1),
+    已验证管线的初始行为不变。
+    """
+
     def __init__(self, d):
         super().__init__()
         self.attn = PreLNAttn(d, heads=4, mode="cross")
-        # I5: 增益受限。使用可学习的 scalar
-        self.gate = nn.Parameter(torch.tensor(0.1))
         self.ln = nn.LayerNorm(d)
-        
+        # I5: 增益受限于 (0,1)。输入 [Z_i; δ_i] → 逐 slot 标量增益
+        self.gate = nn.Linear(2 * d, 1)
+        nn.init.zeros_(self.gate.weight)
+        nn.init.constant_(self.gate.bias, 0.1)
+
     def forward(self, Z, P):
         # Z: [B, N, d] (Slots)
         # P: [B, M+1, d] (Perception tokens)
-        
+
         # attn 内部有残差 Z + CrossAttn(Z, P)，但我们想用门控残差，
         # 为了复用 PreLNAttn 的层归一化和注意力，我们可以手动提取注意力输出
         # 因为 PreLNAttn 返回 q + attn_out，所以我们减去 q 得到 attn_out
-        z_out = self.attn(Z, P) 
+        z_out = self.attn(Z, P)
         delta_Z = z_out - Z
-        
-        gate = torch.sigmoid(self.gate) # clamp to (0, 1)
-        Z_new = Z + gate * self.ln(delta_Z) # I5
-        
+
+        gate = torch.sigmoid(self.gate(torch.cat([Z, delta_Z], dim=-1)))  # [B, N, 1]
+        Z_new = Z + gate * self.ln(delta_Z)  # I5
+
         return Z_new
 
 # =====================================================================
@@ -246,35 +255,32 @@ class DecoderHeads(nn.Module):
     """包含动作、注视、唤醒等解码器。"""
     def __init__(self, d, n_keys):
         super().__init__()
-        
-        self.action_head = nn.Sequential(
-            nn.Linear(d, 128), nn.SiLU(), nn.Linear(128, n_keys)
-        )
-        self.action_act = BoundedActivation("prob") # Sigmoid
-        
+
         self.gaze_head = nn.Linear(d, 3)
-        self.gaze_xy_act = BoundedActivation("flow", scale=1.0) # Tanh (-1 to 1)
-        self.gaze_s_act = BoundedActivation("prob") # Sigmoid (0 to 1)
-        
+        self.gaze_xy_act = BoundedActivation("flow", scale=1.0)
+        self.gaze_s_act = BoundedActivation("prob")
+
         self.wake_head = nn.Linear(d, 1)
-        self.wake_act = BoundedActivation("pos") # Softplus + eps
+        self.wake_act = BoundedActivation("pos")
 
-        # 动作计划头(DETR 式):每个动作查询 → (按哪个键, onset Δt, 时长, 是否真有)
-        self.plan_key = nn.Linear(d, n_keys)          # 击打哪条轨道/键
-        self.plan_onset = nn.Linear(d, 1)             # 多久后按下(秒)
-        self.plan_dur = nn.Linear(d, 1)               # 按住多久(秒);0≈tap
-        self.plan_exist = nn.Linear(d, 1)             # 该计划槽是否对应真动作
-        self.plan_pos_act = BoundedActivation("pos")  # softplus+eps ⇒ onset/时长 ≥0
-        self.plan_prob_act = BoundedActivation("prob")  # sigmoid
-
-    def decode_action(self, u_token):
-        return self.action_act(self.action_head(u_token))
+        self.plan_key = nn.Linear(d, n_keys)
+        self.plan_onset = nn.Linear(d, 1)
+        self.plan_dur = nn.Linear(d, 1)
+        self.plan_exist = nn.Linear(d, 1)
+        self.plan_pos_act = BoundedActivation("pos")
+        self.plan_prob_act = BoundedActivation("prob")
 
     def decode_action_plan(self, u_tokens):
-        """u_tokens: [B, K, d] → 一次性 K 个带时长的定时动作。"""
+        """u_tokens: [B, K, d] → 一次性 K 个带时长的定时动作。
+
+        onset 以累积 softplus 参数化:onset_k = Σ_{j≤k} pos(raw_j),沿查询维严格单调递增。
+        消除 K 个查询间的置换对称(槽 k ≈ 第 k 近的未来事件,可辨识),
+        与 action_plan_loss 端的单射贪心匹配配合,杜绝撞槽时的冲突回归目标。
+        """
+        onset_inc = self.plan_pos_act(self.plan_onset(u_tokens)).squeeze(-1)  # [B,K] 正增量
         return {
             "key_logits": self.plan_key(u_tokens),                         # [B,K,n_keys]
-            "onset": self.plan_pos_act(self.plan_onset(u_tokens)).squeeze(-1),  # [B,K]
+            "onset": torch.cumsum(onset_inc, dim=1),                       # [B,K] 单调递增
             "duration": self.plan_pos_act(self.plan_dur(u_tokens)).squeeze(-1), # [B,K]
             "exist": self.plan_prob_act(self.plan_exist(u_tokens)).squeeze(-1), # [B,K]
         }
@@ -325,6 +331,12 @@ class TaoNot42Model(nn.Module):
         self.g_placeholder = nn.Parameter(torch.randn(1, 1, d) * 0.02)
         self.w_placeholder = nn.Parameter(torch.randn(1, 1, d) * 0.02)
         self.err_placeholder = nn.Parameter(torch.randn(1, 1, d) * 0.02)
+
+        # JEPA 目标锚:目标编码 encode(img_next, anchor) 的固定查询,与递归状态解耦。
+        # 若以 Z_out.detach() 为目标查询,目标与预测态仅隔一步门控残差 ⇒ binder 增益→0 时
+        # z_target≈Z_out,预测损失存在平凡不动点(观察通道可被整体关闭)。固定锚使目标
+        # 只是"下一帧观察"的函数,堵死该坍缩通道。buffer 不参与训练。
+        self.register_buffer("slot_anchor", torch.randn(1, N, d) * 0.02)
         
     def crop_fovea(self, img, g_x, g_y, g_s, target_size=64):
         """可导裁剪 STN (使用 F.affine_grid 和 grid_sample)"""
@@ -432,17 +444,18 @@ class TaoNot42Model(nn.Module):
 
         mu, sigma, exist_p, c = self.state_dec(out_Z)
 
-        action_plan = self.heads.decode_action_plan(out_u)        # K 个定时带时长动作
-        action = self.heads.decode_action(out_u[:, 0, :])         # 兼容旧单动作(query0)
+        action_plan = self.heads.decode_action_plan(out_u)
         g_x_new, g_y_new, g_s_new = self.heads.decode_gaze(out_g)
         T_wake = self.heads.decode_wake(out_w)
 
         return {
             "mu": mu, "sigma": sigma, "exist_p": exist_p,
-            "c": c,              # [1, N, 1] 可控性闸门（广播到 [B, N, 1]）
-            "Z_out": out_Z,      # 经 transformer 处理后的"当前"实体信念(读出/递归用)
+            "c": c,
+            "Z_out": out_Z,
+            "Z_enc": Z_new,   # 纯感知编码(binder 输出,未经 Transformer、未见动作历史)。
+                              # 逆动力学必须用它:Z_out 见过 a_raw(含当前动作),
+                              # 用 Z_out 会让 inv-dyn 经"动作直通"作弊而绕开视觉。
             "h_next": out_h,
-            "action": action,
             "action_plan": action_plan,
             "gaze": (g_x_new, g_y_new, g_s_new),
             "T_wake": T_wake,

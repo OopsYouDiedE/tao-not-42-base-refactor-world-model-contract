@@ -104,7 +104,13 @@ class ConvGRUCell(nn.Module):
 
 
 class GatedResidual(nn.Module):
-    """唯一允许的残差形式: x + γ.clamp(±gmax)·f(x)。增益受限 ⇒ I5。"""
+    """唯一允许的残差形式: x + γ.clamp(±gmax)·f(x)。
+
+    ⚠️ γ 受限是**经验性稳定化**,不是非扩张定理:严格 I5 需 |γ|·Lip(f) ≤ 1,
+    而 f(无谱归一化的 MLP/注意力)的 Lipschitz 常数无界。另注意:严格非扩张的
+    递归映射是收缩映射 ⇒ 指数遗忘,会杀长期记忆——"稳定但不严格收缩"才是
+    工程上正确的点位,勿为追求 I5 字面成立而加谱归一化。
+    """
 
     def __init__(self, submodule, gmax=0.5, init=0.1):
         super().__init__()
@@ -137,7 +143,13 @@ class FiLM(nn.Module):
 
 
 class PreLNAttn(nn.Module):
-    """Pre-LN 多头注意 + 残差。mode∈{self,cross}。"""
+    """Pre-LN 多头注意 + 残差。mode∈{self,cross}。
+
+    默认 need_weights=False ⇒ 走 PyTorch 融合 SDPA 快路径(need_weights=True 会强制
+    物化注意力矩阵、禁用 flash/mem-efficient kernel,全模型显著拖慢)。
+    可视化需要注意力图时把 store_attn 置 True:该次前向走慢路径,
+    头平均注意力权重存入 last_attn(detach,[B, L_q, L_kv])。
+    """
 
     def __init__(self, d, heads=4, mode="self"):
         super().__init__()
@@ -146,11 +158,16 @@ class PreLNAttn(nn.Module):
         self.ln_q = nn.LayerNorm(d)
         self.ln_kv = nn.LayerNorm(d)
         self.attn = nn.MultiheadAttention(d, heads, batch_first=True)
+        self.store_attn = False
+        self.last_attn = None
 
     def forward(self, q, kv=None):
         if self.mode == "self" or kv is None:
             kv = q
-        out, _ = self.attn(self.ln_q(q), self.ln_kv(kv), self.ln_kv(kv))
+        out, w = self.attn(self.ln_q(q), self.ln_kv(kv), self.ln_kv(kv),
+                           need_weights=self.store_attn)
+        if self.store_attn and w is not None:
+            self.last_attn = w.detach()
         return q + out
 
 
@@ -300,10 +317,10 @@ def box_iou(a, b, kind="iou", eps=1e-7):
 class BoundedActivation(nn.Module):
     """I3 执行者。depth: exp-clamp; flow: s·tanh; pos: softplus+ε; prob: sigmoid。"""
 
-    def __init__(self, kind, scale=1.5, eps=EPS_FP16, clamp=4.6, steep=10.0):
+    def __init__(self, kind, scale=1.5, eps=EPS_FP16, clamp=4.6):
         super().__init__()
-        assert kind in ("depth", "flow", "pos", "prob", "step")
-        self.kind, self.scale, self.eps, self.clamp, self.steep = kind, scale, eps, clamp, steep
+        assert kind in ("depth", "flow", "pos", "prob")
+        self.kind, self.scale, self.eps, self.clamp = kind, scale, eps, clamp
 
     def forward(self, x):
         if self.kind == "depth":
@@ -312,11 +329,7 @@ class BoundedActivation(nn.Module):
             return self.scale * torch.tanh(x)
         if self.kind == "pos":
             return F.softplus(x) + self.eps
-        if self.kind == "step":
-            # 阈值事件(HP≤0/碰撞/超时):陡 sigmoid 软值 + 直通硬值,可微
-            soft = torch.sigmoid(x * self.steep)
-            return (x > 0).float() + (soft - soft.detach())   # 括号:同值先减=精确 0,前向严格 {0,1}
-        return torch.sigmoid(x.clamp(-15.0, 15.0))   # clamp 防饱和到精确 0/1(下游 log 安全)
+        return torch.sigmoid(x.clamp(-15.0, 15.0))
 
 
 # =====================================================================

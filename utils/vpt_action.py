@@ -1,6 +1,9 @@
 """VPT 动作 ↔ 张量 的统一动作契约(动作条件世界模型用)。
 
-契约:每帧动作 = multi-hot 二值键(VPT_KEYS) ⊕ 连续相机 (dx, dy 归一化) = ACTION_DIM 维。
+契约(全仓库唯一布局,与 vpt_dataset/train_minecraft 的 N_MOUSE=2 切片严格一致):
+    动作向量 = [相机 dx, 相机 dy(归一化)] ⊕ multi-hot 二值键(VPT_KEYS) = ACTION_DIM 维。
+    ⚠️ 鼠标在前(索引 0,1)、键在后(索引 2..21)。历史版本曾是键在前/相机在后,
+    与 vpt_dataset._action_vec 互相矛盾——任何混用会把鼠标和前两个键静默对调。
   - Colab 端:`encode_vpt_jsonl` 从 VPT `.jsonl` 单帧解析(schema 假设见注释,需按真文件校准)。
   - 本机端:`rhythm_to_vpt` 把 rhythm 4 键代理动作映射成同形状,用于离线验证训练有效性。
 模型只认 ACTION_DIM 维向量,两端共用 → 本机验证过的模型/编码器在 Colab 原样可用。
@@ -14,7 +17,8 @@ VPT_KEYS = [
     "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9",
 ]                                       # 20 个二值键
 N_KEYS = len(VPT_KEYS)
-ACTION_DIM = N_KEYS + 2                  # + 连续相机 (dx, dy)
+N_MOUSE = 2                              # 连续相机 (dx, dy),位于向量头部
+ACTION_DIM = N_MOUSE + N_KEYS
 CAMERA_SCALE = 10.0                      # 相机归一化尺度(px/帧;按真数据分布校准)
 
 _KEY_IDX = {k: i for i, k in enumerate(VPT_KEYS)}
@@ -30,7 +34,7 @@ _KEYMAP.update({f"key.keyboard.{i}": f"hotbar.{i}" for i in range(1, 10)})
 
 
 def encode_vpt_jsonl(d):
-    """单帧 VPT jsonl dict → [ACTION_DIM] 张量(fp32)。
+    """单帧 VPT jsonl dict → [ACTION_DIM] 张量(fp32)。布局:[dx, dy, 20 键]。
 
     假设 schema:d["keys"]=按下的键名列表;d["mouse"]={"buttons":[..],"dx":..,"dy":..}。
     左键(0)→attack,右键(1)→use。相机 dx/dy 归一化并 clamp 到 [-1,1]。真文件若字段名不同,改这里。
@@ -39,25 +43,25 @@ def encode_vpt_jsonl(d):
     for k in d.get("keys", []):
         name = _KEYMAP.get(k)
         if name is not None:
-            v[_KEY_IDX[name]] = 1.0
+            v[N_MOUSE + _KEY_IDX[name]] = 1.0
     mouse = d.get("mouse", {}) or {}
     for b in mouse.get("buttons", []) or []:
         if b == 0:
-            v[_KEY_IDX["attack"]] = 1.0
+            v[N_MOUSE + _KEY_IDX["attack"]] = 1.0
         elif b == 1:
-            v[_KEY_IDX["use"]] = 1.0
-    v[N_KEYS] = float(max(-1.0, min(1.0, (mouse.get("dx", 0.0) or 0.0) / CAMERA_SCALE)))
-    v[N_KEYS + 1] = float(max(-1.0, min(1.0, (mouse.get("dy", 0.0) or 0.0) / CAMERA_SCALE)))
+            v[N_MOUSE + _KEY_IDX["use"]] = 1.0
+    v[0] = float(max(-1.0, min(1.0, (mouse.get("dx", 0.0) or 0.0) / CAMERA_SCALE)))
+    v[1] = float(max(-1.0, min(1.0, (mouse.get("dy", 0.0) or 0.0) / CAMERA_SCALE)))
     return v
 
 
 def rhythm_to_vpt(rhythm_action):
-    """rhythm 4-lane 按键 [B, n] → VPT 形状动作 [B, ACTION_DIM]。
+    """rhythm 4-lane 按键 [B, n] → VPT 形状动作 [B, ACTION_DIM]。布局:[dx, dy, 20 键]。
 
-    把 n 个 lane 键映射到前 n 个二值键(hotbar 风格),相机维=0。
+    把 n 个 lane 键映射到键区(索引 N_MOUSE 起)的前 n 个二值键,相机维=0。
     仅用于本机代理验证:让代理数据与 VPT 同契约,模型/编码器无需改即可两端通用。
     """
     B, n = rhythm_action.shape
     v = torch.zeros(B, ACTION_DIM, device=rhythm_action.device, dtype=torch.float32)
-    v[:, :n] = rhythm_action
+    v[:, N_MOUSE:N_MOUSE + n] = rhythm_action
     return v

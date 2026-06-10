@@ -77,10 +77,15 @@ def jepa_pred_loss(mu, sigma, c, z_target):
     对可控槽（c→1），退化为严格的 MSE。
     对不可控槽（c→0），σ 兜底高方差，退化为预测分布的包络。
 
+    ⚠️ c 在本损失中 detach（数学原因）：对 σ 取最优（σ²=diff²）时 NLL 支路的值为
+    1+log diff²，由 log x ≤ x−1 得它 ≤ diff²（MSE 支路）对一切 diff² 恒成立——
+    若让梯度流向 c，本损失会无条件把 c 推向 0，与"可控→c→1"的设计意图相反。
+    c 的极化只由逆动力学损失驱动；这里 c 仅作固定权重。
+
     Args:
         mu: [B, N, d] 模型预测的未来状态均值
         sigma: [B, N, d] 模型预测的不确定性
-        c: [1, N, 1] 可控性闸门
+        c: [B, N, 1] 可控性闸门（本损失内 stop-grad）
         z_target: [B, N, d] stop-grad 的编码目标
 
     Returns:
@@ -88,6 +93,7 @@ def jepa_pred_loss(mu, sigma, c, z_target):
     """
     diff_sq = (mu - z_target).square()  # [B, N, d]
     sigma_sq = sigma.square().clamp(min=EPS)  # I1
+    c = c.detach()
 
     # 可控项（c 大）：MSE 主导，要求 mu 精准
     # 不可控项（1-c 大）：σ 吸收方差，只要求标定不确定性
@@ -101,10 +107,14 @@ def inverse_dynamics_loss(z_t, z_target, c, true_action, inv_dyn_head):
 
     通过 (Z_next - Z_t) ⊙ c 反推动作。梯度回流到 c_logit。
 
+    ⚠️ z_t 必须传纯感知编码 out["Z_enc"]（binder 输出，未经 Transformer）：
+    a_raw 在 forward 前已滚入当前动作，Z_out 见过它——若用 Z_out，模型可把动作
+    嵌进 Z_out 让 inv-dyn 不经视觉直接读回，护栏失效。
+
     Args:
-        z_t: [B, N, d] 当前状态
+        z_t: [B, N, d] 当前帧纯感知编码（Z_enc，带梯度）
         z_target: [B, N, d] 下一帧的 stop-grad 编码
-        c: [1, N, 1] 可控性闸门
+        c: [B, N, 1] 可控性闸门
         true_action: [B, n_keys] 真实动作（0/1）
         inv_dyn_head: InverseDynamicsHead 模块
 
@@ -114,6 +124,34 @@ def inverse_dynamics_loss(z_t, z_target, c, true_action, inv_dyn_head):
     delta_z = (z_target - z_t) * c  # [B, N, d]，低 c 的 slot 被压到近零
     pred_action_logits = inv_dyn_head(delta_z)  # [B, n_keys]
     return F.binary_cross_entropy_with_logits(pred_action_logits, true_action)
+
+
+def saliency_gaze_loss(out, img_t, img_next):
+    """saliency / gaze 头的自监督信号（修复"注视头零梯度"缺陷）。
+
+    训练循环里 gaze 输出一律 detach 后才喂下一步、且无任何直接损失 ⇒ gaze 头
+    此前没有任何梯度来源，主动视觉等价于随机扫视；saliency 头同样闲置。
+
+    代理目标 = 帧间运动能量（"预测误差惊奇图"的廉价稠密代理；信息增益最大的
+    注视点 ≈ 变化最大处）：
+      - saliency 头回归 8×8 运动能量图（与 PeripheralVision 输出网格对齐）；
+      - gaze (g_x, g_y) 回归该图的 soft-argmax 期望坐标 ∈ [-1,1]
+        （与 crop_fovea 的仿射平移坐标系一致）；g_s 不监督，保持自由。
+    """
+    with torch.no_grad():
+        diff = (img_next - img_t).abs().mean(1, keepdim=True)            # [B,1,H,W]
+        tgt = F.adaptive_avg_pool2d(diff, (8, 8)).squeeze(1)             # [B,8,8]
+        tgt = tgt / tgt.amax(dim=(1, 2), keepdim=True).clamp(min=EPS)    # 逐样本归一到 [0,1]
+        w = tgt.flatten(1)
+        w = w / w.sum(1, keepdim=True).clamp(min=EPS)                    # 概率化
+        coords = torch.linspace(-1.0, 1.0, 8, device=img_t.device)
+        wg = w.view(-1, 8, 8)
+        gx_t = (wg.sum(1) * coords).sum(1)   # 列边缘分布 × x 坐标 → [B]
+        gy_t = (wg.sum(2) * coords).sum(1)   # 行边缘分布 × y 坐标 → [B]
+    l_sal = F.mse_loss(out["saliency"], tgt)
+    g_x, g_y, _ = out["gaze"]
+    l_gaze = F.smooth_l1_loss(g_x, gx_t) + F.smooth_l1_loss(g_y, gy_t)
+    return l_sal + l_gaze
 
 
 def probe_lane_loss(pred, gt):
@@ -160,14 +198,14 @@ def make_inputs(B, model, device):
 # =====================================================================
 
 def train_step(env, model, sigreg, B, dt, rollout, device, opt, k_bptt=4,
-               alpha_inv=1.0, beta_sigreg=0.1):
+               alpha_inv=1.0, beta_sigreg=0.1, gamma_sg=0.1):
     """一个 epoch 的自监督训练。
 
     核心循环：
-      1. model.forward(img_t) → out_t（含 mu, sigma, c, Z_out）
+      1. model.forward(img_t) → out_t（含 mu, sigma, c, Z_out, Z_enc）
       2. env.step(dt, action) → img_{t+1}
-      3. model.encode(img_{t+1}) → Z_target（stop-grad）
-      4. L = L_pred + α·L_inv + β·L_sigreg
+      3. model.encode(img_{t+1}, slot_anchor) → Z_target（stop-grad，固定锚查询）
+      4. L = L_pred + α·L_inv + β·L_sigreg + γ·L_saliency_gaze
     """
     env.reset()
     Z, h, a_raw, g = make_inputs(B, model, device)
@@ -181,6 +219,7 @@ def train_step(env, model, sigreg, B, dt, rollout, device, opt, k_bptt=4,
 
     total_loss = torch.zeros((), device=device)
     total_inv = torch.zeros((), device=device)
+    total_sg = torch.zeros((), device=device)
     accum_loss = 0
 
     # 收集 Z 用于 SIGReg
@@ -199,24 +238,31 @@ def train_step(env, model, sigreg, B, dt, rollout, device, opt, k_bptt=4,
         env.step(dt, action)
         img_next = env.render()
 
-        # 生成 stop-grad 目标
+        # 生成 stop-grad 目标(固定锚查询,与递归状态解耦:
+        # 旧版用 Z_out.detach() 做查询,binder 增益→0 时 z_target≈Z_out,
+        # pred loss 存在平凡不动点,SIGReg 防不住这条信息坍缩通道)
         with torch.no_grad():
-            z_target, _ = model.encode(img_next, out["Z_out"].detach(), g)
+            anchor = model.slot_anchor.expand(B, -1, -1)
+            z_target, _ = model.encode(img_next, anchor, g)
 
         # --- 损失 1：JEPA 前向预测 ---
         l_pred = jepa_pred_loss(mu, sigma, c, z_target)
 
-        # --- 损失 2：逆动力学 ---
+        # --- 损失 2：逆动力学（吃纯感知编码 Z_enc，防动作直通作弊，见函数 docstring）---
         l_inv = inverse_dynamics_loss(
-            out["Z_out"], z_target, c, action, model.inv_dyn)
+            out["Z_enc"], z_target, c, action, model.inv_dyn)
+
+        # --- 损失 4：saliency / gaze 自监督（运动能量代理惊奇图）---
+        l_sg = saliency_gaze_loss(out, img, img_next)
 
         # 收集 Z 用于 SIGReg（每步都收集）
         z_collect.append(out["Z_out"])
 
-        step_loss = l_pred + alpha_inv * l_inv
+        step_loss = l_pred + alpha_inv * l_inv + gamma_sg * l_sg
         accum_loss = accum_loss + step_loss / rollout
         total_loss = total_loss + step_loss.detach()
         total_inv = total_inv + l_inv.detach()
+        total_sg = total_sg + l_sg.detach()
 
         # 截断 BPTT
         if (t + 1) % k_bptt == 0 or (t + 1) == rollout:
@@ -260,6 +306,7 @@ def train_step(env, model, sigreg, B, dt, rollout, device, opt, k_bptt=4,
     return {
         "loss": (total_loss / rollout).item(),
         "inv_loss": (total_inv / rollout).item(),
+        "sg_loss": (total_sg / rollout).item(),
         "c_mean": c_mean, "c_std": c_std,
         "c_max": c_max, "c_min": c_min,
     }
@@ -397,6 +444,8 @@ def main():
                     help="逆动力学损失权重")
     ap.add_argument("--beta_sigreg", type=float, default=0.1,
                     help="SIGReg 防坍缩权重")
+    ap.add_argument("--gamma_sg", type=float, default=0.1,
+                    help="saliency/gaze 自监督权重(运动能量代理惊奇图)")
     ap.add_argument("--probe_epochs", type=int, default=50,
                     help="事后探针训练轮数")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -420,10 +469,11 @@ def main():
         model.train()
         r = train_step(env, model, sigreg, args.batch, args.dt, args.rollout,
                        dev, opt, alpha_inv=args.alpha_inv,
-                       beta_sigreg=args.beta_sigreg)
+                       beta_sigreg=args.beta_sigreg, gamma_sg=args.gamma_sg)
 
         if ep % 20 == 0 or ep == args.epochs - 1:
             print(f"ep {ep:4d} | loss {r['loss']:6.3f} | inv {r['inv_loss']:.3f} | "
+                  f"sg {r['sg_loss']:.3f} | "
                   f"c: mean={r['c_mean']:.3f} std={r['c_std']:.3f} "
                   f"[{r['c_min']:.3f}, {r['c_max']:.3f}]")
 

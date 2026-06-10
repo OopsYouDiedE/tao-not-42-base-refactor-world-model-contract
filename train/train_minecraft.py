@@ -250,6 +250,9 @@ def main():
     ap.add_argument("--beta_sigreg", type=float, default=0.1, help="SIGReg 防坍缩权重")
     ap.add_argument("--k_bptt", type=int, default=4, help="截断 BPTT 窗口")
     ap.add_argument("--no_amp", action="store_true", help="关闭 AMP 混合精度(默认 cuda 上开启)")
+    ap.add_argument("--wandb", action="store_true", help="开启 wandb 远程记录(key 从环境变量 WANDB_API_KEY 读)")
+    ap.add_argument("--wandb_project", default="minecraft-world-model")
+    ap.add_argument("--wandb_run", default=None, help="wandb run 名(默认自动生成)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -260,6 +263,15 @@ def main():
     amp_dev = "cuda" if is_cuda else "cpu"
     use_amp = is_cuda and not args.no_amp
     print(f"=== MINECRAFT WORLD MODEL (JEPA + InvDyn + SIGReg) | device={dev} | amp={use_amp} ===")
+
+    use_wandb = args.wandb
+    if use_wandb:
+        try:
+            import wandb
+            wandb.init(project=args.wandb_project, name=args.wandb_run, config=vars(args))
+        except Exception as ex:
+            print(f"[wandb] 初始化失败,关闭远程记录: {ex}")
+            use_wandb = False
 
     if not os.path.isdir(args.data_dir) or not any(
             f.endswith(".mp4") for f in os.listdir(args.data_dir)):
@@ -290,6 +302,11 @@ def main():
                         args.k_bptt, args.alpha_inv, args.beta_sigreg, amp_dev, use_amp)
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
+        if use_wandb:
+            _wb = {k: r[k] for k in ("loss", "pred", "inv", "mouse", "kb", "sigreg", "c_mean", "c_std")}
+            if r.get("gpu_util") is not None:
+                _wb["gpu_util"] = r["gpu_util"]
+            wandb.log(_wb, step=ep)
         if ep % 5 == 0 or ep == args.epochs - 1:
             gpu = f" | gpu {r['gpu_util']:.0f}%" if r.get("gpu_util") is not None else ""
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f} "
@@ -307,6 +324,12 @@ def main():
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")
     ok = e["kb_bal_acc"] > 0.6
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
+
+    if use_wandb:
+        wandb.log({"eval/kb_recall": e["kb_recall"], "eval/kb_spec": e["kb_spec"],
+                   "eval/kb_bal_acc": e["kb_bal_acc"]})
+        wandb.summary["kb_bal_acc"] = e["kb_bal_acc"]
+        wandb.finish()
 
 
 if __name__ == "__main__":

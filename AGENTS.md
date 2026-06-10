@@ -11,6 +11,7 @@
 - 所有 Class / Function 必须用 NumPy / Google 风格 Docstring 明确声明 Shape 和 Dtype 契约。
 - 任何对 `net/` 或 `train/` 的目录结构、类名、核心方法签名的修改,**必须同步更新** `knowledge/` 对应专题。
 - 废弃模块必须**物理删除**原文件,禁止留空文件或仅写注释,并在 commit message 中显式描述迁移路线。
+- 每次完成一轮修改必须要提交一次Git并commit。
 
 ---
 

@@ -5,13 +5,13 @@
 不可作弊的对照,低 loss 本身不构成证据。
 
 面板内容(固定一条验证序列,跨 epoch 可前后对比):
-  A. 潜空间预测误差 vs persistence 基线(把"当前帧感知"原样当预测)。
-     模型曲线低于基线才说明在"预测"而非"复读";灰色区为开环蒙眼段
-     (patch 全零,只剩记忆+动作推演),该段误差温和增长 = 真前向模拟。
+  A. Δz 预测误差 |μ − Δz| vs 零运动基线 |Δz|(persistence = 预测"什么都不变")。
+     模型曲线低于基线才说明在"预测变化"而非沉默;灰色区为开环蒙眼段
+     (感知输入换成自身预测 ẑ+μ 累积,只剩记忆+动作推演)。
   B. 逆动力学键盘读出:GT 按键热图(上)vs 预测概率热图(下),按键×时间。
-     两图条纹对齐 = Z 的变化里真的写进了动作效果。
-  C. 鼠标 dx/dy 预测 vs GT 曲线。
-  D. 可控闸 c 热图(slot×时间,逐维均值):应随训练出现亮暗分化(极化)。
+     两图条纹对齐 = Δz 里真的写进了动作效果。
+  C. 鼠标 dx/dy:GT 连续曲线 vs 分箱预测解码值(mu-law bin 中心,故呈阶梯状)。
+  D. 可控闸 c 热图(slot×时间,逐 slot 标量):应随训练出现亮暗分化(极化)。
   E. SlotBinder 注意力叠加:最局部化的几个 slot 各自盯着画面哪里(对象绑定)。
 
 图内文字用英文:matplotlib 默认字体无 CJK,避免 Colab 上满图 tofu 方块。
@@ -22,63 +22,70 @@ import numpy as np
 import torch
 
 from utils.vpt_dataset import VPT_KEYS
+from utils.vpt_action import bin_to_camera
 
 N_MOUSE = 2
 
 
 @torch.no_grad()
 def collect_rollout(model, img, action, t_vec, device, open_loop_from=None):
-    """跑一遍序列收集可视化轨迹。img: [B,T,3,H,W] float∈[0,1]。取样本 0。"""
+    """跑一遍序列收集可视化轨迹。img: [B,T,3,H,W] float∈[0,1]。取样本 0。
+
+    闭环段:感知输入 = encode_obs(img_t);开环段(t >= open_loop_from):
+    感知输入 = 上一步预测 ẑ = z_ref + μ 的累积(训练是 teacher forcing,
+    开环漂移速度是"学没学到可推演动力学"的检验,不是训练目标)。
+    """
     was_training = model.training
     model.eval()
-    model.binder.attn.store_attn = True
     try:
         B, T = img.shape[:2]
         N, d = model.N, model.d
-        act_dim = action.shape[-1]
         if open_loop_from is None:
             open_loop_from = max(2, (T - 1) // 2)
 
-        # 批量预计算:目标编码 z_tg[t] = encode(frame t+1);当前帧编码 z_now[t] = encode(frame t)
+        # 批量预计算:在线编码(闭环感知 + inv-dyn 在线端)与 EMA 目标编码
+        z_obs = model.encode_obs(
+            img[:, :T - 1].reshape(B * (T - 1), *img.shape[2:])
+        ).view(B, T - 1, N, d).float()
         z_tg = model.encode_target(
-            img[:, 1:].reshape(B * (T - 1), *img.shape[2:])).view(B, T - 1, N, d)
-        z_now = torch.cat([model.encode_target(img[:, 0]).unsqueeze(1),
-                           z_tg[:, :-1]], dim=1)                      # [B,T-1,N,d]
-        patch_all = model.vision_encoder(
-            img[:, :T - 1].reshape(B * (T - 1), *img.shape[2:])).view(B, T - 1, -1, d)
-        zero_patch = torch.zeros_like(patch_all[:, 0])
+            img.reshape(B * T, *img.shape[2:])).view(B, T, N, d).float()
 
-        Z = torch.zeros(B, N, d, device=device)
+        # slot 注意力:单独对 attn_t 帧再编码一次(store_attn 走慢路径,只跑一帧)
+        attn_t = max(1, open_loop_from - 1)
+        model.binder.attn.store_attn = True
+        model.encode_obs(img[:, attn_t])
+        attn_map = (model.binder.attn.last_attn[0].float().cpu().numpy()
+                    if model.binder.attn.last_attn is not None else None)
+        model.binder.attn.store_attn = False
+        attn_frame = img[0, attn_t].float().cpu().numpy().transpose(1, 2, 0)
+
         h = torch.zeros(B, 1, d, device=device)
-        a_raw = torch.zeros(B, model.J, act_dim, device=device)
+        a_raw = torch.zeros(B, model.J, action.shape[-1], device=device)
+        Z_state = z_obs[:, 0]                      # 开环推演的滚动状态(锚坐标系)
 
         traj = {k: [] for k in ["pred_err", "pers_err", "kb_pred", "kb_true",
                                 "mouse_pred", "mouse_true", "c"]}
-        attn_t = max(1, open_loop_from - 1)      # 取闭环末帧的 slot 注意力
-        attn_map, attn_frame = None, None
 
         for t in range(T - 1):
-            patch = patch_all[:, t] if t < open_loop_from else zero_patch
+            z_ref = z_obs[:, t] if t < open_loop_from else Z_state
             a_raw = torch.cat([a_raw[:, 1:], action[:, t].unsqueeze(1)], dim=1)
-            out = model(patch, Z, h, a_raw, t_vec[:, t])
+            out = model(z_ref, h, a_raw, t_vec[:, t])
+            mu, c = out["mu"].float(), out["c"].float()
 
-            if t == attn_t and model.binder.attn.last_attn is not None:
-                attn_map = model.binder.attn.last_attn[0].float().cpu().numpy()  # [N, M]
-                attn_frame = img[0, t].float().cpu().numpy().transpose(1, 2, 0)
+            dz = z_tg[:, t + 1] - z_tg[:, t]
+            traj["pred_err"].append((mu - dz).pow(2).mean().sqrt().item())
+            traj["pers_err"].append(dz.pow(2).mean().sqrt().item())
 
-            tgt = z_tg[:, t]
-            traj["pred_err"].append(
-                (out["mu"].float() - tgt.float()).pow(2).mean().sqrt().item())
-            traj["pers_err"].append(
-                (z_now[:, t].float() - tgt.float()).pow(2).mean().sqrt().item())
-            inv = model.inv_dyn((tgt - out["Z_enc"]) * out["c"])
-            traj["kb_pred"].append(inv[0, N_MOUSE:].float().cpu().numpy())
+            mouse_logits, kb_prob = model.inv_dyn((z_tg[:, t + 1] - z_obs[:, t]) * c)
+            traj["kb_pred"].append(kb_prob[0].float().cpu().numpy())
             traj["kb_true"].append(action[0, t, N_MOUSE:].float().cpu().numpy())
-            traj["mouse_pred"].append(inv[0, :N_MOUSE].float().cpu().numpy())
+            traj["mouse_pred"].append(
+                bin_to_camera(mouse_logits[0].argmax(-1)).float().cpu().numpy())
             traj["mouse_true"].append(action[0, t, :N_MOUSE].float().cpu().numpy())
-            traj["c"].append(out["c"][0].float().mean(-1).cpu().numpy())  # [N]
+            traj["c"].append(c[0].squeeze(-1).cpu().numpy())          # [N] 逐 slot 标量
 
-            Z, h = out["mu"], out["h_next"]
+            Z_state = z_ref + mu                   # ẑ(t+1) = 当前估计 + 预测增量
+            h = out["h_next"]
 
         result = {k: np.stack(v) for k, v in traj.items()}
         result["open_loop_from"] = open_loop_from
@@ -143,35 +150,35 @@ def render_panel(traj, out_path, title=""):
     fig = plt.figure(figsize=(16, 10))
     gs = fig.add_gridspec(3, 4, hspace=0.45, wspace=0.3)
 
-    # A. 预测误差 vs persistence,开环区灰色。
-    # 对数轴:模型误差与 persistence 基线可能差几个量级,线性轴会把基线压成
-    # 一条贴零的直线,完全读不出两者的相对关系(正是要看的东西)。
+    # A. Δz 预测误差 vs 零运动基线,开环区灰色。
+    # 对数轴:两条线可能差量级,线性轴会把小的一条压成贴零直线。
     ax = fig.add_subplot(gs[0, 0:2])
     pred_e = np.maximum(traj["pred_err"], 1e-6)
     pers_e = np.maximum(traj["pers_err"], 1e-6)
-    ax.plot(steps, pred_e, "r-", lw=2, label="model |mu - z_next|")
-    ax.plot(steps, pers_e, "g--", lw=1.5, label="persistence |z_now - z_next|")
+    ax.plot(steps, pred_e, "r-", lw=2, label="model |mu - dz|")
+    ax.plot(steps, pers_e, "g--", lw=1.5, label="zero-motion |dz| (persistence)")
     ax.axvspan(olf, Tm1 - 1, color="gray", alpha=0.18, label="OPEN-LOOP (blind)")
     ax.set_yscale("log")
     ratio = pred_e.mean() / max(pers_e.mean(), 1e-6)
     ax.text(0.02, 0.04,
             f"closed {pred_e[:olf].mean():.3g} | open {pred_e[olf:].mean():.3g} | "
-            f"pers {pers_e.mean():.3g} | model/pers = {ratio:.2f} (<1 = beats copy)",
+            f"|dz| {pers_e.mean():.3g} | model/pers = {ratio:.2f} (<1 = beats copy)",
             transform=ax.transAxes, fontsize=7,
             bbox=dict(fc="white", alpha=0.7, ec="none"))
     ax.set_xlabel("step"); ax.set_ylabel("latent RMS error (log)")
-    ax.set_title("Latent prediction vs copy-baseline (lower & stable in blind zone = real model)")
+    ax.set_title("Delta-latent prediction vs zero-motion baseline (<1 = real model)")
     ax.legend(fontsize=8)
 
-    # C. 鼠标
+    # C. 鼠标(GT 连续 vs 分箱解码——预测呈阶梯状是分箱所致,正常)
     ax = fig.add_subplot(gs[0, 2:4])
     ax.plot(steps, traj["mouse_true"][:, 0], "k-", lw=1.5, label="dx true")
-    ax.plot(steps, traj["mouse_pred"][:, 0], "r--", lw=1.2, label="dx pred")
+    ax.plot(steps, traj["mouse_pred"][:, 0], "r--", lw=1.2, label="dx pred (bin)")
     ax.plot(steps, traj["mouse_true"][:, 1], "b-", lw=1.5, label="dy true")
-    ax.plot(steps, traj["mouse_pred"][:, 1], "c--", lw=1.2, label="dy pred")
+    ax.plot(steps, traj["mouse_pred"][:, 1], "c--", lw=1.2, label="dy pred (bin)")
     ax.axvspan(olf, Tm1 - 1, color="gray", alpha=0.18)
     ax.set_xlabel("step"); ax.set_ylabel("camera (normalized)")
-    ax.set_title("Inverse-dynamics mouse readout"); ax.legend(fontsize=7, ncol=2)
+    ax.set_title("Inverse-dynamics mouse readout (mu-law binned)")
+    ax.legend(fontsize=7, ncol=2)
 
     # B. 键盘 GT / 预测热图(共享 0..1 色标)
     ax = fig.add_subplot(gs[1, 0:2])
@@ -189,7 +196,7 @@ def render_panel(traj, out_path, title=""):
     ax.set_xlabel("step")
     ax.set_title("Keyboard inv-dyn prediction (stripes should match GT above)")
 
-    # D. 可控闸 c
+    # D. 可控闸 c(逐 slot 标量)
     ax = fig.add_subplot(gs[1, 2:4])
     im = ax.imshow(traj["c"].T, aspect="auto", cmap="viridis", vmin=0, vmax=1,
                    interpolation="nearest")

@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
 import numpy as np
 
-from utils.vpt_action import CAMERA_SCALE
+from utils.vpt_action import CAMERA_SCALE, N_MOUSE
 
 # 动作向量布局(与 download_sample_data / colab 转换脚本严格一致):2 鼠标 + 20 键盘
 # 与 utils/vpt_action.py 的契约一致:鼠标在前(索引 0,1),且按 CAMERA_SCALE 归一化。
@@ -132,21 +132,29 @@ class VPTStreamDataset(IterableDataset):
         (动作表很小,帧不缓存)。
     refresh_every 已废弃(没有整段缓存可换出),保留参数仅为 CLI 兼容。
     本身无限迭代,训练侧用固定 steps_per_epoch 截断。
+
+    frame_skip:时间降采样(每 skip 帧取 1 帧)。数学动机:20fps 下相邻帧潜表征
+    几乎相同(persistence 基线 RMS ~0.007,而动作效应更小),一步预测的动力学
+    信号被淹没;skip=4 → 等效 5Hz,单步动作效应被放大 ~4×。跳过帧只 grab() 不
+    解码(省 CPU);**动作按跳过窗口聚合**——鼠标 dx/dy 求和(再截到 ±1)、
+    键盘取按住即 1(max),保证"一步动作 = 这一步内真实发生的操作总量"。
     """
 
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
-                 seed=0, img_size=None, camera_scale=CAMERA_SCALE):
+                 seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1):
         super().__init__()
         self.seq_len, self.fps = seq_len, fps
         self.cache_size = max(1, cache_size)
         self.seed = seed
         self.img_size = img_size
         self.camera_scale = camera_scale
+        self.frame_skip = max(1, int(frame_skip))
         self.pairs = _pair_list(data_dir)
         if not self.pairs:
             raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
         print(f"[VPTStreamDataset] {len(self.pairs)} clips on disk | 窗口按需解码(uint8) "
               f"| img_size={img_size or 'native'} | camera_scale={camera_scale:.1f} "
+              f"| frame_skip={self.frame_skip} (等效 {fps / self.frame_skip:.1f}Hz) "
               f"| 动作表缓存<={self.cache_size} 文件/worker")
 
     def _load_meta(self, mp4, jsonl):
@@ -166,16 +174,17 @@ class VPTStreamDataset(IterableDataset):
                 "task": task, "n": n}
 
     def _decode_window(self, mp4, start, T):
-        """seek 到 start 解码 T 帧 → uint8 [T,3,H,W];不足返回 None。
+        """seek 到 start,按 frame_skip 间隔解码 T 帧 → uint8 [T,3,H,W];不足返回 None。
 
         先 resize 再 cvtColor:色彩转换在 128×128 上做比在 360×640 上做省 ~14×
         像素量,INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
+        跳过的帧用 grab()(只推进解码器不取像素,比 read 便宜得多)。
         """
         cap = cv2.VideoCapture(mp4)
         if start > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
         frames = []
-        for _ in range(T):
+        for t in range(T):
             ret, f = cap.read()
             if not ret:
                 break
@@ -184,10 +193,34 @@ class VPTStreamDataset(IterableDataset):
                                interpolation=cv2.INTER_AREA)
             f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
             frames.append(torch.from_numpy(f))
+            if t < T - 1:
+                for _ in range(self.frame_skip - 1):
+                    if not cap.grab():
+                        break
         cap.release()
         if len(frames) < T:
             return None
         return torch.stack(frames).permute(0, 3, 1, 2).contiguous()
+
+    def _agg_actions(self, act, start):
+        """聚合 [start, start+(T-1)·skip] 区间的逐帧动作到 T 个降采样步。
+
+        第 t 步动作 = 原始帧 [start+t·skip, start+(t+1)·skip) 内的操作总量:
+        鼠标(归一化后)求和再截到 [-1,1],键盘窗口内按过即 1。skip=1 时退化为切片。
+        """
+        T, s = self.seq_len, self.frame_skip
+        if s == 1:
+            return act[start:start + T].clone()
+        rows = []
+        for t in range(T):
+            a0 = start + t * s
+            w = act[a0: min(a0 + s, act.shape[0])]
+            if w.shape[0] == 0:                     # 末步窗口越界(span 只保证到最后一帧)
+                w = act[-1:]
+            mouse = w[:, :N_MOUSE].sum(dim=0).clamp(-1.0, 1.0)
+            keys = w[:, N_MOUSE:].max(dim=0).values
+            rows.append(torch.cat([mouse, keys]))
+        return torch.stack(rows)
 
     def __iter__(self):
         wi = get_worker_info()
@@ -205,23 +238,24 @@ class VPTStreamDataset(IterableDataset):
                 if len(meta_cache) >= self.cache_size:
                     meta_cache.pop(rng.choice(list(meta_cache.keys())))
                 meta_cache[mp4] = m
-            if m["n"] < self.seq_len:
+            span = (self.seq_len - 1) * self.frame_skip + 1   # 窗口占用的原始帧数
+            if m["n"] < span:
                 fails += 1
                 if fails > 4 * len(self.pairs) + 8:
                     raise RuntimeError(
-                        "[VPTStreamDataset] 没有 >= seq_len 的片段,调小 --seq_len 或下载更长数据")
+                        "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
                 continue
-            start = rng.randint(0, m["n"] - self.seq_len)
+            start = rng.randint(0, m["n"] - span)
             img = self._decode_window(mp4, start, self.seq_len)
             if img is None:
                 fails += 1
                 continue
             fails = 0
-            tv = ((start + torch.arange(self.seq_len, dtype=torch.float32)) / self.fps
-                  + rng.uniform(0.0, 1e4))
+            tv = ((start + torch.arange(self.seq_len, dtype=torch.float32)
+                   * self.frame_skip) / self.fps + rng.uniform(0.0, 1e4))
             yield {
                 "img": img,                                          # uint8 [T,3,H,W]
-                "action": m["action"][start:start + self.seq_len].clone(),
+                "action": self._agg_actions(m["action"], start),
                 "task_text": m["task"],
                 "t_vec": tv,
             }

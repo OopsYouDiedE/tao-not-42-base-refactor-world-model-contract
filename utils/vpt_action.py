@@ -7,7 +7,14 @@
   - Colab 端:`encode_vpt_jsonl` 从 VPT `.jsonl` 单帧解析(schema 假设见注释,需按真文件校准)。
   - 本机端:`rhythm_to_vpt` 把 rhythm 4 键代理动作映射成同形状,用于离线验证训练有效性。
 模型只认 ACTION_DIM 维向量,两端共用 → 本机验证过的模型/编码器在 Colab 原样可用。
+
+相机离散分箱(camera_to_bin/bin_to_camera):**只用于逆动力学的监督目标**,模型的
+动作输入仍是连续 [dx,dy]。MSE 回归下"恒预测 0"是近似最优的平凡解(dx/dy 分布 =
+尖峰在 0 + 重尾大转身);改成 mu-law 分箱分类后,0 只是 CAMERA_BINS 个类之一,
+基率解的 CE 等于边缘熵,任何真实信号都能压过它。VPT 原版同样用 mu-law 离散相机。
 """
+import math
+
 import torch
 
 VPT_KEYS = [
@@ -20,6 +27,26 @@ N_KEYS = len(VPT_KEYS)
 N_MOUSE = 2                              # 连续相机 (dx, dy),位于向量头部
 ACTION_DIM = N_MOUSE + N_KEYS
 CAMERA_SCALE = 10.0                      # 相机归一化尺度(px/帧;按真数据分布校准)
+CAMERA_BINS = 11                         # mu-law 分箱数(奇数 ⇒ 中心 bin 恰为 0)
+CAMERA_MU = 10.0                         # mu-law 压缩系数:小位移区分辨率高,重尾被压进边缘 bin
+
+
+def camera_to_bin(x):
+    """归一化相机值 [-1,1] → mu-law bin 索引 ∈ [0, CAMERA_BINS-1](long)。
+
+    y = sign(x)·ln(1+μ|x|)/ln(1+μ) ∈ [-1,1],均匀切 CAMERA_BINS 段。
+    被 camera_scale 截断在 ±1 的大转身落入边缘 bin——分类目标下截断只是
+    "≥最大档"一档,不再像 MSE 那样污染整个回归目标。
+    """
+    x = torch.as_tensor(x, dtype=torch.float32).clamp(-1.0, 1.0)
+    y = torch.sign(x) * torch.log1p(CAMERA_MU * x.abs()) / math.log1p(CAMERA_MU)
+    return ((y + 1.0) / 2.0 * (CAMERA_BINS - 1)).round().long()
+
+
+def bin_to_camera(idx):
+    """bin 索引 → 归一化相机值(bin 中心;camera_to_bin 的逆)。可视化/推理解码用。"""
+    y = idx.float() / (CAMERA_BINS - 1) * 2.0 - 1.0
+    return torch.sign(y) * (torch.expm1(y.abs() * math.log1p(CAMERA_MU))) / CAMERA_MU
 
 _KEY_IDX = {k: i for i, k in enumerate(VPT_KEYS)}
 # VPT jsonl 的键名 → 我们的键名(部分;按真文件补全)

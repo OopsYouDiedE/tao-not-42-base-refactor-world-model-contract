@@ -10,3 +10,5 @@ ultralytics
 scipy
 # optional but recommended for real Mamba acceleration:
 # mamba-ssm
+
+xformers  # optional, removes DINOv2 SwiGLU warning and speeds up attention

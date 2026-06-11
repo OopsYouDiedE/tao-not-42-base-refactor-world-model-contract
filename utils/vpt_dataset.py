@@ -148,11 +148,18 @@ class VPTStreamDataset(IterableDataset):
     split:"train"/"holdout"/None。按文件名排序后扣末 holdout_n 个为 holdout
     (确定性切分,与 seed 无关)——可视化与最终评估必须用 holdout,否则展示的是
     记忆而非泛化。clip 总数不足时退化为全量并告警。
+
+    buffer_size:**滚动样本缓存**(0=关闭)。总上限 buffer_size 段切片好的窗口
+    (视频帧 uint8 + 动作张量)平摊到各 worker 常驻内存:新解码的窗口 FIFO 滚动
+    放入,产出时从缓存均匀随机抽一段。作用:(1) 有界内存下把"解码顺序"与"训练
+    消费顺序"解耦,batch 内样本来自最近 quota 个窗口而非紧邻解码的几个;
+    (2) 已解码窗口在被换出前平均被复用 ~1 次(随机抽),解码抖动被缓存吸收。
+    128px×30 帧一段 ≈ 1.4MB,512 段 ≈ 0.74GB(uint8,各 worker 均摊)。
     """
 
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
-                 split=None, holdout_n=1):
+                 split=None, holdout_n=1, buffer_size=0):
         super().__init__()
         self.seq_len, self.fps = seq_len, fps
         self.cache_size = max(1, cache_size)
@@ -160,6 +167,7 @@ class VPTStreamDataset(IterableDataset):
         self.img_size = img_size
         self.camera_scale = camera_scale
         self.frame_skip = max(1, int(frame_skip))
+        self.buffer_size = max(0, int(buffer_size))
         pairs = _pair_list(data_dir)
         if not pairs:
             raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
@@ -173,7 +181,8 @@ class VPTStreamDataset(IterableDataset):
         print(f"[VPTStreamDataset] {len(self.pairs)} clips ({split or 'all'}) | "
               f"窗口按需解码(uint8) | img_size={img_size or 'native'} "
               f"| camera_scale={camera_scale:.1f} | Δt~U{{1..{self.frame_skip}}} "
-              f"| 动作表缓存<={self.cache_size} 文件/worker")
+              f"| 动作表缓存<={self.cache_size} 文件/worker"
+              f"| 滚动窗口缓存={self.buffer_size or '关'}")
 
     def _load_meta(self, mp4, jsonl):
         """解析一个文件对的动作表与可用帧数(不解码帧)。"""
@@ -259,6 +268,10 @@ class VPTStreamDataset(IterableDataset):
             # 会把 vCPU 超订成上下文切换,窗口解码吞吐反而下降。
             cv2.setNumThreads(0)
         rng = random.Random(self.seed + (wi.id if wi is not None else 0))
+        # 滚动样本缓存:总上限平摊到各 worker(见类 docstring;quota=0 表示关闭)
+        n_w = wi.num_workers if wi is not None else 1
+        quota = max(1, self.buffer_size // n_w) if self.buffer_size > 0 else 0
+        buf, ptr = [], 0
         meta_cache, fails = {}, 0
         while True:
             mp4, jsonl = self.pairs[rng.randrange(len(self.pairs))]
@@ -287,7 +300,7 @@ class VPTStreamDataset(IterableDataset):
             # 采样帧的真实时间戳(可变间隔 ⇒ 非等差)
             idx = torch.tensor([0] + skips, dtype=torch.float32).cumsum(0) + start
             tv = idx / self.fps + rng.uniform(0.0, 1e4)
-            yield {
+            sample = {
                 "img": img,                # uint8 [T,3,H,W]
                 "act_seq": act_seq,        # [T-1, frame_skip, A] 区间内原始动作(零填充)
                 "act_agg": act_agg,        # [T-1, A] 区间净效应(历史 token/inv-dyn 目标)
@@ -295,3 +308,13 @@ class VPTStreamDataset(IterableDataset):
                 "task_text": m["task"],
                 "t_vec": tv,               # [T]
             }
+            if quota == 0:
+                yield sample
+                continue
+            # 新窗口 FIFO 滚动放入缓存,产出从缓存均匀随机抽(解码↔消费解耦)
+            if len(buf) < quota:
+                buf.append(sample)
+            else:
+                buf[ptr] = sample
+                ptr = (ptr + 1) % quota
+            yield buf[rng.randrange(len(buf))]

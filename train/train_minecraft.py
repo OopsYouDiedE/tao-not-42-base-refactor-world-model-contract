@@ -358,11 +358,20 @@ def main():
                          "窗口解码是 CPU 大头,旧默认 2 是 GPU 利用率 ~16%% 的主因")
     ap.add_argument("--cache_size", type=int, default=32, help="每个 worker 缓存的动作表文件数")
     ap.add_argument("--refresh_every", type=int, default=64, help="已废弃(窗口化解码无整段缓存),仅保留兼容")
+    ap.add_argument("--buffer_size", type=int, default=512,
+                    help="训练集滚动样本缓存:最多缓存多少段切片好的窗口在内存(各 worker 均摊,"
+                         "FIFO 滚动放入、随机抽出;0=关闭。见 VPTStreamDataset docstring)")
+    ap.add_argument("--holdout_n", type=int, default=1,
+                    help="按文件名扣末几个 clip 做 holdout(eval/viz 专用,不进训练)")
+    ap.add_argument("--log_every", type=int, default=5,
+                    help="每多少 epoch 打印一行训练指标(batch 大时每步覆盖样本多,应调小)")
     ap.add_argument("--viz_every", type=int, default=10,
-                    help="每多少 epoch 输出一次可视化面板(0=关闭)")
+                    help="每多少 epoch 输出一次可视化面板(0=关闭;首次在第 viz_every 个"
+                         "epoch 之后——训练没开始不出图)")
     ap.add_argument("--eval_every", type=int, default=5,
                     help="每多少 epoch 在 holdout 上跑一次轻量评估并入 wandb 曲线"
-                         "(0=只在训练结束跑全量)。泛化差距 = eval/pred 与训练 pred 之差")
+                         "(0=只在训练结束跑;首次在第 eval_every 个 epoch 之后——"
+                         "训练没开始不评估)。泛化差距 = eval/pred 与训练 pred 之差")
     ap.add_argument("--viz_dir", default="runs/mc_viz")
     ap.add_argument("--encoder", choices=["dinov2", "dinov3", "mock"], default="dinov2",
                     help="视觉骨干(冻结):dinov2=ViT-S/14,权重开放直接下载;"
@@ -417,21 +426,38 @@ def main():
     ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                           cache_size=args.cache_size, refresh_every=args.refresh_every,
                           seed=args.seed, img_size=img_size, camera_scale=cam_scale,
-                          frame_skip=args.frame_skip, split="train")
+                          frame_skip=args.frame_skip, split="train",
+                          holdout_n=args.holdout_n, buffer_size=args.buffer_size)
     # prefetch_factor=4:窗口解码耗时方差大(seek 距关键帧远近不一),更深的预取
     # 队列吸收抖动,避免 GPU 周期性空转等数据。
     loader = DataLoader(ds, batch_size=args.batch, num_workers=n_workers,
                         pin_memory=is_cuda,
                         persistent_workers=(n_workers > 0),
                         prefetch_factor=(4 if n_workers > 0 else None))
-    # 可视化与最终评估都用 holdout clip(按文件名扣末 1 个,不进训练):
+    # 可视化与评估都用 holdout clip(按文件名扣末 holdout_n 个,不进训练):
     # 在训练数据上展示/评估,量到的是记忆不是泛化。
     eval_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                                cache_size=4, seed=args.seed + 555, img_size=img_size,
                                camera_scale=cam_scale, frame_skip=args.frame_skip,
-                               split="holdout")
-    eval_loader = DataLoader(eval_ds, batch_size=args.batch, num_workers=min(2, n_workers),
-                             pin_memory=is_cuda)
+                               split="holdout", holdout_n=args.holdout_n)
+
+    # 固定 eval 集:首次评估时从 holdout 一次性采集 4×eval_bs 条序列,之后每次评估
+    # 复用同一份数据——指标跨 epoch 严格可比,且评估期零解码、不与训练抢 CPU。
+    # 惰性采集(而非启动时):训练先跑起来,主流程不被评估数据准备耽误。
+    eval_bs = min(args.batch, 64)
+    eval_batches = []
+
+    def _get_eval_batches():
+        if not eval_batches:
+            import time
+            t0 = time.time()
+            it = iter(DataLoader(eval_ds, batch_size=eval_bs,
+                                 num_workers=min(4, n_workers)))
+            eval_batches.extend(next(it) for _ in range(4))
+            del it                       # 立刻放掉 eval worker,不留后台解码
+            print(f"  [eval] 固定评估集已采集:4×{eval_bs} 序列 "
+                  f"(holdout {args.holdout_n} clip,{time.time() - t0:.0f}s,此后复用)")
+        return eval_batches
 
     viz_batch = None
     if args.viz_every > 0:
@@ -439,7 +465,7 @@ def main():
         viz_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                                   cache_size=4, seed=args.seed + 999, img_size=img_size,
                                   camera_scale=cam_scale, frame_skip=args.frame_skip,
-                                  split="holdout")
+                                  split="holdout", holdout_n=args.holdout_n)
         viz_batch = next(iter(DataLoader(viz_ds, batch_size=1)))
         os.makedirs(args.viz_dir, exist_ok=True)
 
@@ -471,23 +497,26 @@ def main():
             if r.get("gpu_util") is not None:
                 _wb["gpu_util"] = r["gpu_util"]
             wandb.log(_wb, step=ep)
-        if ep % 5 == 0 or ep == args.epochs - 1:
+        if ep % args.log_every == 0 or ep == args.epochs - 1:
             gpu = f" | gpu {r['gpu_util']:.0f}%" if r.get("gpu_util") is not None else ""
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f}×copy "
                   f"(rms {r['pred_rms']:.4f}/dz {r['dz_rms']:.4f}) | "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
                   f"acc {r['mouse_acc']:.2f}) | sig {r['sigreg']:.2f} | "
                   f"c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
-        if viz_batch is not None and (ep % args.viz_every == 0 or ep == args.epochs - 1):
+        # 节奏用 (ep+1):第 viz_every/eval_every 个 epoch 训练完才首次出图/评估,
+        # 不在训练刚起步时就花算力展示一个随机初始化的模型
+        if viz_batch is not None and ((ep + 1) % args.viz_every == 0 or ep == args.epochs - 1):
             p = visualize_minecraft(model, viz_batch, dev,
                                     os.path.join(args.viz_dir, f"ep{ep:04d}.png"))
             if p:
                 print(f"  [viz] {p}")
                 if use_wandb:
                     wandb.log({"viz/panel": wandb.Image(p)}, step=ep)
-        if args.eval_every > 0 and (ep % args.eval_every == 0 or ep == args.epochs - 1):
-            # 轻量 holdout 评估(4 个 batch):eval/pred 对照训练 pred = 泛化差距曲线
-            ev = evaluate(model, eval_loader, dev, 4, amp_dev, use_amp)
+        if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):
+            # 轻量 holdout 评估(固定 4 个 batch,首次采集后复用):
+            # eval/pred 对照训练 pred = 泛化差距曲线
+            ev = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
             print(f"  [eval] pred {ev['pred']:.3f}×copy | kb bal {ev['kb_bal_acc']:.3f} "
                   f"onset {ev['kb_onset_recall']:.3f} | mouse move {ev['mouse_move_acc']:.3f}")
             if use_wandb:
@@ -499,7 +528,7 @@ def main():
               f"({len(util_hist)} epoch) | 峰值显存 {peak:.2f} GB")
 
     print("\n--- 最终评估:逆动力学(从画面变化反推操作;holdout clip,未进训练)---")
-    e = evaluate(model, eval_loader, dev, max(args.steps_per_epoch, 20), amp_dev, use_amp)
+    e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
     print(f"Δz 预测 {e['pred']:.3f}×copy(holdout;<1 = 泛化意义上胜过复读)")
     print(f"键盘 recall {e['kb_recall']:.3f} | spec {e['kb_spec']:.3f} | "
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")

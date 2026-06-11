@@ -274,6 +274,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     tp = fp = fn = tn = 0
     on_tp = on_n = off_tp = off_n = 0
     m_hit = m_n = mv_hit = mv_n = 0
+    pred_sum, pred_n = 0.0, 0
     center = (CAMERA_BINS - 1) // 2
     for batch in itertools.islice(loader, steps):
         img = _to_float_img(batch["img"].to(device))
@@ -296,6 +297,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
                 out = model(z_obs[:, t], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
             a_hist = roll_append(a_hist, act_agg[:, t])
+            # holdout 上的 Δz 预测比值(与训练 pred 同定义:1.0=复读基线)——
+            # 与训练曲线对照即泛化差距,这是面板之外唯一能连续监控它的地方
+            dz = z_tg[:, t + 1] - z_tg[:, t]
+            per = (out["mu"].float() - dz).square().mean(dim=(1, 2))
+            den = dz.square().mean(dim=(1, 2)).clamp(min=1e-3)
+            pred_sum += (per / den).mean().item(); pred_n += 1
             mouse_logits, kb_prob = model.inv_dyn(
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float())
             kb_pred = (kb_prob > 0.5)
@@ -315,7 +322,8 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             mv_hit += (hit & moved).sum().item(); mv_n += moved.sum().item()
             h = out["h_next"]
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
-    return {"kb_recall": recall, "kb_spec": spec, "kb_bal_acc": 0.5 * (recall + spec),
+    return {"pred": pred_sum / max(pred_n, 1),
+            "kb_recall": recall, "kb_spec": spec, "kb_bal_acc": 0.5 * (recall + spec),
             "kb_onset_recall": on_tp / max(on_n, 1),
             "kb_release_recall": off_tp / max(off_n, 1),
             "kb_edges": on_n + off_n,
@@ -349,6 +357,9 @@ def main():
     ap.add_argument("--refresh_every", type=int, default=64, help="已废弃(窗口化解码无整段缓存),仅保留兼容")
     ap.add_argument("--viz_every", type=int, default=10,
                     help="每多少 epoch 输出一次可视化面板(0=关闭)")
+    ap.add_argument("--eval_every", type=int, default=5,
+                    help="每多少 epoch 在 holdout 上跑一次轻量评估并入 wandb 曲线"
+                         "(0=只在训练结束跑全量)。泛化差距 = eval/pred 与训练 pred 之差")
     ap.add_argument("--viz_dir", default="runs/mc_viz")
     ap.add_argument("--d", type=int, default=384)
     ap.add_argument("--N", type=int, default=16, help="实体槽数")
@@ -463,6 +474,13 @@ def main():
                 print(f"  [viz] {p}")
                 if use_wandb:
                     wandb.log({"viz/panel": wandb.Image(p)}, step=ep)
+        if args.eval_every > 0 and (ep % args.eval_every == 0 or ep == args.epochs - 1):
+            # 轻量 holdout 评估(4 个 batch):eval/pred 对照训练 pred = 泛化差距曲线
+            ev = evaluate(model, eval_loader, dev, 4, amp_dev, use_amp)
+            print(f"  [eval] pred {ev['pred']:.3f}×copy | kb bal {ev['kb_bal_acc']:.3f} "
+                  f"onset {ev['kb_onset_recall']:.3f} | mouse move {ev['mouse_move_acc']:.3f}")
+            if use_wandb:
+                wandb.log({f"eval/{k}": v for k, v in ev.items()}, step=ep)
 
     if util_hist:
         peak = torch.cuda.max_memory_allocated() / 1e9
@@ -471,6 +489,7 @@ def main():
 
     print("\n--- 最终评估:逆动力学(从画面变化反推操作;holdout clip,未进训练)---")
     e = evaluate(model, eval_loader, dev, max(args.steps_per_epoch, 20), amp_dev, use_amp)
+    print(f"Δz 预测 {e['pred']:.3f}×copy(holdout;<1 = 泛化意义上胜过复读)")
     print(f"键盘 recall {e['kb_recall']:.3f} | spec {e['kb_spec']:.3f} | "
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")
     print(f"跳变检出 onset {e['kb_onset_recall']:.3f} | release {e['kb_release_recall']:.3f} "
@@ -481,14 +500,10 @@ def main():
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
 
     if use_wandb:
-        wandb.log({"eval/kb_recall": e["kb_recall"], "eval/kb_spec": e["kb_spec"],
-                   "eval/kb_bal_acc": e["kb_bal_acc"],
-                   "eval/kb_onset_recall": e["kb_onset_recall"],
-                   "eval/kb_release_recall": e["kb_release_recall"],
-                   "eval/mouse_bin_acc": e["mouse_bin_acc"],
-                   "eval/mouse_move_acc": e["mouse_move_acc"]})
+        wandb.log({f"eval/{k}": v for k, v in e.items()})
         wandb.summary["kb_bal_acc"] = e["kb_bal_acc"]
         wandb.summary["mouse_move_acc"] = e["mouse_move_acc"]
+        wandb.summary["eval_pred"] = e["pred"]
         wandb.finish()
 
 

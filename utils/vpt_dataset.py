@@ -122,15 +122,19 @@ class VPTDataset(Dataset):
 class VPTStreamDataset(IterableDataset):
     """流式 VPT 加载器(随机窗口按需解码;真 BASALT 长视频可用)。
 
-    旧实现把**整段视频**解码成 float32 驻留内存:BASALT contractor 一段 5 分钟
-    360×640@20fps 视频 ≈ 16.6 GB,cache_size=32/worker 的设计需要 TB 级内存——
-    只在合成小样本上跑得动,真数据必然 OOM 且首样本延迟为整段解码时间。现实现:
-      - 每个样本只 seek + 解码一个 seq_len 窗口(解码量降 ~T_total/seq_len 倍);
-      - 帧以 uint8 返回(归一化推迟到 GPU 上做,内存与 PCIe 流量都降 4×);
-      - img_size 可选下采样(360×640 → 128 训练分辨率,卷积与带宽都省);
-      - 动作 jsonl 逐文件解析一次,worker 本地缓存 <=cache_size 个文件的动作表
-        (动作表很小,帧不缓存)。
-    refresh_every 已废弃(没有整段缓存可换出),保留参数仅为 CLI 兼容。
+    核心机制:**clip 级内存缓存 + 滚动刷新**(吞吐演化史,三版教训):
+      - v1 整段 float32 预载:5 分钟 360×640 一段 ≈ 16.6GB,真数据必然 OOM;
+      - v2 每窗口随机 seek 解码:内存安全,但随机 seek 要从最近关键帧白解上百帧,
+        实测 ~1 窗/s/worker,GPU 一步吃 batch 个窗口 ⇒ 大 batch 下 GPU 长期 0%
+        利用率饿死在等数据(供需差 >3×,buffer 复用只能缓解不能根治);
+      - v3(现实现)整段顺序解码到 **img_size 分辨率 uint8** 驻留内存:
+        128px 下一段 5 分钟 clip 仅 ≈ 0.29GB,clip_cache=4 段/worker ≈ 1.2GB;
+        顺序读零 seek 浪费(~20s/段,一次性),之后切窗口是**纯内存索引**(免费);
+        每产出 clip_refresh 个窗口滚动换入一段新 clip(FIFO 逐出最老)。
+        数据多样性由刷新供给,吞吐与解码彻底解耦 ⇒ GPU-bound。
+    帧以 uint8 缓存/返回(归一化推迟到 GPU 上做,内存与 PCIe 流量都降 4×)。
+    ⚠ img_size=None(原生分辨率)时整段缓存很大(360×640 ≈ 4GB/段),训练请务必
+    设 img_size。cache_size/refresh_every 已废弃(并入 clip 缓存),仅保留 CLI 兼容。
     本身无限迭代,训练侧用固定 steps_per_epoch 截断。
 
     frame_skip:**可变时间跨度的上限**。每个转移独立采样间隔 Δt ~ U{1..frame_skip}
@@ -149,23 +153,20 @@ class VPTStreamDataset(IterableDataset):
     (确定性切分,与 seed 无关)——可视化与最终评估必须用 holdout,否则展示的是
     记忆而非泛化。clip 总数不足时退化为全量并告警。
 
-    buffer_size:**滚动样本缓存**(0=关闭)。总上限 buffer_size 段切片好的窗口
-    (视频帧 uint8 + 动作张量)平摊到各 worker 常驻内存:新解码的窗口 FIFO 滚动
-    放入,产出时从缓存均匀随机抽。作用:(1) 有界内存下把"解码顺序"与"训练
-    消费顺序"解耦,batch 内样本来自最近 quota 个窗口而非紧邻解码的几个;
-    (2) 配合 buffer_reuse 把解码吞吐放大 reuse 倍。
-    128px×30 帧一段 ≈ 1.4MB,512 段 ≈ 0.74GB(uint8,各 worker 均摊)。
+    clip_cache:每个 worker 常驻内存的整段 clip 数(滚动 FIFO)。窗口从缓存内
+    随机一段随机位置切出 ⇒ batch 内样本多样性随缓存段数增长(冷启动从第 1 段
+    解码完就开始供数,之后每次刷新多缓存一段直到打满)。
+    clip_refresh:每产出多少个窗口换入一段新 clip(多样性/解码停顿的折中:
+    一段解码 ~20s,refresh=256 时摊到每窗口 <0.1s)。
 
-    buffer_reuse:每解码 1 个新窗口,从缓存随机抽出几个样本(1=不复用)。
-    **这是 CPU 解码追上 GPU 消费的关键杠杆**:窗口解码 ~1 窗/s/worker(随机
-    seek 到关键帧 + 130 帧 H.264),GPU 一步要吃 batch 个窗口——batch=256 时
-    供需差 >3×,不复用则 GPU 大部分时间饿死在等数据(利用率长期 0%)。
-    代价:相邻 batch 间样本有重复(缓存内随机抽),表征学习下 2~4 倍完全可接受。
+    buffer_size/buffer_reuse:窗口级滚动缓存(0/1=关闭,v2 时代的吞吐杠杆,
+    clip 缓存落地后窗口切片已免费,保留仅为兼容,正常不需要开)。
     """
 
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
-                 split=None, holdout_n=1, buffer_size=0, buffer_reuse=1):
+                 split=None, holdout_n=1, buffer_size=0, buffer_reuse=1,
+                 clip_cache=4, clip_refresh=256):
         super().__init__()
         self.seq_len, self.fps = seq_len, fps
         self.cache_size = max(1, cache_size)
@@ -175,6 +176,8 @@ class VPTStreamDataset(IterableDataset):
         self.frame_skip = max(1, int(frame_skip))
         self.buffer_size = max(0, int(buffer_size))
         self.buffer_reuse = max(1, int(buffer_reuse))
+        self.clip_cache = max(1, int(clip_cache))
+        self.clip_refresh = max(1, int(clip_refresh))
         pairs = _pair_list(data_dir)
         if not pairs:
             raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
@@ -186,14 +189,18 @@ class VPTStreamDataset(IterableDataset):
                       f"split={split}——退化为全量(评估/可视化将与训练同源,数字偏乐观)")
         self.pairs = pairs
         print(f"[VPTStreamDataset] {len(self.pairs)} clips ({split or 'all'}) | "
-              f"窗口按需解码(uint8) | img_size={img_size or 'native'} "
+              f"clip 级内存缓存(uint8) | img_size={img_size or 'native'} "
               f"| camera_scale={camera_scale:.1f} | Δt~U{{1..{self.frame_skip}}} "
-              f"| 动作表缓存<={self.cache_size} 文件/worker"
-              f"| 滚动窗口缓存={self.buffer_size or '关'}"
-              f"(复用×{self.buffer_reuse})")
+              f"| 缓存={self.clip_cache} 段/worker,每 {self.clip_refresh} 窗口滚动换入")
 
-    def _load_meta(self, mp4, jsonl):
-        """解析一个文件对的动作表与可用帧数(不解码帧)。"""
+    def _load_clip(self, mp4, jsonl):
+        """顺序解码整段视频(img_size 分辨率,uint8)+ 动作表 → 常驻内存的 clip 条目。
+
+        顺序读零 seek 浪费(随机 seek 要从最近关键帧白解上百帧,是 v2 实现 GPU
+        饿死的根因);解一次之后,从该 clip 切任意窗口都是纯内存索引。
+        先 resize 再 cvtColor:色彩转换在 128×128 上做比 360×640 省 ~14× 像素量,
+        INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
+        """
         actions, task = [], ""
         with open(jsonl, "r", encoding="utf-8") as f:
             for t, line in enumerate(f):
@@ -202,49 +209,21 @@ class VPTStreamDataset(IterableDataset):
                     task = a["task"]
                 actions.append(_action_vec(a, self.camera_scale))
         cap = cv2.VideoCapture(mp4)
-        n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        cap.release()
-        n = min(n_frames, len(actions))
-        return {"action": torch.stack(actions[:n]) if n > 0 else None,
-                "task": task, "n": n}
-
-    def _decode_window(self, mp4, start, skips):
-        """seek 到 start,按 skips 给定的逐转移间隔解码 len(skips)+1 帧 → uint8
-        [T,3,H,W];不足返回 None。
-
-        先 resize 再 cvtColor:色彩转换在 128×128 上做比在 360×640 上做省 ~14×
-        像素量,INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
-        跳过的帧用 grab()(只推进解码器不取像素,比 read 便宜得多)。
-        """
-        cap = cv2.VideoCapture(mp4)
-        if start > 0:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start)
-
-        def _read():
+        frames = []
+        while True:
             ret, f = cap.read()
             if not ret:
-                return None
+                break
             if self.img_size:
                 f = cv2.resize(f, (self.img_size, self.img_size),
                                interpolation=cv2.INTER_AREA)
-            return torch.from_numpy(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
-
-        frames = []
-        f = _read()
-        if f is not None:
-            frames.append(f)
-            for s in skips:
-                for _ in range(s - 1):
-                    if not cap.grab():
-                        break
-                f = _read()
-                if f is None:
-                    break
-                frames.append(f)
+            frames.append(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
         cap.release()
-        if len(frames) < len(skips) + 1:
+        n = min(len(frames), len(actions))
+        if n == 0:
             return None
-        return torch.stack(frames).permute(0, 3, 1, 2).contiguous()
+        img = torch.from_numpy(np.stack(frames[:n])).permute(0, 3, 1, 2).contiguous()
+        return {"img": img, "action": torch.stack(actions[:n]), "task": task, "n": n}
 
     def _split_actions(self, act, start, skips):
         """把 [start, start+Σskips) 的逐帧动作按转移切开。
@@ -276,38 +255,48 @@ class VPTStreamDataset(IterableDataset):
             # 会把 vCPU 超订成上下文切换,窗口解码吞吐反而下降。
             cv2.setNumThreads(0)
         rng = random.Random(self.seed + (wi.id if wi is not None else 0))
-        # 滚动样本缓存:总上限平摊到各 worker(见类 docstring;quota=0 表示关闭)
+        # 窗口级滚动缓存(兼容遗留,正常关闭;quota=0 表示关闭)
         n_w = wi.num_workers if wi is not None else 1
         quota = max(1, self.buffer_size // n_w) if self.buffer_size > 0 else 0
         buf, ptr = [], 0
-        meta_cache, fails = {}, 0
+        clips, served, fails = {}, 0, 0     # clip 级内存缓存:mp4 -> _load_clip 条目
         while True:
-            mp4, jsonl = self.pairs[rng.randrange(len(self.pairs))]
-            m = meta_cache.get(mp4)
-            if m is None:
-                m = self._load_meta(mp4, jsonl)
-                if len(meta_cache) >= self.cache_size:
-                    meta_cache.pop(rng.choice(list(meta_cache.keys())))
-                meta_cache[mp4] = m
+            # 换入 clip:缓存空(冷启动,解完第 1 段立即开始供数)或已产出
+            # clip_refresh 个窗口(滚动刷新;未满时只增,满了 FIFO 逐出最老)
+            if not clips or served >= self.clip_refresh:
+                mp4, jsonl = self.pairs[rng.randrange(len(self.pairs))]
+                if mp4 not in clips:
+                    c = self._load_clip(mp4, jsonl)
+                    if c is not None:
+                        if len(clips) >= self.clip_cache:
+                            clips.pop(next(iter(clips)))
+                        clips[mp4] = c
+                served = 0
+                if not clips:
+                    fails += 1
+                    if fails > 4 * len(self.pairs) + 8:
+                        raise RuntimeError("[VPTStreamDataset] 没有可解码的 clip")
+                    continue
             # 每个转移独立采样跨度 Δt ~ U{1..frame_skip}(可变间隔,见类 docstring)
             skips = [rng.randint(1, self.frame_skip) for _ in range(self.seq_len - 1)]
             span = sum(skips) + 1                             # 窗口占用的原始帧数
-            if m["n"] < span:
+            cand = [c for c in clips.values() if c["n"] >= span]
+            if not cand:
                 fails += 1
+                served = self.clip_refresh                    # 强制下轮换入新 clip
                 if fails > 4 * len(self.pairs) + 8:
                     raise RuntimeError(
                         "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
                 continue
-            start = rng.randint(0, m["n"] - span)
-            img = self._decode_window(mp4, start, skips)
-            if img is None:
-                fails += 1
-                continue
             fails = 0
+            m = cand[rng.randrange(len(cand))]
+            start = rng.randint(0, m["n"] - span)
+            # 采样帧索引(可变间隔 ⇒ 非等差);窗口 = 缓存 clip 的纯内存切片
+            fidx = torch.tensor([0] + skips, dtype=torch.long).cumsum(0) + start
+            img = m["img"][fidx]
             act_seq, act_agg, dt = self._split_actions(m["action"], start, skips)
-            # 采样帧的真实时间戳(可变间隔 ⇒ 非等差)
-            idx = torch.tensor([0] + skips, dtype=torch.float32).cumsum(0) + start
-            tv = idx / self.fps + rng.uniform(0.0, 1e4)
+            tv = fidx.float() / self.fps + rng.uniform(0.0, 1e4)
+            served += 1
             sample = {
                 "img": img,                # uint8 [T,3,H,W]
                 "act_seq": act_seq,        # [T-1, frame_skip, A] 区间内原始动作(零填充)
@@ -319,8 +308,7 @@ class VPTStreamDataset(IterableDataset):
             if quota == 0:
                 yield sample
                 continue
-            # 新窗口 FIFO 滚动放入缓存;每解码 1 个新窗口产出 buffer_reuse 个
-            # 随机样本——解码需求 ÷ reuse(供需算术见类 docstring)
+            # 窗口级滚动缓存(兼容遗留:clip 缓存落地后窗口切片已免费,正常不开)
             if len(buf) < quota:
                 buf.append(sample)
             else:

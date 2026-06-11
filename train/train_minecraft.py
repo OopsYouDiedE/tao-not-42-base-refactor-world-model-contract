@@ -358,13 +358,17 @@ def main():
                          "窗口解码是 CPU 大头,旧默认 2 是 GPU 利用率 ~16%% 的主因")
     ap.add_argument("--cache_size", type=int, default=32, help="每个 worker 缓存的动作表文件数")
     ap.add_argument("--refresh_every", type=int, default=64, help="已废弃(窗口化解码无整段缓存),仅保留兼容")
-    ap.add_argument("--buffer_size", type=int, default=512,
-                    help="训练集滚动样本缓存:最多缓存多少段切片好的窗口在内存(各 worker 均摊,"
-                         "FIFO 滚动放入、随机抽出;0=关闭。见 VPTStreamDataset docstring)")
-    ap.add_argument("--buffer_reuse", type=int, default=4,
-                    help="每解码 1 个新窗口从缓存随机抽出几个样本(解码吞吐 ×reuse)。"
-                         "窗口解码 ~1 窗/s/worker 而 GPU 一步吃 batch 个窗口,大 batch 不复用"
-                         "则 GPU 长期 0% 利用率等数据;代价是相邻 batch 有重复样本(可接受)")
+    ap.add_argument("--clip_cache", type=int, default=4,
+                    help="每个 worker 常驻内存的整段 clip 数(顺序解码到 img_size 分辨率"
+                         "uint8,128px 下 ≈0.3GB/段;窗口=纯内存切片,吞吐与解码解耦)")
+    ap.add_argument("--clip_refresh", type=int, default=256,
+                    help="每产出多少个窗口滚动换入一段新 clip(一段解码 ~20s,256 时"
+                         "摊到每窗口 <0.1s;调小=数据更新更快但解码停顿更频)")
+    ap.add_argument("--buffer_size", type=int, default=0,
+                    help="窗口级滚动缓存(兼容遗留;clip 缓存落地后窗口切片已免费,"
+                         "正常保持 0 关闭)")
+    ap.add_argument("--buffer_reuse", type=int, default=1,
+                    help="窗口级缓存的复用倍数(兼容遗留,正常保持 1)")
     ap.add_argument("--holdout_n", type=int, default=1,
                     help="按文件名扣末几个 clip 做 holdout(eval/viz 专用,不进训练)")
     ap.add_argument("--log_every", type=int, default=5,
@@ -433,7 +437,8 @@ def main():
                           seed=args.seed, img_size=img_size, camera_scale=cam_scale,
                           frame_skip=args.frame_skip, split="train",
                           holdout_n=args.holdout_n, buffer_size=args.buffer_size,
-                          buffer_reuse=args.buffer_reuse)
+                          buffer_reuse=args.buffer_reuse,
+                          clip_cache=args.clip_cache, clip_refresh=args.clip_refresh)
     # prefetch_factor=2:解码抖动已由滚动缓存+reuse 吸收;大 batch 下每个预取
     # batch 是 ~0.4GB 的大块(256×30 帧 uint8),更深的队列只是白占主存、
     # 拉长积压(worker 数 × 深度 × batch 个窗口的解码欠账)。

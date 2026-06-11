@@ -151,15 +151,21 @@ class VPTStreamDataset(IterableDataset):
 
     buffer_size:**滚动样本缓存**(0=关闭)。总上限 buffer_size 段切片好的窗口
     (视频帧 uint8 + 动作张量)平摊到各 worker 常驻内存:新解码的窗口 FIFO 滚动
-    放入,产出时从缓存均匀随机抽一段。作用:(1) 有界内存下把"解码顺序"与"训练
+    放入,产出时从缓存均匀随机抽。作用:(1) 有界内存下把"解码顺序"与"训练
     消费顺序"解耦,batch 内样本来自最近 quota 个窗口而非紧邻解码的几个;
-    (2) 已解码窗口在被换出前平均被复用 ~1 次(随机抽),解码抖动被缓存吸收。
+    (2) 配合 buffer_reuse 把解码吞吐放大 reuse 倍。
     128px×30 帧一段 ≈ 1.4MB,512 段 ≈ 0.74GB(uint8,各 worker 均摊)。
+
+    buffer_reuse:每解码 1 个新窗口,从缓存随机抽出几个样本(1=不复用)。
+    **这是 CPU 解码追上 GPU 消费的关键杠杆**:窗口解码 ~1 窗/s/worker(随机
+    seek 到关键帧 + 130 帧 H.264),GPU 一步要吃 batch 个窗口——batch=256 时
+    供需差 >3×,不复用则 GPU 大部分时间饿死在等数据(利用率长期 0%)。
+    代价:相邻 batch 间样本有重复(缓存内随机抽),表征学习下 2~4 倍完全可接受。
     """
 
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
-                 split=None, holdout_n=1, buffer_size=0):
+                 split=None, holdout_n=1, buffer_size=0, buffer_reuse=1):
         super().__init__()
         self.seq_len, self.fps = seq_len, fps
         self.cache_size = max(1, cache_size)
@@ -168,6 +174,7 @@ class VPTStreamDataset(IterableDataset):
         self.camera_scale = camera_scale
         self.frame_skip = max(1, int(frame_skip))
         self.buffer_size = max(0, int(buffer_size))
+        self.buffer_reuse = max(1, int(buffer_reuse))
         pairs = _pair_list(data_dir)
         if not pairs:
             raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
@@ -182,7 +189,8 @@ class VPTStreamDataset(IterableDataset):
               f"窗口按需解码(uint8) | img_size={img_size or 'native'} "
               f"| camera_scale={camera_scale:.1f} | Δt~U{{1..{self.frame_skip}}} "
               f"| 动作表缓存<={self.cache_size} 文件/worker"
-              f"| 滚动窗口缓存={self.buffer_size or '关'}")
+              f"| 滚动窗口缓存={self.buffer_size or '关'}"
+              f"(复用×{self.buffer_reuse})")
 
     def _load_meta(self, mp4, jsonl):
         """解析一个文件对的动作表与可用帧数(不解码帧)。"""
@@ -311,10 +319,12 @@ class VPTStreamDataset(IterableDataset):
             if quota == 0:
                 yield sample
                 continue
-            # 新窗口 FIFO 滚动放入缓存,产出从缓存均匀随机抽(解码↔消费解耦)
+            # 新窗口 FIFO 滚动放入缓存;每解码 1 个新窗口产出 buffer_reuse 个
+            # 随机样本——解码需求 ÷ reuse(供需算术见类 docstring)
             if len(buf) < quota:
                 buf.append(sample)
             else:
                 buf[ptr] = sample
                 ptr = (ptr + 1) % quota
-            yield buf[rng.randrange(len(buf))]
+            for _ in range(self.buffer_reuse):
+                yield buf[rng.randrange(len(buf))]

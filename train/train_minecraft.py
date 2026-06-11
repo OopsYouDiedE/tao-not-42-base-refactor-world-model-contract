@@ -361,6 +361,10 @@ def main():
     ap.add_argument("--buffer_size", type=int, default=512,
                     help="训练集滚动样本缓存:最多缓存多少段切片好的窗口在内存(各 worker 均摊,"
                          "FIFO 滚动放入、随机抽出;0=关闭。见 VPTStreamDataset docstring)")
+    ap.add_argument("--buffer_reuse", type=int, default=4,
+                    help="每解码 1 个新窗口从缓存随机抽出几个样本(解码吞吐 ×reuse)。"
+                         "窗口解码 ~1 窗/s/worker 而 GPU 一步吃 batch 个窗口,大 batch 不复用"
+                         "则 GPU 长期 0% 利用率等数据;代价是相邻 batch 有重复样本(可接受)")
     ap.add_argument("--holdout_n", type=int, default=1,
                     help="按文件名扣末几个 clip 做 holdout(eval/viz 专用,不进训练)")
     ap.add_argument("--log_every", type=int, default=5,
@@ -428,13 +432,15 @@ def main():
                           cache_size=args.cache_size, refresh_every=args.refresh_every,
                           seed=args.seed, img_size=img_size, camera_scale=cam_scale,
                           frame_skip=args.frame_skip, split="train",
-                          holdout_n=args.holdout_n, buffer_size=args.buffer_size)
-    # prefetch_factor=4:窗口解码耗时方差大(seek 距关键帧远近不一),更深的预取
-    # 队列吸收抖动,避免 GPU 周期性空转等数据。
+                          holdout_n=args.holdout_n, buffer_size=args.buffer_size,
+                          buffer_reuse=args.buffer_reuse)
+    # prefetch_factor=2:解码抖动已由滚动缓存+reuse 吸收;大 batch 下每个预取
+    # batch 是 ~0.4GB 的大块(256×30 帧 uint8),更深的队列只是白占主存、
+    # 拉长积压(worker 数 × 深度 × batch 个窗口的解码欠账)。
     loader = DataLoader(ds, batch_size=args.batch, num_workers=n_workers,
                         pin_memory=is_cuda,
                         persistent_workers=(n_workers > 0),
-                        prefetch_factor=(4 if n_workers > 0 else None))
+                        prefetch_factor=(2 if n_workers > 0 else None))
     # 可视化与评估都用 holdout clip(按文件名扣末 holdout_n 个,不进训练):
     # 在训练数据上展示/评估,量到的是记忆不是泛化。
     eval_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,

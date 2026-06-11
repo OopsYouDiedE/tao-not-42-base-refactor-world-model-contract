@@ -364,7 +364,7 @@ def main():
                     help="每多少 epoch 在 holdout 上跑一次轻量评估并入 wandb 曲线"
                          "(0=只在训练结束跑全量)。泛化差距 = eval/pred 与训练 pred 之差")
     ap.add_argument("--viz_dir", default="runs/mc_viz")
-    ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov3",
+    ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov2",
                     help="视觉骨干(冻结):dinov3=ViT-S/16(默认;稠密特征最强,patch=16 "
                          "整除 128;hubconf 依赖 torchmetrics,Colab 端 pip 安装即可;"
                          "权重若 gated 经 --encoder_weights 传入);dinov2=ViT-S/14(权重"

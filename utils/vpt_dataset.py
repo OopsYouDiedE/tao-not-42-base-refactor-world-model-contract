@@ -145,7 +145,7 @@ class VPTStreamDataset(IterableDataset):
       - 动作效应随 Δt 近似线性累积而编码噪声地板不变 ⇒ 大 Δt 样本信噪比更高,
         混合采样自带课程。
     每个转移同时给出:**区间内完整的原始动作序列** act_seq(信息无损,右侧零填充
-    到 frame_skip,有效长度=dt)与聚合动作 act_agg(鼠标求和截 ±1/键盘 max,
+    到 frame_skip,有效长度=dt)与聚合动作 act_agg(鼠标区间平均/键盘 max,
     供历史 token 与逆动力学目标用——从单个 Δz 反推逐帧序列是欠定问题,反推净
     效应才良定义)。
 
@@ -232,7 +232,14 @@ class VPTStreamDataset(IterableDataset):
           act_seq [T-1, frame_skip, A] —— 每个转移区间内的**原始逐帧动作序列**,
             右侧零填充(有效长度 = dt[t],模型端据 dt 构造有效位,勿用全零判别:
             "什么都没按"本身就是全零动作)。
-          act_agg [T-1, A] —— 区间净效应:鼠标求和截 ±1,键盘按过即 1。
+          act_agg [T-1, A] —— 区间净效应:鼠标取**区间平均**(平均角速度),键盘按过即 1。
+
+        鼠标为什么是平均而不是求和:逐帧 dx 已按 camera_scale 截 ±1,求和再截 ±1
+        在 frame_skip=8 下持续转身 4~5 帧就饱和——目标退化成近似三值 {-1,0,+1},
+        mu-law 分箱全挤在边缘 bin,逆动力学 CE 卡在边缘分布熵的平凡解上
+        (实测 mouse_acc 0.66 平台 + 可视化 dx true 贴 ±1 轨道)。区间平均与逐帧
+        动作同尺度(历史 token 与当前动作可比)、对 dt 不变、几乎不饱和;模型
+        另有 dt 输入,需要总转角时可自行乘回。
           dt [T-1] —— 各转移的帧跨度(float)。
         """
         A = act.shape[1]
@@ -243,7 +250,7 @@ class VPTStreamDataset(IterableDataset):
         for t, s in enumerate(skips):
             w = act[pos: pos + s]
             seq[t, :w.shape[0]] = w
-            agg[t, :N_MOUSE] = w[:, :N_MOUSE].sum(dim=0).clamp(-1.0, 1.0)
+            agg[t, :N_MOUSE] = (w[:, :N_MOUSE].sum(dim=0) / s).clamp(-1.0, 1.0)
             agg[t, N_MOUSE:] = w[:, N_MOUSE:].max(dim=0).values
             pos += s
         return seq, agg, torch.tensor(skips, dtype=torch.float32)

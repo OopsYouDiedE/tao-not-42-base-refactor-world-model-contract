@@ -133,15 +133,26 @@ class VPTStreamDataset(IterableDataset):
     refresh_every 已废弃(没有整段缓存可换出),保留参数仅为 CLI 兼容。
     本身无限迭代,训练侧用固定 steps_per_epoch 截断。
 
-    frame_skip:时间降采样(每 skip 帧取 1 帧)。数学动机:20fps 下相邻帧潜表征
-    几乎相同(persistence 基线 RMS ~0.007,而动作效应更小),一步预测的动力学
-    信号被淹没;skip=4 → 等效 5Hz,单步动作效应被放大 ~4×。跳过帧只 grab() 不
-    解码(省 CPU);**动作按跳过窗口聚合**——鼠标 dx/dy 求和(再截到 ±1)、
-    键盘取按住即 1(max),保证"一步动作 = 这一步内真实发生的操作总量"。
+    frame_skip:**可变时间跨度的上限**。每个转移独立采样间隔 Δt ~ U{1..frame_skip}
+    (帧),图像只在采样点解码(跳过帧 grab() 不解码)。数学动机:
+      - 20fps 下相邻帧潜表征几乎相同,固定一步预测的动力学信号被 persistence 淹没;
+      - **可变** Δt 消除"固定步长默认漂移先验"——唯一能解释 Δz 的就是把区间内动作
+        逐个积分,这正是开环推演所需的能力(jumpy / temporally-abstract prediction);
+      - 动作效应随 Δt 近似线性累积而编码噪声地板不变 ⇒ 大 Δt 样本信噪比更高,
+        混合采样自带课程。
+    每个转移同时给出:**区间内完整的原始动作序列** act_seq(信息无损,右侧零填充
+    到 frame_skip,有效长度=dt)与聚合动作 act_agg(鼠标求和截 ±1/键盘 max,
+    供历史 token 与逆动力学目标用——从单个 Δz 反推逐帧序列是欠定问题,反推净
+    效应才良定义)。
+
+    split:"train"/"holdout"/None。按文件名排序后扣末 holdout_n 个为 holdout
+    (确定性切分,与 seed 无关)——可视化与最终评估必须用 holdout,否则展示的是
+    记忆而非泛化。clip 总数不足时退化为全量并告警。
     """
 
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
-                 seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1):
+                 seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
+                 split=None, holdout_n=1):
         super().__init__()
         self.seq_len, self.fps = seq_len, fps
         self.cache_size = max(1, cache_size)
@@ -149,12 +160,19 @@ class VPTStreamDataset(IterableDataset):
         self.img_size = img_size
         self.camera_scale = camera_scale
         self.frame_skip = max(1, int(frame_skip))
-        self.pairs = _pair_list(data_dir)
-        if not self.pairs:
+        pairs = _pair_list(data_dir)
+        if not pairs:
             raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
-        print(f"[VPTStreamDataset] {len(self.pairs)} clips on disk | 窗口按需解码(uint8) "
-              f"| img_size={img_size or 'native'} | camera_scale={camera_scale:.1f} "
-              f"| frame_skip={self.frame_skip} (等效 {fps / self.frame_skip:.1f}Hz) "
+        if split in ("train", "holdout"):
+            if len(pairs) > holdout_n:
+                pairs = pairs[:-holdout_n] if split == "train" else pairs[-holdout_n:]
+            else:
+                print(f"[VPTStreamDataset] ⚠ 只有 {len(pairs)} 个 clip,无法切分 "
+                      f"split={split}——退化为全量(评估/可视化将与训练同源,数字偏乐观)")
+        self.pairs = pairs
+        print(f"[VPTStreamDataset] {len(self.pairs)} clips ({split or 'all'}) | "
+              f"窗口按需解码(uint8) | img_size={img_size or 'native'} "
+              f"| camera_scale={camera_scale:.1f} | Δt~U{{1..{self.frame_skip}}} "
               f"| 动作表缓存<={self.cache_size} 文件/worker")
 
     def _load_meta(self, mp4, jsonl):
@@ -173,8 +191,9 @@ class VPTStreamDataset(IterableDataset):
         return {"action": torch.stack(actions[:n]) if n > 0 else None,
                 "task": task, "n": n}
 
-    def _decode_window(self, mp4, start, T):
-        """seek 到 start,按 frame_skip 间隔解码 T 帧 → uint8 [T,3,H,W];不足返回 None。
+    def _decode_window(self, mp4, start, skips):
+        """seek 到 start,按 skips 给定的逐转移间隔解码 len(skips)+1 帧 → uint8
+        [T,3,H,W];不足返回 None。
 
         先 resize 再 cvtColor:色彩转换在 128×128 上做比在 360×640 上做省 ~14×
         像素量,INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
@@ -183,44 +202,55 @@ class VPTStreamDataset(IterableDataset):
         cap = cv2.VideoCapture(mp4)
         if start > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
-        frames = []
-        for t in range(T):
+
+        def _read():
             ret, f = cap.read()
             if not ret:
-                break
+                return None
             if self.img_size:
                 f = cv2.resize(f, (self.img_size, self.img_size),
                                interpolation=cv2.INTER_AREA)
-            f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
-            frames.append(torch.from_numpy(f))
-            if t < T - 1:
-                for _ in range(self.frame_skip - 1):
+            return torch.from_numpy(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
+
+        frames = []
+        f = _read()
+        if f is not None:
+            frames.append(f)
+            for s in skips:
+                for _ in range(s - 1):
                     if not cap.grab():
                         break
+                f = _read()
+                if f is None:
+                    break
+                frames.append(f)
         cap.release()
-        if len(frames) < T:
+        if len(frames) < len(skips) + 1:
             return None
         return torch.stack(frames).permute(0, 3, 1, 2).contiguous()
 
-    def _agg_actions(self, act, start):
-        """聚合 [start, start+(T-1)·skip] 区间的逐帧动作到 T 个降采样步。
+    def _split_actions(self, act, start, skips):
+        """把 [start, start+Σskips) 的逐帧动作按转移切开。
 
-        第 t 步动作 = 原始帧 [start+t·skip, start+(t+1)·skip) 内的操作总量:
-        鼠标(归一化后)求和再截到 [-1,1],键盘窗口内按过即 1。skip=1 时退化为切片。
+        返回:
+          act_seq [T-1, frame_skip, A] —— 每个转移区间内的**原始逐帧动作序列**,
+            右侧零填充(有效长度 = dt[t],模型端据 dt 构造有效位,勿用全零判别:
+            "什么都没按"本身就是全零动作)。
+          act_agg [T-1, A] —— 区间净效应:鼠标求和截 ±1,键盘按过即 1。
+          dt [T-1] —— 各转移的帧跨度(float)。
         """
-        T, s = self.seq_len, self.frame_skip
-        if s == 1:
-            return act[start:start + T].clone()
-        rows = []
-        for t in range(T):
-            a0 = start + t * s
-            w = act[a0: min(a0 + s, act.shape[0])]
-            if w.shape[0] == 0:                     # 末步窗口越界(span 只保证到最后一帧)
-                w = act[-1:]
-            mouse = w[:, :N_MOUSE].sum(dim=0).clamp(-1.0, 1.0)
-            keys = w[:, N_MOUSE:].max(dim=0).values
-            rows.append(torch.cat([mouse, keys]))
-        return torch.stack(rows)
+        A = act.shape[1]
+        T1 = len(skips)
+        seq = torch.zeros(T1, self.frame_skip, A)
+        agg = torch.zeros(T1, A)
+        pos = start
+        for t, s in enumerate(skips):
+            w = act[pos: pos + s]
+            seq[t, :w.shape[0]] = w
+            agg[t, :N_MOUSE] = w[:, :N_MOUSE].sum(dim=0).clamp(-1.0, 1.0)
+            agg[t, N_MOUSE:] = w[:, N_MOUSE:].max(dim=0).values
+            pos += s
+        return seq, agg, torch.tensor(skips, dtype=torch.float32)
 
     def __iter__(self):
         wi = get_worker_info()
@@ -238,7 +268,9 @@ class VPTStreamDataset(IterableDataset):
                 if len(meta_cache) >= self.cache_size:
                     meta_cache.pop(rng.choice(list(meta_cache.keys())))
                 meta_cache[mp4] = m
-            span = (self.seq_len - 1) * self.frame_skip + 1   # 窗口占用的原始帧数
+            # 每个转移独立采样跨度 Δt ~ U{1..frame_skip}(可变间隔,见类 docstring)
+            skips = [rng.randint(1, self.frame_skip) for _ in range(self.seq_len - 1)]
+            span = sum(skips) + 1                             # 窗口占用的原始帧数
             if m["n"] < span:
                 fails += 1
                 if fails > 4 * len(self.pairs) + 8:
@@ -246,16 +278,20 @@ class VPTStreamDataset(IterableDataset):
                         "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
                 continue
             start = rng.randint(0, m["n"] - span)
-            img = self._decode_window(mp4, start, self.seq_len)
+            img = self._decode_window(mp4, start, skips)
             if img is None:
                 fails += 1
                 continue
             fails = 0
-            tv = ((start + torch.arange(self.seq_len, dtype=torch.float32)
-                   * self.frame_skip) / self.fps + rng.uniform(0.0, 1e4))
+            act_seq, act_agg, dt = self._split_actions(m["action"], start, skips)
+            # 采样帧的真实时间戳(可变间隔 ⇒ 非等差)
+            idx = torch.tensor([0] + skips, dtype=torch.float32).cumsum(0) + start
+            tv = idx / self.fps + rng.uniform(0.0, 1e4)
             yield {
-                "img": img,                                          # uint8 [T,3,H,W]
-                "action": self._agg_actions(m["action"], start),
+                "img": img,                # uint8 [T,3,H,W]
+                "act_seq": act_seq,        # [T-1, frame_skip, A] 区间内原始动作(零填充)
+                "act_agg": act_agg,        # [T-1, A] 区间净效应(历史 token/inv-dyn 目标)
+                "dt": dt,                  # [T-1] 帧跨度
                 "task_text": m["task"],
-                "t_vec": tv,
+                "t_vec": tv,               # [T]
             }

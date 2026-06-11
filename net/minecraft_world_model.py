@@ -23,8 +23,15 @@
    不给泄压阀。c 旧版逐维([B,N,d],6144 个闸门)靠一个池化标量损失塑形,梯度
    过度弥散;改回 tao 版逐 slot 标量。
 
-训练时序(teacher forcing):每步感知输入 = 在线编码 z_obs(t),μ 预测 Δz(t→t+1);
-跨步记忆只走 h token。开环推演(可视化/推理)用 ẑ(t+1) = ẑ(t) + μ(t) 累积。
+训练时序(teacher forcing):每步感知输入 = 在线编码 z_obs(t),μ 预测 Δz(t→t+dt);
+跨步记忆只走 h token。开环推演(可视化/推理)用 ẑ(t+dt) = ẑ(t) + μ(t) 累积。
+
+可变 Δt(jumpy prediction):每个转移的跨度 dt ~ U{1..max_skip}(帧)由数据集采样,
+模型同时接收 (a) 区间内**完整的原始动作序列** a_cur(信息无损,带有效位区分零填充
+与真·无操作)、(b) 聚合动作历史 a_hist、(c) ContinuousTimeEncoding(dt) 条件 token。
+数学动机:固定步长允许模型学"默认漂移先验";Δt 可变后,唯一能解释 Δz 的就是把
+区间内动作逐个积分——这正是开环推演所需的能力,且动作效应随 Δt 累积而编码噪声
+地板不变,大 Δt 样本信噪比更高。
 """
 import copy
 import math
@@ -32,6 +39,8 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from blocks.primitives import ContinuousTimeEncoding
 
 N_CAMERA_BINS = 11   # 与 utils.vpt_action.CAMERA_BINS 一致(net 层不 import utils,训练端校验)
 
@@ -133,20 +142,22 @@ class MinecraftWorldModel(nn.Module):
     """Δz-JEPA 世界模型:统一锚坐标系感知 + EMA 目标 + Transformer 动力学推演。"""
 
     def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
-                 ema_decay=0.99):
+                 ema_decay=0.99, max_skip=8):
         super().__init__()
         self.d = d
         self.N = N # 实体槽数量
         self.K = K # 动作查询数量
-        self.J = J # 历史动作长度(训练/可视化按此构造 a_raw)
+        self.J = J # 历史动作长度(训练/可视化按此构造 a_hist)
+        self.S = max_skip # 区间动作序列最大长度(= 数据集 frame_skip 上限)
         self.ema_decay = ema_decay
 
         # 在线感知:vision → binder(固定锚) − 锚。锚是 buffer 不训练,
         # 在线/目标共用 ⇒ 两条路径编码同一帧得到同一坐标系下的同一向量(至 EMA 滞后)。
+        # compete=True:slot 维竞争注意力(防多个 slot 冗余绑定同一区域,见 SlotBinder)。
         self.vision_encoder = MockDINOv2(d)
         self.register_buffer("slots", torch.randn(1, N, d))
         from net.tao_not_42 import SlotBinder
-        self.binder = SlotBinder(d)
+        self.binder = SlotBinder(d, compete=True)
 
         # EMA 目标编码器(JEPA 靶):深拷贝、不收梯度、不进 optimizer
         # (requires_grad=False ⇒ model.parameters() 过滤后不会被 Adam 更新,
@@ -178,8 +189,13 @@ class MinecraftWorldModel(nn.Module):
                                            batch_first=True, activation="gelu", dropout=0.0)
         self.blocks = nn.TransformerEncoder(layer, num_layers=4)
 
-        # 复合动作
-        self.action_enc = nn.Linear(act_dim, d)
+        # 复合动作。act_dim+1:末位是**有效位**——区分零填充与真·无操作(全零动作
+        # 是合法输入"什么都没按",不能用全零判别 padding)。历史 token 有效位恒 1。
+        self.action_enc = nn.Linear(act_dim + 1, d)
+        # 区间内动作的序内位置嵌入(次序携带信息:先转头后前进 ≠ 先前进后转头)
+        self.act_pos = nn.Parameter(torch.randn(1, max_skip, d) * 0.02)
+        # Δt 条件编码(契约:以帧为单位,见 primitives.ContinuousTimeEncoding)
+        self.dt_enc = ContinuousTimeEncoding(d)
         self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2)
         self.inv_dyn = MinecraftInverseDynamicsHead(d, num_keyboard_keys=act_dim-2,
                                                     n_cam_bins=n_cam_bins)
@@ -233,23 +249,31 @@ class MinecraftWorldModel(nn.Module):
 
     # ---------------- 动力学推演 ----------------
 
-    def forward(self, z_ref, h, a_raw, t_vec):
-        """一步动力学推演。
+    def forward(self, z_ref, h, a_hist, a_cur, dt, t_vec):
+        """一段可变跨度的动力学推演:预测 z 从 t 到 t+dt 的增量。
 
-        z_ref: [B,N,d] 当前帧潜表征(闭环 = encode_obs(img_t);开环 = 上一步 ẑ+μ)。
-        返回 mu = **Δz 预测**(z_{t+1} 的估计 = z_ref + mu),c = 逐 slot 可控闸。
-        时间 PE 加在 h token 上(不污染感知):h 本就是跨步记忆载体,时间戳是
-        它的自然属性;旧版加在全部 patch 上,让 [0,1e4] 随机偏移的高频分量
-        污染了 binder 的注意力键值。
+        z_ref:  [B,N,d] 当前帧潜表征(闭环 = encode_obs(img_t);开环 = 上一步 ẑ+μ)。
+        a_hist: [B,J,A] 过去 J 个转移的聚合动作(严格过去,当前区间不在内)。
+        a_cur:  [B,S,A] 当前区间内完整的原始动作序列(右侧零填充)。
+        dt:     [B]     当前转移的帧跨度(决定 a_cur 的有效长度与 Δt 条件)。
+        返回 mu = **Δz 预测**(z(t+dt) 的估计 = z_ref + mu),c = 逐 slot 可控闸。
+        时间 PE 加在 h token 上(不污染感知);Δt 编码为独立条件 token。
         """
         B = z_ref.shape[0]
         text_token = self.text_placeholder.expand(B, -1, -1)
-        a_tokens = self.action_enc(a_raw)
         u_p = self.u_placeholder.expand(B, -1, -1)
-        h_token = h + sinusoidal_time_encoding(t_vec, self.d)
+        h_token = h + sinusoidal_time_encoding(t_vec, self.d).to(h.dtype)
+        dt_token = self.dt_enc(dt).to(z_ref.dtype).unsqueeze(1)        # [B,1,d]
 
-        # [N slots, 1 text, 1 h, J actions, K action_queries]
-        X = torch.cat([z_ref, text_token, h_token, a_tokens, u_p], dim=1)
+        ones_h = torch.ones(B, a_hist.shape[1], 1, device=z_ref.device, dtype=a_hist.dtype)
+        ah = self.action_enc(torch.cat([a_hist, ones_h], dim=-1))
+        S = a_cur.shape[1]
+        valid = (torch.arange(S, device=z_ref.device).unsqueeze(0)
+                 < dt.unsqueeze(1)).to(a_cur.dtype).unsqueeze(-1)      # [B,S,1]
+        ac = self.action_enc(torch.cat([a_cur, valid], dim=-1)) + self.act_pos[:, :S]
+
+        # [N slots, 1 text, 1 h, 1 dt, J hist, S cur, K action_queries]
+        X = torch.cat([z_ref, text_token, h_token, dt_token, ah, ac, u_p], dim=1)
 
         # Transformer 推演
         X = self.blocks(X)
@@ -257,7 +281,7 @@ class MinecraftWorldModel(nn.Module):
         # 解码
         out_Z = X[:, 0:self.N, :]
         out_h = X[:, self.N+1:self.N+2, :]
-        base = self.N + 1 + 1 + a_tokens.shape[1]
+        base = self.N + 3 + ah.shape[1] + S
         out_u = X[:, base:base+self.K, :]
 
         out_state = self.state_dec(out_Z)

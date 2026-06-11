@@ -5,11 +5,11 @@
 
   L_total = L_pred + α·L_inv + β·L_sigreg
 
-  L_pred (Δz 预测,归一化 MSE): 从 (z_obs(t), a_t, h, t) 预测潜表征**增量**
-    Δz = sg[enc_ema(img_{t+1}) − enc_ema(img_t)],除以 E[Δz²](detach)归一。
-    损失值直接可读:1.0 = persistence(预测 0)基线,<1 = 胜过复读。
+  L_pred (Δz 预测,逐样本归一化 MSE): 从 (z_obs(t), 区间动作序列, dt, h, t) 预测
+    潜表征**增量** Δz = sg[enc_ema(img_{t+dt}) − enc_ema(img_t)],逐样本除以
+    E[Δz²](detach)。损失值直接可读:1.0 = persistence(预测 0)基线,<1 = 胜过复读。
     旧版预测绝对 z_{t+1} 时静态内容占目标能量 ~99.8%,动力学信号被淹没。
-  L_inv  (逆动力学): 从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推真实动作 a_t。
+  L_inv  (逆动力学): 从 (z_tg(t+dt) − z_obs(t)) ⊙ c 反推区间聚合动作。
     鼠标 = mu-law 分箱分类(CE,堵死"恒 0"平凡解),键盘 = 20 键 BCE。
     z_obs 端带梯度 ⇒ 这是视觉编码器"必须让 Δ 编码动作"的唯一直接压力。
   L_sigreg (防坍缩): sliced 高斯正则,施加在**在线感知编码 z_obs** 上(坍缩
@@ -17,8 +17,10 @@
     方差来满足检验,视觉内容照样坍缩)。
 
 目标编码器 = 在线权重的 EMA 副本(每个优化步后 model.ema_update()),平稳靶。
-时间降采样 --frame_skip(默认 4,20fps→5Hz):单步动作效应放大 ~4×,鼠标 dx/dy
-在跳过窗口内求和、键盘取 max(见 VPTStreamDataset)。
+可变 Δt(--frame_skip = 跨度上限,逐转移 Δt~U{1..skip}):消除固定步长的"默认
+漂移先验",逼模型积分区间内动作序列(jumpy prediction,直攻开环复合误差);
+模型同时接收区间内完整原始动作序列与聚合历史(见 VPTStreamDataset/模型 docstring)。
+可视化与最终评估用 **holdout clip**(按文件名扣末 1 个,不进训练),展示泛化而非记忆。
 
 数据:utils.vpt_dataset.VPTStreamDataset —— 流式加载(不全量预载),每个 worker 维护
 <=cache_size 个已解码序列的滚动缓存,多 worker 并行喂数据,每步随机取 batch 个序列。
@@ -55,16 +57,18 @@ N_MOUSE = 2
 # 损失函数
 # =====================================================================
 
-def dz_pred_loss(mu, dz_tg, eps=1e-8):
-    """归一化 Δz 预测损失:MSE(μ, Δz) / E[Δz²](分母 detach)。
+def dz_pred_loss(mu, dz_tg, eps=1e-3):
+    """逐样本归一化 Δz 预测损失:mean_b[ E_{N,d}[(μ−Δz)²] / E_{N,d}[Δz²] ](分母 detach)。
 
-    归一化的两个作用:(1) 损失值直接可读——它就是 (model/persistence)² 比值,
-    1.0 = 复读基线;(2) 对编码尺度不变——编码器把 Δz 幅度整体压扁不能降低本
-    损失,堵死"通过 EMA 把变化抹平"的间接捷径(目标本身 no_grad,但在线权重
-    的坍缩动作会经 EMA 低通渗入目标;尺度不变性让这条路无利可图)。
+    归一化的作用:(1) 损失值直接可读——就是 (model/persistence)² 比值,1.0 = 复读
+    基线;(2) 对编码尺度不变,堵死"经 EMA 把变化抹平"的间接捷径;(3) **可变 Δt 下
+    必须逐样本归一**:同一 batch 混合不同跨度,大 Δt 的 |Δz| 大,全局分母会让长跨度
+    样本主导损失、小间隔的精细动力学被相对忽略。每样本分母由 N·d 个分量估计
+    (默认 6144,统计上稳);下限 eps 防静止转移(Δz≈0)除零放大。
     """
-    denom = dz_tg.square().mean().detach().clamp(min=eps)
-    return (mu - dz_tg).square().mean() / denom
+    per = (mu - dz_tg).square().mean(dim=(1, 2))
+    denom = dz_tg.square().mean(dim=(1, 2)).detach().clamp(min=eps)
+    return (per / denom).mean()
 
 
 def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head):
@@ -130,25 +134,29 @@ def _gpu_util():
 # 训练 / 评估
 # =====================================================================
 
-def roll_append(a_raw, action):
-    """滚动追加当前动作到历史缓冲。a_raw:[B,J,ACT_DIM], action:[B,ACT_DIM]。"""
-    return torch.cat([a_raw[:, 1:], action.unsqueeze(1)], dim=1)
+def roll_append(a_hist, action):
+    """滚动追加一个聚合动作到历史缓冲。a_hist:[B,J,ACT_DIM], action:[B,ACT_DIM]。"""
+    return torch.cat([a_hist[:, 1:], action.unsqueeze(1)], dim=1)
 
 
-def _run_sequence(model, sigreg, img, action, t_vec, device, k_bptt,
+def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                   alpha_inv, beta_sigreg, amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
     跨步记忆只走 h token(窗口内带梯度,窗口边界 detach)。开环推演(ẑ+μ 累积)
-    只在可视化/推理里做,训练不做 scheduled sampling——先把一步动力学学对。
+    只在可视化/推理里做;可变 Δt 的"积分区间动作"目标已覆盖多步效应。
+    历史 a_hist 在 forward **之后**滚入当前聚合动作:历史=严格过去,
+    当前区间的动作走 a_cur 完整序列通道,不重复注入。
 
     吞吐:目标编码整条序列一次批量(EMA + no_grad);在线编码按 BPTT 窗口批量;
     只有 Transformer 递归本身逐步(固有串行)。
     """
+    img, t_vec = batch_dev["img"], batch_dev["t_vec"]
+    act_seq, act_agg, dt = batch_dev["act_seq"], batch_dev["act_agg"], batch_dev["dt"]
     B, T = img.shape[0], img.shape[1]
     h = torch.zeros(B, 1, model.d, device=device)
-    a_raw = torch.zeros(B, model.J, ACT_DIM, device=device)
+    a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
     n_win = -(-(T - 1) // k_bptt)        # ceil:窗口数,用于 SIGReg 权重尺度归一
     last_c = None
 
@@ -171,15 +179,15 @@ def _run_sequence(model, sigreg, img, action, t_vec, device, k_bptt,
         for i in range(k):
             t = w0 + i
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
-                a_raw = roll_append(a_raw, action[:, t])
-                out = model(z_obs[:, i], h, a_raw, t_vec[:, t])
+                out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
+            a_hist = roll_append(a_hist, act_agg[:, t])
 
             # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,CE/归一化 MSE 在 fp32 更稳)
             mu, c = out["mu"].float(), out["c"].float()
             dz = z_tg[:, t + 1] - z_tg[:, t]                    # Δz 目标(no_grad)
             l_pred = dz_pred_loss(mu, dz)
             l_inv, l_mouse, l_kb, m_acc = minecraft_inv_dyn_loss(
-                z_tg[:, t + 1] - z_obs[:, i].float(), c, action[:, t], model.inv_dyn)
+                z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t], model.inv_dyn)
 
             accum = accum + (l_pred + alpha_inv * l_inv) / (T - 1)
             last_c = c
@@ -213,12 +221,16 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
     gpu_samples, c_last, n_batches = [], None, 0
 
     for batch in itertools.islice(loader, steps):
-        img = _to_float_img(batch["img"].to(device, non_blocking=True))
-        action = batch["action"].to(device, non_blocking=True)
-        t_vec = batch["t_vec"].to(device, non_blocking=True)
+        batch_dev = {
+            "img": _to_float_img(batch["img"].to(device, non_blocking=True)),
+            "act_seq": batch["act_seq"].to(device, non_blocking=True),
+            "act_agg": batch["act_agg"].to(device, non_blocking=True),
+            "dt": batch["dt"].to(device, non_blocking=True),
+            "t_vec": batch["t_vec"].to(device, non_blocking=True),
+        }
 
         opt.zero_grad(set_to_none=True)
-        c_last = _run_sequence(model, sigreg, img, action, t_vec, device, k_bptt,
+        c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -256,6 +268,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     瞬间的检出率才证明模型从 ΔZ 里读出了动作。
     鼠标:分箱准确率,分全帧 acc 与 **move_acc**(仅 GT 非中心 bin、即真动了
     鼠标的帧)——基率解(恒中心 bin)在 move_acc 上得 0,同 onset 逻辑。
+    loader 应来自 **holdout split**(不进训练的 clip),量泛化而非记忆。
     """
     model.eval()
     tp = fp = fn = tn = 0
@@ -264,7 +277,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     center = (CAMERA_BINS - 1) // 2
     for batch in itertools.islice(loader, steps):
         img = _to_float_img(batch["img"].to(device))
-        action = batch["action"].to(device)
+        act_seq = batch["act_seq"].to(device)
+        act_agg = batch["act_agg"].to(device)
+        dt = batch["dt"].to(device)
         t_vec = batch["t_vec"].to(device)
         B, T = img.shape[0], img.shape[1]
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
@@ -275,16 +290,16 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
                 img.reshape(B * T, *img.shape[2:])).view(B, T, model.N, model.d)
         z_obs, z_tg = z_obs.float(), z_tg.float()
         h = torch.zeros(B, 1, model.d, device=device)
-        a_raw = torch.zeros(B, model.J, ACT_DIM, device=device)
+        a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
         prev_true = None
         for t in range(T - 1):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
-                a_raw = roll_append(a_raw, action[:, t])
-                out = model(z_obs[:, t], h, a_raw, t_vec[:, t])
+                out = model(z_obs[:, t], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
+            a_hist = roll_append(a_hist, act_agg[:, t])
             mouse_logits, kb_prob = model.inv_dyn(
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float())
             kb_pred = (kb_prob > 0.5)
-            kb_true = (action[:, t, N_MOUSE:] > 0.5)
+            kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
             fn += (~kb_pred & kb_true).sum().item();  tn += (~kb_pred & ~kb_true).sum().item()
             if prev_true is not None:
@@ -293,7 +308,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
                 off_tp += (~kb_pred & release).sum().item(); off_n += release.sum().item()
             prev_true = kb_true
             mb_pred = mouse_logits.argmax(-1)
-            mb_true = camera_to_bin(action[:, t, :N_MOUSE])
+            mb_true = camera_to_bin(act_agg[:, t, :N_MOUSE])
             hit = (mb_pred == mb_true)
             m_hit += hit.sum().item(); m_n += hit.numel()
             moved = (mb_true != center)
@@ -319,9 +334,9 @@ def main():
                          "利用率 ~16%%——显存余量极大,默认提到 16;SIGReg 检验功效同步受益)")
     ap.add_argument("--seq_len", type=int, default=60)
     ap.add_argument("--fps", type=int, default=20)
-    ap.add_argument("--frame_skip", type=int, default=4,
-                    help="时间降采样(每 skip 帧取 1 帧,动作在窗口内聚合)。20fps 下相邻"
-                         "帧几乎相同,一步动力学信号被 persistence 淹没;默认 4 → 等效 5Hz")
+    ap.add_argument("--frame_skip", type=int, default=8,
+                    help="可变预测跨度上限:每个转移 Δt~U{1..skip}(帧),区间内完整动作"
+                         "序列喂给模型(jumpy prediction,逼模型积分动作、直攻开环复合误差)")
     ap.add_argument("--img_size", type=int, default=128,
                     help="训练分辨率(数据集端 INTER_AREA 下采样;0=保持原始分辨率)")
     ap.add_argument("--camera_scale", type=float, default=None,
@@ -382,25 +397,35 @@ def main():
     ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                           cache_size=args.cache_size, refresh_every=args.refresh_every,
                           seed=args.seed, img_size=img_size, camera_scale=cam_scale,
-                          frame_skip=args.frame_skip)
+                          frame_skip=args.frame_skip, split="train")
     # prefetch_factor=4:窗口解码耗时方差大(seek 距关键帧远近不一),更深的预取
     # 队列吸收抖动,避免 GPU 周期性空转等数据。
     loader = DataLoader(ds, batch_size=args.batch, num_workers=n_workers,
                         pin_memory=is_cuda,
                         persistent_workers=(n_workers > 0),
                         prefetch_factor=(4 if n_workers > 0 else None))
+    # 可视化与最终评估都用 holdout clip(按文件名扣末 1 个,不进训练):
+    # 在训练数据上展示/评估,量到的是记忆不是泛化。
+    eval_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
+                               cache_size=4, seed=args.seed + 555, img_size=img_size,
+                               camera_scale=cam_scale, frame_skip=args.frame_skip,
+                               split="holdout")
+    eval_loader = DataLoader(eval_ds, batch_size=args.batch, num_workers=min(2, n_workers),
+                             pin_memory=is_cuda)
 
     viz_batch = None
     if args.viz_every > 0:
         # 固定一条可视化序列(独立 seed,跨 epoch 同一窗口 → 面板可前后对比)
         viz_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                                   cache_size=4, seed=args.seed + 999, img_size=img_size,
-                                  camera_scale=cam_scale, frame_skip=args.frame_skip)
+                                  camera_scale=cam_scale, frame_skip=args.frame_skip,
+                                  split="holdout")
         viz_batch = next(iter(DataLoader(viz_ds, batch_size=1)))
         os.makedirs(args.viz_dir, exist_ok=True)
 
     model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM,
-                                n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay).to(dev)
+                                n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
+                                max_skip=args.frame_skip).to(dev)
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
@@ -444,8 +469,8 @@ def main():
         print(f"\n[GPU] 训练平均利用率 {sum(util_hist) / len(util_hist):.0f}% "
               f"({len(util_hist)} epoch) | 峰值显存 {peak:.2f} GB")
 
-    print("\n--- 最终评估:逆动力学(从画面变化反推操作)---")
-    e = evaluate(model, loader, dev, max(args.steps_per_epoch, 20), amp_dev, use_amp)
+    print("\n--- 最终评估:逆动力学(从画面变化反推操作;holdout clip,未进训练)---")
+    e = evaluate(model, eval_loader, dev, max(args.steps_per_epoch, 20), amp_dev, use_amp)
     print(f"键盘 recall {e['kb_recall']:.3f} | spec {e['kb_spec']:.3f} | "
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")
     print(f"跳变检出 onset {e['kb_onset_recall']:.3f} | release {e['kb_release_recall']:.3f} "

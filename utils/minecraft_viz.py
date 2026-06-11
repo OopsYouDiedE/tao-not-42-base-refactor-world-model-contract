@@ -28,12 +28,13 @@ N_MOUSE = 2
 
 
 @torch.no_grad()
-def collect_rollout(model, img, action, t_vec, device, open_loop_from=None):
+def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_from=None):
     """跑一遍序列收集可视化轨迹。img: [B,T,3,H,W] float∈[0,1]。取样本 0。
 
     闭环段:感知输入 = encode_obs(img_t);开环段(t >= open_loop_from):
     感知输入 = 上一步预测 ẑ = z_ref + μ 的累积(训练是 teacher forcing,
     开环漂移速度是"学没学到可推演动力学"的检验,不是训练目标)。
+    序列应来自 holdout clip(train_minecraft 已按 split 切分)。
     """
     was_training = model.training
     model.eval()
@@ -60,7 +61,7 @@ def collect_rollout(model, img, action, t_vec, device, open_loop_from=None):
         attn_frame = img[0, attn_t].float().cpu().numpy().transpose(1, 2, 0)
 
         h = torch.zeros(B, 1, d, device=device)
-        a_raw = torch.zeros(B, model.J, action.shape[-1], device=device)
+        a_hist = torch.zeros(B, model.J, act_agg.shape[-1], device=device)
         Z_state = z_obs[:, 0]                      # 开环推演的滚动状态(锚坐标系)
 
         traj = {k: [] for k in ["pred_err", "pers_err", "kb_pred", "kb_true",
@@ -68,8 +69,8 @@ def collect_rollout(model, img, action, t_vec, device, open_loop_from=None):
 
         for t in range(T - 1):
             z_ref = z_obs[:, t] if t < open_loop_from else Z_state
-            a_raw = torch.cat([a_raw[:, 1:], action[:, t].unsqueeze(1)], dim=1)
-            out = model(z_ref, h, a_raw, t_vec[:, t])
+            out = model(z_ref, h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
+            a_hist = torch.cat([a_hist[:, 1:], act_agg[:, t].unsqueeze(1)], dim=1)
             mu, c = out["mu"].float(), out["c"].float()
 
             dz = z_tg[:, t + 1] - z_tg[:, t]
@@ -78,13 +79,13 @@ def collect_rollout(model, img, action, t_vec, device, open_loop_from=None):
 
             mouse_logits, kb_prob = model.inv_dyn((z_tg[:, t + 1] - z_obs[:, t]) * c)
             traj["kb_pred"].append(kb_prob[0].float().cpu().numpy())
-            traj["kb_true"].append(action[0, t, N_MOUSE:].float().cpu().numpy())
+            traj["kb_true"].append(act_agg[0, t, N_MOUSE:].float().cpu().numpy())
             traj["mouse_pred"].append(
                 bin_to_camera(mouse_logits[0].argmax(-1)).float().cpu().numpy())
-            traj["mouse_true"].append(action[0, t, :N_MOUSE].float().cpu().numpy())
+            traj["mouse_true"].append(act_agg[0, t, :N_MOUSE].float().cpu().numpy())
             traj["c"].append(c[0].squeeze(-1).cpu().numpy())          # [N] 逐 slot 标量
 
-            Z_state = z_ref + mu                   # ẑ(t+1) = 当前估计 + 预测增量
+            Z_state = z_ref + mu                   # ẑ(t+dt) = 当前估计 + 预测增量
             h = out["h_next"]
 
         result = {k: np.stack(v) for k, v in traj.items()}
@@ -230,8 +231,8 @@ def visualize_minecraft(model, batch, device, out_path, title=""):
     """入口:对一个 batch(取样本 0)出一张面板 PNG。返回路径或 None(matplotlib 缺失)。"""
     img = batch["img"].to(device)
     img = img.float().div_(255.0) if img.dtype == torch.uint8 else img.float()
-    action = batch["action"].to(device)
-    t_vec = batch["t_vec"].to(device)
-    traj = collect_rollout(model, img, action, t_vec, device)
+    traj = collect_rollout(model, img,
+                           batch["act_seq"].to(device), batch["act_agg"].to(device),
+                           batch["dt"].to(device), batch["t_vec"].to(device), device)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     return render_panel(traj, out_path, title=title)

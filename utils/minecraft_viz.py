@@ -44,17 +44,19 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
         if open_loop_from is None:
             open_loop_from = max(2, (T - 1) // 2)
 
-        # 批量预计算:在线编码(闭环感知 + inv-dyn 在线端)与 EMA 目标编码
+        # 批量预计算:冻结骨干特征一次提取,在线编码与 EMA 目标编码共用
+        feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
+        feats = feats.view(B, T, *feats.shape[-2:])
         z_obs = model.encode_obs(
-            img[:, :T - 1].reshape(B * (T - 1), *img.shape[2:])
+            feats=feats[:, :T - 1].reshape(B * (T - 1), *feats.shape[-2:])
         ).view(B, T - 1, N, d).float()
         z_tg = model.encode_target(
-            img.reshape(B * T, *img.shape[2:])).view(B, T, N, d).float()
+            feats=feats.reshape(B * T, *feats.shape[-2:])).view(B, T, N, d).float()
 
         # slot 注意力:单独对 attn_t 帧再编码一次(store_attn 走慢路径,只跑一帧)
         attn_t = max(1, open_loop_from - 1)
         model.binder.attn.store_attn = True
-        model.encode_obs(img[:, attn_t])
+        model.encode_obs(feats=feats[:, attn_t])
         attn_map = (model.binder.attn.last_attn[0].float().cpu().numpy()
                     if model.binder.attn.last_attn is not None else None)
         model.binder.attn.store_attn = False

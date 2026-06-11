@@ -160,19 +160,21 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
     n_win = -(-(T - 1) // k_bptt)        # ceil:窗口数,用于 SIGReg 权重尺度归一
     last_c = None
 
-    # JEPA 目标:整条序列一次批量过 EMA 编码器(平稳靶,no_grad)
+    # 冻结骨干特征:整条序列一次批量提取(no_grad),在线/目标两路共用
     with torch.autocast(device_type=amp_dev, enabled=use_amp):
-        z_tg = model.encode_target(
-            img.reshape(B * T, *img.shape[2:])).view(B, T, model.N, model.d)
+        feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))   # [B*T, M, Ed]
+        # JEPA 目标:EMA 投影+binder(平稳靶,no_grad)
+        z_tg = model.encode_target(feats=feats).view(B, T, model.N, model.d)
+    feats = feats.view(B, T, *feats.shape[-2:])
     z_tg = z_tg.float()
 
     for w0 in range(0, T - 1, k_bptt):
         w1 = min(w0 + k_bptt, T - 1)
         k = w1 - w0
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
-            # 在线感知:窗口 B·k 帧一次性编码(带梯度)
+            # 在线感知:窗口 B·k 帧(梯度只进 proj+binder,骨干特征已缓存)
             z_obs = model.encode_obs(
-                img[:, w0:w1].reshape(B * k, *img.shape[2:])
+                feats=feats[:, w0:w1].reshape(B * k, *feats.shape[-2:])
             ).view(B, k, model.N, model.d)
 
         accum = torch.zeros((), device=device)
@@ -284,11 +286,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
         t_vec = batch["t_vec"].to(device)
         B, T = img.shape[0], img.shape[1]
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
+            feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
             z_obs = model.encode_obs(
-                img[:, :T - 1].reshape(B * (T - 1), *img.shape[2:])
+                feats=feats.view(B, T, *feats.shape[-2:])[:, :T - 1]
+                .reshape(B * (T - 1), *feats.shape[-2:])
             ).view(B, T - 1, model.N, model.d)
-            z_tg = model.encode_target(
-                img.reshape(B * T, *img.shape[2:])).view(B, T, model.N, model.d)
+            z_tg = model.encode_target(feats=feats).view(B, T, model.N, model.d)
         z_obs, z_tg = z_obs.float(), z_tg.float()
         h = torch.zeros(B, 1, model.d, device=device)
         a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
@@ -361,6 +364,12 @@ def main():
                     help="每多少 epoch 在 holdout 上跑一次轻量评估并入 wandb 曲线"
                          "(0=只在训练结束跑全量)。泛化差距 = eval/pred 与训练 pred 之差")
     ap.add_argument("--viz_dir", default="runs/mc_viz")
+    ap.add_argument("--encoder", choices=["dinov2", "dinov3", "mock"], default="dinov2",
+                    help="视觉骨干(冻结):dinov2=ViT-S/14,权重开放直接下载;"
+                         "dinov3=ViT-S/16,稠密特征更强且 patch=16 整除 128,但权重 gated"
+                         "(需 --encoder_weights);mock=随机冻结卷积(仅离线冒烟测试)")
+    ap.add_argument("--encoder_weights", default=None,
+                    help="dinov3 权重 URL 或本地 .pth 路径(在 Meta/HF 接受许可证后获得)")
     ap.add_argument("--d", type=int, default=384)
     ap.add_argument("--N", type=int, default=16, help="实体槽数")
     ap.add_argument("--K", type=int, default=5, help="动作查询数")
@@ -436,14 +445,16 @@ def main():
 
     model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM,
                                 n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
-                                max_skip=args.frame_skip).to(dev)
+                                max_skip=args.frame_skip, encoder=args.encoder,
+                                encoder_weights=args.encoder_weights).to(dev)
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"trainable params: {n_train / 1e6:.1f}M (+EMA 目标副本不训练) | "
-          f"batch={args.batch} workers={n_workers} steps/epoch={args.steps_per_epoch} "
-          f"frame_skip={args.frame_skip}")
+    n_frozen = sum(p.numel() for p in model.backbone.parameters())
+    print(f"trainable params: {n_train / 1e6:.1f}M | frozen {args.encoder} backbone: "
+          f"{n_frozen / 1e6:.1f}M | batch={args.batch} workers={n_workers} "
+          f"steps/epoch={args.steps_per_epoch} frame_skip={args.frame_skip}")
 
     if is_cuda:
         torch.cuda.reset_peak_memory_stats()

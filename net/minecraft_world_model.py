@@ -168,7 +168,7 @@ class MinecraftWorldModel(nn.Module):
     """Δz-JEPA 世界模型:统一锚坐标系感知 + EMA 目标 + Transformer 动力学推演。"""
 
     def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
-                 ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None):
+                 ema_decay=0.99, max_skip=8, encoder="dinov3", encoder_weights=None):
         super().__init__()
         self.d = d
         self.N = N # 实体槽数量

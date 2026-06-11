@@ -364,12 +364,13 @@ def main():
                     help="每多少 epoch 在 holdout 上跑一次轻量评估并入 wandb 曲线"
                          "(0=只在训练结束跑全量)。泛化差距 = eval/pred 与训练 pred 之差")
     ap.add_argument("--viz_dir", default="runs/mc_viz")
-    ap.add_argument("--encoder", choices=["dinov2", "dinov3", "mock"], default="dinov2",
-                    help="视觉骨干(冻结):dinov2=ViT-S/14,权重开放直接下载;"
-                         "dinov3=ViT-S/16,稠密特征更强且 patch=16 整除 128,但权重 gated"
-                         "(需 --encoder_weights);mock=随机冻结卷积(仅离线冒烟测试)")
+    ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov3",
+                    help="视觉骨干(冻结):dinov3=ViT-S/16(默认;稠密特征最强,patch=16 "
+                         "整除 128;hubconf 依赖 torchmetrics,Colab 端 pip 安装即可;"
+                         "权重若 gated 经 --encoder_weights 传入);dinov2=ViT-S/14(权重"
+                         "完全开放,降级备选,img_size 用 126);mock=随机冻结卷积(离线冒烟)")
     ap.add_argument("--encoder_weights", default=None,
-                    help="dinov3 权重 URL 或本地 .pth 路径(在 Meta/HF 接受许可证后获得)")
+                    help="dinov3 权重 URL 或本地 .pth 路径(权重 gated 时在 Meta/HF 接受许可证后获得)")
     ap.add_argument("--d", type=int, default=384)
     ap.add_argument("--N", type=int, default=16, help="实体槽数")
     ap.add_argument("--K", type=int, default=5, help="动作查询数")

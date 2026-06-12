@@ -249,8 +249,8 @@ def roll_hist(a_hist, t_hist, hv, action, dt_cur):
 
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                  alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, kb_edge_w,
-                  amp_dev, use_amp, scaler, acc):
+                  alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
+                  kb_edge_w, amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -298,7 +298,8 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                 out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
                             t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
                 out_open = None
-                if rho_open > 0 and zhat is not None:
+                if (rho_open > 0 and zhat is not None
+                        and i % open_every == open_every - 1):
                     # 开环支路:感知输入换成上一步预测 ẑ,记忆/历史/动作/目标全同
                     # 闭环——梯度穿过上一步 μ,训练"自己的预测可作下一步立足点"
                     out_open = model(zhat, h, a_hist, act_seq[:, t], dt[:, t],
@@ -354,8 +355,8 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
-                alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, kb_edge_w,
-                text_enc, amp_dev, use_amp):
+                alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
+                kb_edge_w, text_enc, amp_dev, use_amp):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
@@ -381,7 +382,8 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, move_w, gamma_plan,
-                               rho_open, kb_edge_w, amp_dev, use_amp, scaler, acc)
+                               rho_open, open_every, kb_edge_w,
+                               amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
@@ -572,7 +574,10 @@ def main():
     ap.add_argument("--rho_open", type=float, default=0.5,
                     help="开环 rollout 损失权重:同一转移再前向一次,感知输入换成上一步"
                          "自己的预测 ẑ=z+μ(0=关闭)。直攻'闭环胜过复读、开环劣于复读'"
-                         "的差距——脑内推演可用性的训练信号;约 +40%% 前向计算")
+                         "的差距——脑内推演可用性的训练信号")
+    ap.add_argument("--open_every", type=int, default=1,
+                    help="每几个内步做一次开环支路(成本旋钮:1=每步,实测总墙钟 ~+20%%;"
+                         "2=减半开环前向,~+10%%;k_bptt=4 时取 3 则每窗口仅 1 次)")
     ap.add_argument("--kb_edge_w", type=float, default=4.0,
                     help="键盘 BCE 中发生跳变(与上一区间不同)的 (样本,键) 元素权重"
                          "(onset/release 样本稀疏,平均 BCE 对其无感,kb_onset_recall"
@@ -720,7 +725,7 @@ def main():
         r = train_epoch(model, sigreg, data_iter, opt, scaler, dev, args.steps_per_epoch,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
-                        args.kb_edge_w, text_enc, amp_dev, use_amp)
+                        args.open_every, args.kb_edge_w, text_enc, amp_dev, use_amp)
         if sched is not None:
             sched.step()
         if r.get("gpu_util") is not None:

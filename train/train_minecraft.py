@@ -49,6 +49,7 @@ from net.minecraft_world_model import MinecraftWorldModel
 from utils.vpt_dataset import VPTStreamDataset
 from utils.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
 from utils.minecraft_viz import visualize_minecraft
+from utils.task_text import TaskTextEncoder
 from blocks.primitives import SIGReg
 
 EPS = 1e-4          # I1
@@ -226,6 +227,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
     """
     img, t_vec = batch_dev["img"], batch_dev["t_vec"]
     act_seq, act_agg, dt = batch_dev["act_seq"], batch_dev["act_agg"], batch_dev["dt"]
+    task_emb = batch_dev.get("task_emb")
     B, T = img.shape[0], img.shape[1]
     h = torch.zeros(B, 1, model.d, device=device)
     a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
@@ -256,7 +258,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             t = w0 + i
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
                 out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
-                            t_hist=t_hist, hist_valid=hv)
+                            t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
             a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
 
             # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,CE/归一化 MSE 在 fp32 更稳)
@@ -299,7 +301,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 
 def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
-                alpha_inv, beta_sigreg, move_w, gamma_plan, amp_dev, use_amp):
+                alpha_inv, beta_sigreg, move_w, gamma_plan, text_enc, amp_dev, use_amp):
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
            ["loss", "pred", "pred_rms", "dz_rms", "inv", "mouse", "mouse_acc", "kb",
@@ -314,6 +316,9 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
             "act_agg": batch["act_agg"].to(device, non_blocking=True),
             "dt": batch["dt"].to(device, non_blocking=True),
             "t_vec": batch["t_vec"].to(device, non_blocking=True),
+            # 任务文本 → 冻结句向量(编码器内有唯一串缓存,实为查表)
+            "task_emb": (text_enc.encode(batch["task_text"]).to(device)
+                         if text_enc is not None else None),
         }
 
         opt.zero_grad(set_to_none=True)
@@ -373,6 +378,8 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
         act_agg = batch["act_agg"].to(device)
         dt = batch["dt"].to(device)
         t_vec = batch["t_vec"].to(device)
+        task_emb = batch.get("task_emb")
+        task_emb = task_emb.to(device) if task_emb is not None else None
         B, T = img.shape[0], img.shape[1]
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
             feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
@@ -390,7 +397,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
         for t in range(T - 1):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
                 out = model(z_obs[:, t], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
-                            t_hist=t_hist, hist_valid=hv)
+                            t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
             a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
             # holdout 上的 Δz 预测比值(与训练 pred 同定义:1.0=复读基线)——
             # 与训练曲线对照即泛化差距,这是面板之外唯一能连续监控它的地方
@@ -497,6 +504,11 @@ def main():
     ap.add_argument("--gamma_plan", type=float, default=0.5,
                     help="未来动作规划 BC 损失权重(查询槽 k ↔ 未来第 k+1 个转移的"
                          "聚合动作+时长;0=关闭,规划头退回无监督)")
+    ap.add_argument("--text_encoder", choices=["minilm", "mock", "none"], default="minilm",
+                    help="任务文本条件:minilm=冻结句向量(需 transformers,语义空间"
+                         "可外推);mock=哈希伪嵌入(可区分任务无语义,离线冒烟);"
+                         "none=不条件化(text token 用可学常数)。单任务数据下文本是"
+                         "常数,条件只在多任务混采时携带信息")
     ap.add_argument("--beta_sigreg", type=float, default=0.1, help="SIGReg 防坍缩权重(施加在 z_obs 上)")
     ap.add_argument("--ema_decay", type=float, default=0.99,
                     help="目标编码器 EMA 衰减(时间常数 ≈ 1/(1−τ) 个优化步;短跑程用 0.99,"
@@ -537,6 +549,10 @@ def main():
             f.endswith(".mp4") for f in os.listdir(args.data_dir)):
         print(f"[!] 数据目录 '{args.data_dir}' 里没有 .mp4。先准备数据(download_sample_data.py / colab 转换)。")
         sys.exit(1)
+
+    # 任务文本编码器(冻结,CPU 上跑——任务文本基数极小,编码即查表)
+    text_enc = None if args.text_encoder == "none" else \
+        TaskTextEncoder(args.text_encoder, device="cpu")
 
     img_size = args.img_size if args.img_size > 0 else None
     cam_scale = args.camera_scale if args.camera_scale is not None else CAMERA_SCALE
@@ -581,7 +597,11 @@ def main():
             t0 = time.time()
             it = iter(DataLoader(eval_ds, batch_size=eval_bs,
                                  num_workers=min(4, n_workers)))
-            eval_batches.extend(next(it) for _ in range(4))
+            for _ in range(4):
+                b = next(it)
+                if text_enc is not None:    # 固定集随采随编码任务文本(CPU 驻留)
+                    b["task_emb"] = text_enc.encode(b["task_text"])
+                eval_batches.append(b)
             del it                       # 立刻放掉 eval worker,不留后台解码
             src = args.holdout_dir if args.holdout_dir else f"扣末 {args.holdout_n} clip"
             print(f"  [eval] 固定评估集已采集:4×{eval_bs} 序列 "
@@ -618,7 +638,7 @@ def main():
     for ep in range(args.epochs):
         r = train_epoch(model, sigreg, loader, opt, scaler, dev, args.steps_per_epoch,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
-                        args.mouse_move_w, args.gamma_plan, amp_dev, use_amp)
+                        args.mouse_move_w, args.gamma_plan, text_enc, amp_dev, use_amp)
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
         if use_wandb:
@@ -641,8 +661,11 @@ def main():
         # 节奏用 (ep+1):第 viz_every/eval_every 个 epoch 训练完才首次出图/评估,
         # 不在训练刚起步时就花算力展示一个随机初始化的模型
         if viz_batch is not None and ((ep + 1) % args.viz_every == 0 or ep == args.epochs - 1):
+            viz_emb = (text_enc.encode(viz_batch["task_text"]) if text_enc is not None
+                       else None)
             p = visualize_minecraft(model, viz_batch, dev,
-                                    os.path.join(args.viz_dir, f"ep{ep:04d}.png"))
+                                    os.path.join(args.viz_dir, f"ep{ep:04d}.png"),
+                                    task_emb=viz_emb)
             if p:
                 print(f"  [viz] {p}")
                 if use_wandb:

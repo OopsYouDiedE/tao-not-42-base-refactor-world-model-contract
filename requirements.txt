@@ -12,3 +12,4 @@ scipy
 # mamba-ssm
 
 xformers  # optional, removes DINOv2 SwiGLU warning and speeds up attention
+transformers  # 任务文本编码(--text_encoder minilm;缺失时自动回退 mock)

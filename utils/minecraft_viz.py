@@ -13,6 +13,8 @@
   C. 鼠标 dx/dy:GT 连续曲线 vs 分箱预测解码值(mu-law bin 中心,故呈阶梯状)。
   D. 可控闸 c 热图(slot×时间,逐 slot 标量):应随训练出现亮暗分化(极化)。
   E. SlotBinder 注意力叠加:最局部化的几个 slot 各自盯着画面哪里(对象绑定)。
+  F. 未来动作规划(BC):槽 0 的下一转移键盘预测热图(与 B 的 GT 左移一格对照)
+     + 开环起点的 K 槽 onset/duration/exist vs 真实未来(时间锚:0 = "现在",帧)。
 
 图内文字用英文:matplotlib 默认字体无 CJK,避免 Colab 上满图 tofu 方块。
 """
@@ -28,7 +30,8 @@ N_MOUSE = 2
 
 
 @torch.no_grad()
-def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_from=None):
+def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_from=None,
+                    task_emb=None):
     """跑一遍序列收集可视化轨迹。img: [B,T,3,H,W] float∈[0,1]。取样本 0。
 
     闭环段:感知输入 = encode_obs(img_t);开环段(t >= open_loop_from):
@@ -69,12 +72,13 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
         Z_state = z_obs[:, 0]                      # 开环推演的滚动状态(锚坐标系)
 
         traj = {k: [] for k in ["pred_err", "pers_err", "kb_pred", "kb_true",
-                                "mouse_pred", "mouse_true", "c"]}
+                                "mouse_pred", "mouse_true", "c", "plan_kb"]}
+        plan_snap = None
 
         for t in range(T - 1):
             z_ref = z_obs[:, t] if t < open_loop_from else Z_state
             out = model(z_ref, h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
-                        t_hist=t_hist, hist_valid=hv)
+                        t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
             a_hist = torch.cat([a_hist[:, 1:], act_agg[:, t].unsqueeze(1)], dim=1)
             t_hist = torch.cat([t_hist[:, 1:] + dt[:, t].unsqueeze(1),
                                 torch.zeros(B, 1, device=device)], dim=1)
@@ -93,6 +97,24 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
             traj["mouse_true"].append(act_agg[0, t, :N_MOUSE].float().cpu().numpy())
             traj["c"].append(c[0].squeeze(-1).cpu().numpy())          # [N] 逐 slot 标量
 
+            # 未来动作规划:槽 0 = 下一个转移的键盘预测(逐步收集 → 热图与 GT 对照);
+            # 在开环起点拍一张完整快照(K 槽的 onset/duration/exist vs 真实未来)
+            plan = out["action_plan"]
+            traj["plan_kb"].append(plan["keyboard"][0, 0].float().cpu().numpy())
+            if t == open_loop_from:
+                n = min(model.K, (T - 1) - (t + 1))
+                if n > 0:
+                    fdt = dt[0, t + 1:t + 1 + n].float()
+                    onset_tgt = dt[0, t].float() + torch.cat(
+                        [torch.zeros(1, device=fdt.device), fdt.cumsum(0)[:-1]])
+                    plan_snap = {
+                        "onset": plan["onset"][0].float().cpu().numpy(),
+                        "dur": plan["duration"][0].float().cpu().numpy(),
+                        "exist": plan["exist"][0].float().cpu().numpy(),
+                        "onset_tgt": onset_tgt.cpu().numpy(),
+                        "dur_tgt": fdt.cpu().numpy(),
+                    }
+
             Z_state = z_ref + mu                   # ẑ(t+dt) = 当前估计 + 预测增量
             h = out["h_next"]
 
@@ -100,6 +122,7 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
         result["open_loop_from"] = open_loop_from
         result["attn_map"] = attn_map            # [N, M] or None
         result["attn_frame"] = attn_frame        # [H, W, 3] or None
+        result["plan_snap"] = plan_snap          # 开环起点的规划快照 or None
         return result
     finally:
         model.binder.attn.store_attn = False
@@ -156,8 +179,8 @@ def render_panel(traj, out_path, title=""):
     steps = np.arange(Tm1)
     key_names = [k.replace("key_", "") for k in VPT_KEYS]
 
-    fig = plt.figure(figsize=(16, 10))
-    gs = fig.add_gridspec(3, 4, hspace=0.45, wspace=0.3)
+    fig = plt.figure(figsize=(16, 13))
+    gs = fig.add_gridspec(4, 4, hspace=0.55, wspace=0.3)
 
     # A. Δz 预测误差 vs 零运动基线,开环区灰色。
     # 对数轴:两条线可能差量级,线性轴会把小的一条压成贴零直线。
@@ -227,6 +250,36 @@ def render_panel(traj, out_path, title=""):
             ax.imshow(heat, cmap="jet", alpha=0.45)
             ax.axis("off"); ax.set_title(f"slot {si} binds", fontsize=8)
 
+    # F1. 规划槽 0 = "下一个转移"的键盘预测(条纹应与 B 的 GT 左移一格对齐)
+    ax = fig.add_subplot(gs[3, 0:2])
+    ax.imshow(traj["plan_kb"].T, aspect="auto", cmap="gray_r", vmin=0, vmax=1,
+              interpolation="nearest")
+    ax.set_yticks(range(len(key_names))); ax.set_yticklabels(key_names, fontsize=5)
+    ax.axvline(olf, color="orange", lw=1)
+    ax.set_xlabel("step")
+    ax.set_title("Plan slot-0: NEXT-transition keyboard (compare GT shifted 1 left)")
+
+    # F2. 开环起点的完整规划快照:K 槽 onset/duration vs 真实未来(单位:帧)
+    ax = fig.add_subplot(gs[3, 2:4])
+    snap = traj.get("plan_snap")
+    if snap is not None:
+        K = len(snap["onset"]); nt = len(snap["onset_tgt"])
+        ks = np.arange(K)
+        ax.plot(ks, snap["onset"], "r.-", lw=1.5, label="onset pred")
+        ax.plot(np.arange(nt), snap["onset_tgt"], "g.--", lw=1.5, label="onset target")
+        ax.bar(ks - 0.15, snap["dur"], width=0.3, alpha=0.35, color="r", label="dur pred")
+        ax.bar(np.arange(nt) + 0.15, snap["dur_tgt"], width=0.3, alpha=0.35, color="g",
+               label="dur target")
+        for k in ks:                                # exist 概率标在槽上方
+            ax.text(k, float(snap["onset"][k]) + 0.5, f"{snap['exist'][k]:.2f}",
+                    fontsize=6, ha="center")
+        ax.set_xlabel("plan slot k (slot k = (k+1)-th future transition)")
+        ax.set_ylabel("frames from 'now'")
+        ax.set_title("Action plan @open-loop start (exist prob above slots)")
+        ax.legend(fontsize=7, ncol=2)
+    else:
+        ax.axis("off")
+
     if title:
         fig.suptitle(title, fontsize=11)
     fig.savefig(out_path, dpi=110, bbox_inches="tight")
@@ -235,12 +288,13 @@ def render_panel(traj, out_path, title=""):
 
 
 @torch.no_grad()
-def visualize_minecraft(model, batch, device, out_path, title=""):
+def visualize_minecraft(model, batch, device, out_path, title="", task_emb=None):
     """入口:对一个 batch(取样本 0)出一张面板 PNG。返回路径或 None(matplotlib 缺失)。"""
     img = batch["img"].to(device)
     img = img.float().div_(255.0) if img.dtype == torch.uint8 else img.float()
     traj = collect_rollout(model, img,
                            batch["act_seq"].to(device), batch["act_agg"].to(device),
-                           batch["dt"].to(device), batch["t_vec"].to(device), device)
+                           batch["dt"].to(device), batch["t_vec"].to(device), device,
+                           task_emb=task_emb.to(device) if task_emb is not None else None)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     return render_panel(traj, out_path, title=title)

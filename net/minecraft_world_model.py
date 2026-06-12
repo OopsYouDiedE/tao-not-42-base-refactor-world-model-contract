@@ -264,6 +264,9 @@ class MinecraftWorldModel(nn.Module):
         # Placeholders
         self.u_placeholder = nn.Parameter(torch.randn(1, K, d))
         self.text_placeholder = nn.Parameter(torch.randn(1, 1, d))
+        # 任务文本条件:冻结句向量(utils.task_text,384 维)→ 线性投影 → text token。
+        # 不传 task_emb 时回退 placeholder(可学常数,等价"无条件")。
+        self.task_proj = nn.Linear(384, d)
 
     def train(self, mode=True):
         """冻结骨干永远保持 eval(drop_path/随机性关闭),其余模块正常切换。"""
@@ -338,7 +341,8 @@ class MinecraftWorldModel(nn.Module):
 
     # ---------------- 动力学推演 ----------------
 
-    def forward(self, z_ref, h, a_hist, a_cur, dt, t_vec, t_hist=None, hist_valid=None):
+    def forward(self, z_ref, h, a_hist, a_cur, dt, t_vec, t_hist=None, hist_valid=None,
+                task_emb=None):
         """一段可变跨度的动力学推演:预测 z 从 t 到 t+dt 的增量。
 
         **时间锚契约**:t_vec 是本次前向的"现在"——脑内世界以它(正弦 PE,注入
@@ -355,12 +359,16 @@ class MinecraftWorldModel(nn.Module):
                 全零动作是合法的"什么都没按",不能用全零判别空槽。
         a_cur:  [B,S,A] 当前区间内完整的原始动作序列(右侧零填充)。
         dt:     [B]     当前转移的帧跨度(决定 a_cur 的有效长度与 Δt 条件)。
+        task_emb: [B,384] 冻结任务文本句向量(None = 无条件 placeholder)。
+                条件是否被利用取决于数据:单任务数据下文本是常数(零互信息),
+                四任务混采时它解释任务间行为方差,并给 plan 头坍缩意图多峰。
         返回 mu = **Δz 预测**(z(t+dt) 的估计 = z_ref + mu),c = 逐 slot 可控闸。
         时间 PE 加在 h token 上(不污染感知);Δt 编码为独立条件 token。
         """
         B = z_ref.shape[0]
         J = a_hist.shape[1]
-        text_token = self.text_placeholder.expand(B, -1, -1)
+        text_token = (self.text_placeholder.expand(B, -1, -1) if task_emb is None
+                      else self.task_proj(task_emb.to(z_ref.dtype)).unsqueeze(1))
         u_p = self.u_placeholder.expand(B, -1, -1)
         h_token = h + sinusoidal_time_encoding(t_vec, self.d).to(h.dtype)
         dt_token = self.dt_enc(dt).to(z_ref.dtype).unsqueeze(1)        # [B,1,d]

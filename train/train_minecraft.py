@@ -62,17 +62,32 @@ N_MOUSE = 2
 # =====================================================================
 
 def dz_pred_loss(mu, dz_tg, eps=1e-3):
-    """逐样本归一化 Δz 预测损失:mean_b[ E_{N,d}[(μ−Δz)²] / E_{N,d}[Δz²] ](分母 detach)。
+    """逐样本归一化 Δz 预测损失,分母带**软地板**。返回 (loss, pred, pred_move)。
 
     归一化的作用:(1) 损失值直接可读——就是 (model/persistence)² 比值,1.0 = 复读
     基线;(2) 对编码尺度不变,堵死"经 EMA 把变化抹平"的间接捷径;(3) **可变 Δt 下
     必须逐样本归一**:同一 batch 混合不同跨度,大 Δt 的 |Δz| 大,全局分母会让长跨度
-    样本主导损失、小间隔的精细动力学被相对忽略。每样本分母由 N·d 个分量估计
-    (默认 6144,统计上稳);下限 eps 防静止转移(Δz≈0)除零放大。
+    样本主导损失、小间隔的精细动力学被相对忽略。
+
+    软地板(loss 用 denom + 0.1·batch均值,而非 clamp(min=eps)):Minecraft 大量
+    转移近似静止——其 Δz 几乎纯是编码噪声,分子分母同源 ⇒ 比值恒 ≈1,**无论怎么
+    学都下不去**,还与真运动样本平权稀释梯度(实测 pred 被这批样本托底在 ~0.9)。
+    加软地板后静止样本损失 ≈ denom/floor << 1 自动降权,真运动样本(denom >> floor)
+    仍是比值归一;地板取 batch 均值的 10%,随表征尺度漂移自适应,不引新超参。
+
+    指标(均旧定义比值,可与历史曲线对齐):pred = 全样本均值(被静止样本托底,
+    读数偏保守);pred_move = 分母高于 batch 中位数的"真运动"样本均值——**诚实
+    读数**,模型有没有学动力学看它。注意诚实下限:转身揭示的新内容在潜空间本质
+    不可预测,好模型的 pred_move 预期 ~0.5-0.7,不应拿 0 当目标。
     """
     per = (mu - dz_tg).square().mean(dim=(1, 2))
-    denom = dz_tg.square().mean(dim=(1, 2)).detach().clamp(min=eps)
-    return (per / denom).mean()
+    denom = dz_tg.square().mean(dim=(1, 2)).detach()
+    floor = (0.1 * denom.mean()).clamp(min=eps)
+    loss = (per / (denom + floor)).mean()
+    ratio = per.detach() / denom.clamp(min=eps)
+    moved = denom > denom.median()
+    pred_move = ratio[moved].mean() if bool(moved.any()) else ratio.mean()
+    return loss, ratio.mean(), pred_move
 
 
 def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0):
@@ -264,7 +279,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,CE/归一化 MSE 在 fp32 更稳)
             mu, c = out["mu"].float(), out["c"].float()
             dz = z_tg[:, t + 1] - z_tg[:, t]                    # Δz 目标(no_grad)
-            l_pred = dz_pred_loss(mu, dz)
+            l_pred, r_pred, r_pred_mv = dz_pred_loss(mu, dz)
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
                 model.inv_dyn, move_w)
@@ -280,7 +295,8 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             last_c = c
             h = out["h_next"]            # 窗口内保留梯度(截断 BPTT,跨步记忆只走 h)
             # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
-            acc["pred"] += l_pred.detach(); acc["inv"] += l_inv.detach()
+            acc["pred"] += r_pred; acc["pred_move"] += r_pred_mv
+            acc["inv"] += l_inv.detach()
             acc["mouse"] += l_mouse; acc["kb"] += l_kb; acc["mouse_acc"] += m_acc
             acc["mv_hit"] += mv_hit; acc["mv_n"] += mv_n
             acc["pred_rms"] += (mu - dz).square().mean().sqrt().detach()
@@ -307,8 +323,8 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
-           ["loss", "pred", "pred_rms", "dz_rms", "inv", "mouse", "mouse_acc", "kb",
-            "sigreg", "mv_hit", "mv_n", "plan", "onset_mae"]}
+           ["loss", "pred", "pred_move", "pred_rms", "dz_rms", "inv", "mouse",
+            "mouse_acc", "kb", "sigreg", "mv_hit", "mv_n", "plan", "onset_mae"]}
     acc["inner"] = acc["win"] = acc["plan_n"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
 
@@ -344,7 +360,8 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         "plan": (acc["plan"] / pc).item(),
         "plan_onset_mae": (acc["onset_mae"] / pc).item(),   # 帧
         "loss": (acc["loss"] / wc).item(),
-        "pred": (acc["pred"] / ic).item(),          # 1.0 = persistence 基线,<1 = 胜过复读
+        "pred": (acc["pred"] / ic).item(),          # 1.0 = persistence 基线(含静止样本托底)
+        "pred_move": (acc["pred_move"] / ic).item(),  # 仅真运动样本——诚实读数
         "pred_rms": (acc["pred_rms"] / ic).item(),  # 真实预测误差(不可被 σ/归一化美化)
         "dz_rms": (acc["dz_rms"] / ic).item(),      # 目标本身的变化幅度(基线尺度)
         "inv": (acc["inv"] / ic).item(),
@@ -373,7 +390,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     tp = fp = fn = tn = 0
     on_tp = on_n = off_tp = off_n = 0
     m_hit = m_n = mv_hit = mv_n = 0
-    pred_sum, pred_n = 0.0, 0
+    pred_sum, pred_mv_sum, pred_n = 0.0, 0.0, 0
     center = (CAMERA_BINS - 1) // 2
     for batch in itertools.islice(loader, steps):
         img = _to_float_img(batch["img"].to(device))
@@ -406,8 +423,13 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             # 与训练曲线对照即泛化差距,这是面板之外唯一能连续监控它的地方
             dz = z_tg[:, t + 1] - z_tg[:, t]
             per = (out["mu"].float() - dz).square().mean(dim=(1, 2))
-            den = dz.square().mean(dim=(1, 2)).clamp(min=1e-3)
-            pred_sum += (per / den).mean().item(); pred_n += 1
+            den = dz.square().mean(dim=(1, 2))
+            ratio = per / den.clamp(min=1e-3)
+            moved_s = den > den.median()
+            pred_sum += ratio.mean().item()
+            pred_mv_sum += (ratio[moved_s].mean() if bool(moved_s.any())
+                            else ratio.mean()).item()
+            pred_n += 1
             mouse_logits, kb_prob = model.inv_dyn(
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float())
             kb_pred = (kb_prob > 0.5)
@@ -428,6 +450,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             h = out["h_next"]
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
     return {"pred": pred_sum / max(pred_n, 1),
+            "pred_move": pred_mv_sum / max(pred_n, 1),
             "kb_recall": recall, "kb_spec": spec, "kb_bal_acc": 0.5 * (recall + spec),
             "kb_onset_recall": on_tp / max(on_n, 1),
             "kb_release_recall": off_tp / max(off_n, 1),
@@ -648,8 +671,8 @@ def main():
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
         if use_wandb:
-            _wb = {k: r[k] for k in ("loss", "pred", "pred_rms", "dz_rms", "inv",
-                                     "mouse", "mouse_acc", "mouse_move_acc", "kb",
+            _wb = {k: r[k] for k in ("loss", "pred", "pred_move", "pred_rms", "dz_rms",
+                                     "inv", "mouse", "mouse_acc", "mouse_move_acc", "kb",
                                      "plan", "plan_onset_mae",
                                      "sigreg", "c_mean", "c_std")}
             if r.get("gpu_util") is not None:
@@ -657,7 +680,8 @@ def main():
             wandb.log(_wb, step=ep)
         if ep % args.log_every == 0 or ep == args.epochs - 1:
             gpu = f" | gpu {r['gpu_util']:.0f}%" if r.get("gpu_util") is not None else ""
-            print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f}×copy "
+            print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f} "
+                  f"mv {r['pred_move']:.3f}×copy "
                   f"(rms {r['pred_rms']:.4f}/dz {r['dz_rms']:.4f}) | "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
                   f"acc {r['mouse_acc']:.2f} mv {r['mouse_move_acc']:.2f}) | "
@@ -680,7 +704,8 @@ def main():
             # 轻量 holdout 评估(固定 4 个 batch,首次采集后复用):
             # eval/pred 对照训练 pred = 泛化差距曲线
             ev = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
-            print(f"  [eval] pred {ev['pred']:.3f}×copy | kb bal {ev['kb_bal_acc']:.3f} "
+            print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f}×copy | "
+                  f"kb bal {ev['kb_bal_acc']:.3f} "
                   f"onset {ev['kb_onset_recall']:.3f} | mouse move {ev['mouse_move_acc']:.3f}")
             if use_wandb:
                 wandb.log({f"eval/{k}": v for k, v in ev.items()}, step=ep)

@@ -47,8 +47,9 @@ N_CAMERA_BINS = 11   # 与 utils.vpt_action.CAMERA_BINS 一致(net 层不 import
 
 class MinecraftDecoderHeads(nn.Module):
     """Minecraft 复合动作解码器：同时预测鼠标移动和大量键盘按键。"""
-    def __init__(self, d, num_keyboard_keys=20):
+    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS):
         super().__init__()
+        self.n_cam_bins = n_cam_bins
         # 鼠标预测 (dx, dy 回归)
         self.mouse_head = nn.Sequential(
             nn.Linear(d, 64), nn.SiLU(), nn.Linear(64, 2)
@@ -58,11 +59,12 @@ class MinecraftDecoderHeads(nn.Module):
             nn.Linear(d, 128), nn.SiLU(), nn.Linear(128, num_keyboard_keys)
         )
 
-        # 动作规划头 (DETR 式)。时间契约:onset 的 0 时刻 = 本次 forward 传入的
-        # t_vec 时刻("现在"),单位 = **帧**(与 dt/t_hist 同单位,不用秒)。
-        # ⚠ 当前训练无此头的监督(L_pred+L_inv+SIGReg 都不经过它)——语义由将来
-        # 接 BC/规划损失时的标签定义,标签构造必须遵守上述 0 时刻与单位契约。
-        self.plan_mouse = nn.Linear(d, 2)
+        # 动作规划头(DETR 式,**未来动作**输出)。时间契约:onset 的 0 时刻 =
+        # 本次 forward 传入的 t_vec 时刻("现在"),单位 = **帧**(与 dt/t_hist 同)。
+        # 监督 = 行为克隆(train_minecraft.plan_bc_loss):槽 k 对齐未来第 k+1 个
+        # 转移的聚合动作与时长。鼠标用 mu-law 分箱 logits 而非回归——回归 MSE 的
+        # "恒 0"与无权重 CE 的基率不动点都在 inv-dyn 上踩过坑,这里直接用终案。
+        self.plan_mouse = nn.Linear(d, 2 * n_cam_bins)
         self.plan_keyboard = nn.Linear(d, num_keyboard_keys)
         self.plan_onset = nn.Linear(d, 1)             # 多久后按下(帧,自"现在"起算)
         self.plan_dur = nn.Linear(d, 1)               # 按住多久(帧)
@@ -70,10 +72,12 @@ class MinecraftDecoderHeads(nn.Module):
 
     def decode_action_plan(self, u_tokens):
         """预测未来长程动作计划。onset 累积 softplus 参数化 ⇒ 沿查询维单调,
-        消除查询置换对称(与 tao 版 DecoderHeads.decode_action_plan 同理)。"""
+        消除查询置换对称(与 tao 版 DecoderHeads.decode_action_plan 同理),
+        也使"槽 k ↔ 时间序上第 k 个未来转移"的对齐无需匈牙利匹配。"""
+        B, K = u_tokens.shape[:2]
         onset_inc = F.softplus(self.plan_onset(u_tokens)).squeeze(-1)   # [B,K] 正增量
         return {
-            "mouse": self.plan_mouse(u_tokens),
+            "mouse_logits": self.plan_mouse(u_tokens).view(B, K, 2, self.n_cam_bins),
             "keyboard": torch.sigmoid(self.plan_keyboard(u_tokens)),
             "onset": torch.cumsum(onset_inc, dim=1),
             "duration": F.softplus(self.plan_dur(u_tokens)).squeeze(-1),
@@ -252,7 +256,8 @@ class MinecraftWorldModel(nn.Module):
         # 24 帧前;历史条目的位置必须由"距当前推算时刻的帧数"给出。
         # Δt 条件编码(契约:以帧为单位,见 primitives.ContinuousTimeEncoding)
         self.dt_enc = ContinuousTimeEncoding(d)
-        self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2)
+        self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2,
+                                           n_cam_bins=n_cam_bins)
         self.inv_dyn = MinecraftInverseDynamicsHead(d, num_keyboard_keys=act_dim-2,
                                                     n_cam_bins=n_cam_bins)
 

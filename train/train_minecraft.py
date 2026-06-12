@@ -3,7 +3,7 @@
 目标:把"看着 Minecraft 录像 + 录像里的真实动作"变成自监督信号,让世界模型学到
 "动作在画面里有什么效果",为后续 prompt-tuning 迁移打底座。
 
-  L_total = L_pred + α·L_inv + β·L_sigreg
+  L_total = L_pred + α·L_inv + γ·L_plan + β·L_sigreg
 
   L_pred (Δz 预测,逐样本归一化 MSE): 从 (z_obs(t), 区间动作序列, dt, h, t) 预测
     潜表征**增量** Δz = sg[enc_ema(img_{t+dt}) − enc_ema(img_t)],逐样本除以
@@ -12,6 +12,9 @@
   L_inv  (逆动力学): 从 (z_tg(t+dt) − z_obs(t)) ⊙ c 反推区间聚合动作。
     鼠标 = mu-law 分箱分类(CE,堵死"恒 0"平凡解),键盘 = 20 键 BCE。
     z_obs 端带梯度 ⇒ 这是视觉编码器"必须让 Δ 编码动作"的唯一直接压力。
+  L_plan (未来动作 BC): 规划头查询槽 k ↔ 未来第 k+1 个转移的聚合动作+时长
+    (onset 单调参数化 ⇒ 时间序对齐,免匈牙利匹配;0 时刻 = t_vec,单位帧)。
+    学"示范者接下来会做什么"——脑内世界的前向动作输出通道。
   L_sigreg (防坍缩): sliced 高斯正则,施加在**在线感知编码 z_obs** 上(坍缩
     发生的位置;旧版施加在 Z_out 上,Transformer 可放大时间 PE/动作 token 的
     方差来满足检验,视觉内容照样坍缩)。
@@ -100,6 +103,54 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0):
             (hit & moved).float().sum().detach(), moved.float().sum().detach())
 
 
+def plan_bc_loss(plan, act_agg, dt, t, K, move_w=4.0):
+    """未来动作规划的行为克隆:查询槽 k ↔ 未来第 k+1 个转移(时间序对齐;
+    onset 经 cumsum-softplus 单调 ⇒ 不需要匈牙利匹配)。
+
+    时间锚契约:0 时刻 = 本次 forward 的 t_vec("现在"),onset/duration 单位帧。
+    槽 k 的目标(示范者实际做了什么):
+      keyboard = act_agg[t+1+k] 键区(BCE);mouse = 同帧聚合鼠标的 mu-law 分箱
+      (加权 CE,非中心 ×move_w——与 inv-dyn 同套路,堵基率不动点);
+      onset = 该转移起点距"现在"的帧数(= dt[t] + 之前未来转移的累计跨度);
+      duration = dt[t+1+k];exist = 槽是否落在序列界内(末端不足 K 个未来
+      转移时,多余槽学习输出"无计划")。
+    返回 (loss, onset_MAE[帧]);t 已无未来转移时返回 None。
+    """
+    B, T1 = dt.shape
+    n = min(K, T1 - (t + 1))
+    if n <= 0:
+        return None
+    agg = act_agg[:, t + 1:t + 1 + n].float()                    # [B,n,A]
+    fdt = dt[:, t + 1:t + 1 + n].float()                         # [B,n]
+    onset_tgt = dt[:, t:t + 1].float() + torch.cat(
+        [torch.zeros_like(fdt[:, :1]), fdt.cumsum(dim=1)[:, :-1]], dim=1)
+
+    l_kb = F.binary_cross_entropy(
+        plan["keyboard"][:, :n].float().clamp(EPS, 1 - EPS), agg[:, :, N_MOUSE:])
+
+    m_logits = plan["mouse_logits"][:, :n].float()               # [B,n,2,bins]
+    m_bin = camera_to_bin(agg[:, :, :N_MOUSE])                   # [B,n,2]
+    ce = F.cross_entropy(m_logits.reshape(-1, m_logits.shape[-1]),
+                         m_bin.reshape(-1), reduction="none")
+    center = (CAMERA_BINS - 1) // 2
+    w = torch.where(m_bin.reshape(-1) == center,
+                    torch.ones_like(ce), torch.full_like(ce, move_w))
+    l_mouse = (ce * w).sum() / w.sum()
+
+    onset = plan["onset"][:, :n].float()
+    l_time = (F.smooth_l1_loss(onset, onset_tgt)
+              + F.smooth_l1_loss(plan["duration"][:, :n].float(), fdt))
+
+    exist_tgt = torch.zeros_like(plan["exist"], dtype=torch.float32)
+    exist_tgt[:, :n] = 1.0
+    l_exist = F.binary_cross_entropy(
+        plan["exist"].float().clamp(EPS, 1 - EPS), exist_tgt)
+
+    # 0.1:时间项以帧计(量级 ~几十),压到与 BCE/CE 同量级,防 timing 主导
+    loss = l_kb + l_mouse + 0.1 * l_time + l_exist
+    return loss, (onset - onset_tgt).abs().mean().detach()
+
+
 def _to_float_img(img):
     """uint8 [.,3,H,W] → float∈[0,1](归一化推迟到 GPU 上做,PCIe 传 uint8 省 4×)。"""
     return img.float().div_(255.0) if img.dtype == torch.uint8 else img.float()
@@ -160,7 +211,8 @@ def roll_hist(a_hist, t_hist, hv, action, dt_cur):
 
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                  alpha_inv, beta_sigreg, move_w, amp_dev, use_amp, scaler, acc):
+                  alpha_inv, beta_sigreg, move_w, gamma_plan,
+                  amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -214,8 +266,15 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
                 model.inv_dyn, move_w)
+            step_loss = l_pred + alpha_inv * l_inv
+            pl = plan_bc_loss(out["action_plan"], act_agg, dt, t, model.K, move_w) \
+                if gamma_plan > 0 else None
+            if pl is not None:
+                step_loss = step_loss + gamma_plan * pl[0]
+                acc["plan"] += pl[0].detach(); acc["onset_mae"] += pl[1]
+                acc["plan_n"] += 1
 
-            accum = accum + (l_pred + alpha_inv * l_inv) / (T - 1)
+            accum = accum + step_loss / (T - 1)
             last_c = c
             h = out["h_next"]            # 窗口内保留梯度(截断 BPTT,跨步记忆只走 h)
             # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
@@ -240,12 +299,12 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 
 def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
-                alpha_inv, beta_sigreg, move_w, amp_dev, use_amp):
+                alpha_inv, beta_sigreg, move_w, gamma_plan, amp_dev, use_amp):
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
            ["loss", "pred", "pred_rms", "dz_rms", "inv", "mouse", "mouse_acc", "kb",
-            "sigreg", "mv_hit", "mv_n"]}
-    acc["inner"] = acc["win"] = 0
+            "sigreg", "mv_hit", "mv_n", "plan", "onset_mae"]}
+    acc["inner"] = acc["win"] = acc["plan_n"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
 
     for batch in itertools.islice(loader, steps):
@@ -259,8 +318,8 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
 
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                               alpha_inv, beta_sigreg, move_w, amp_dev, use_amp,
-                               scaler, acc)
+                               alpha_inv, beta_sigreg, move_w, gamma_plan,
+                               amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
@@ -271,9 +330,11 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
         if u is not None:
             gpu_samples.append(u)
 
-    ic = max(acc["inner"], 1); wc = max(acc["win"], 1)
+    ic = max(acc["inner"], 1); wc = max(acc["win"], 1); pc = max(acc["plan_n"], 1)
     cv = c_last.squeeze(-1).flatten()
     return {
+        "plan": (acc["plan"] / pc).item(),
+        "plan_onset_mae": (acc["onset_mae"] / pc).item(),   # 帧
         "loss": (acc["loss"] / wc).item(),
         "pred": (acc["pred"] / ic).item(),          # 1.0 = persistence 基线,<1 = 胜过复读
         "pred_rms": (acc["pred_rms"] / ic).item(),  # 真实预测误差(不可被 σ/归一化美化)
@@ -433,6 +494,9 @@ def main():
     ap.add_argument("--mouse_move_w", type=float, default=4.0,
                     help="鼠标 CE 中非中心 bin 目标的权重(中心 bin 占 ~2/3,不加权时"
                          "基率解近似最优,模型会退化成恒猜中心;1.0=不加权)")
+    ap.add_argument("--gamma_plan", type=float, default=0.5,
+                    help="未来动作规划 BC 损失权重(查询槽 k ↔ 未来第 k+1 个转移的"
+                         "聚合动作+时长;0=关闭,规划头退回无监督)")
     ap.add_argument("--beta_sigreg", type=float, default=0.1, help="SIGReg 防坍缩权重(施加在 z_obs 上)")
     ap.add_argument("--ema_decay", type=float, default=0.99,
                     help="目标编码器 EMA 衰减(时间常数 ≈ 1/(1−τ) 个优化步;短跑程用 0.99,"
@@ -554,12 +618,13 @@ def main():
     for ep in range(args.epochs):
         r = train_epoch(model, sigreg, loader, opt, scaler, dev, args.steps_per_epoch,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
-                        args.mouse_move_w, amp_dev, use_amp)
+                        args.mouse_move_w, args.gamma_plan, amp_dev, use_amp)
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
         if use_wandb:
             _wb = {k: r[k] for k in ("loss", "pred", "pred_rms", "dz_rms", "inv",
                                      "mouse", "mouse_acc", "mouse_move_acc", "kb",
+                                     "plan", "plan_onset_mae",
                                      "sigreg", "c_mean", "c_std")}
             if r.get("gpu_util") is not None:
                 _wb["gpu_util"] = r["gpu_util"]
@@ -570,6 +635,7 @@ def main():
                   f"(rms {r['pred_rms']:.4f}/dz {r['dz_rms']:.4f}) | "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
                   f"acc {r['mouse_acc']:.2f} mv {r['mouse_move_acc']:.2f}) | "
+                  f"plan {r['plan']:.2f} (onset±{r['plan_onset_mae']:.1f}f) | "
                   f"sig {r['sigreg']:.2f} | "
                   f"c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
         # 节奏用 (ep+1):第 viz_every/eval_every 个 epoch 训练完才首次出图/评估,

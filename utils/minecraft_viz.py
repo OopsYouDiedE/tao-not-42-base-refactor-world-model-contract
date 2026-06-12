@@ -71,7 +71,7 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
         hv = torch.zeros(B, model.J, device=device)       # 历史有效位(空槽=0)
         Z_state = z_obs[:, 0]                      # 开环推演的滚动状态(锚坐标系)
 
-        traj = {k: [] for k in ["pred_err", "pers_err", "kb_pred", "kb_true",
+        traj = {k: [] for k in ["pred_err", "pers_err", "mu_norm", "kb_pred", "kb_true",
                                 "mouse_pred", "mouse_true", "c", "plan_kb"]}
         plan_snap = None
 
@@ -88,6 +88,7 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
             dz = z_tg[:, t + 1] - z_tg[:, t]
             traj["pred_err"].append((mu - dz).pow(2).mean().sqrt().item())
             traj["pers_err"].append(dz.pow(2).mean().sqrt().item())
+            traj["mu_norm"].append(mu.pow(2).mean().sqrt().item())
 
             mouse_logits, kb_prob = model.inv_dyn((z_tg[:, t + 1] - z_obs[:, t]) * c)
             traj["kb_pred"].append(kb_prob[0].float().cpu().numpy())
@@ -187,14 +188,21 @@ def render_panel(traj, out_path, title=""):
     ax = fig.add_subplot(gs[0, 0:2])
     pred_e = np.maximum(traj["pred_err"], 1e-6)
     pers_e = np.maximum(traj["pers_err"], 1e-6)
+    mu_n = np.maximum(traj["mu_norm"], 1e-6)
     ax.plot(steps, pred_e, "r-", lw=2, label="model |mu - dz|")
     ax.plot(steps, pers_e, "g--", lw=1.5, label="zero-motion |dz| (persistence)")
+    # |mu|:区分"摆烂(μ≡0,本线趴底)"与"在学但解释方差还小"。注意指标算术:
+    # pred(平方比)=0.9 ⇒ 红线只比绿线低 5%(RMS+对数轴),视觉必然"贴合";
+    # 此时最优 |mu| ≈ √(1−0.9)·|dz| ≈ 0.32|dz|——看蓝线是否朝绿线抬升。
+    ax.plot(steps, mu_n, "b-", lw=1.2, alpha=0.8,
+            label="model |mu| (0 = no-motion policy)")
     ax.axvspan(olf, Tm1 - 1, color="gray", alpha=0.18, label="OPEN-LOOP (blind)")
     ax.set_yscale("log")
     ratio = pred_e.mean() / max(pers_e.mean(), 1e-6)
     ax.text(0.02, 0.04,
             f"closed {pred_e[:olf].mean():.3g} | open {pred_e[olf:].mean():.3g} | "
-            f"|dz| {pers_e.mean():.3g} | model/pers = {ratio:.2f} (<1 = beats copy)",
+            f"|dz| {pers_e.mean():.3g} | |mu| {mu_n.mean():.3g} | "
+            f"model/pers = {ratio:.2f} (<1 = beats copy)",
             transform=ax.transAxes, fontsize=7,
             bbox=dict(fc="white", alpha=0.7, ec="none"))
     ax.set_xlabel("step"); ax.set_ylabel("latent RMS error (log)")

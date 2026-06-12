@@ -221,7 +221,7 @@ class VPTStreamDataset(IterableDataset):
         INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
         文件不存在/半写坏(滚动下载器随时增删)→ 返回 None,调用方换一段重试。
         """
-        actions, task = [], ""
+        actions, gflags, task = [], [], ""
         try:
             with open(jsonl, "r", encoding="utf-8") as f:
                 for t, line in enumerate(f):
@@ -229,6 +229,7 @@ class VPTStreamDataset(IterableDataset):
                     if t == 0 and "task" in a:
                         task = a["task"]
                     actions.append(_action_vec(a, self.camera_scale))
+                    gflags.append(1.0 if a.get("gui") else 0.0)
         except (OSError, ValueError):
             return None
         cap = cv2.VideoCapture(mp4)
@@ -246,7 +247,11 @@ class VPTStreamDataset(IterableDataset):
         if n == 0:
             return None
         img = torch.from_numpy(np.stack(frames[:n])).permute(0, 3, 1, 2).contiguous()
-        return {"img": img, "action": torch.stack(actions[:n]), "task": task, "n": n}
+        # gui 标记(jsonl "gui" 字段,colab §2 写入):GUI 打开时画面变化(光标/物品)
+        # 无法被记录的动作解释——纯标签噪声,采样时拒采。全零则存 None 免查。
+        gui = torch.tensor(gflags[:n]) if any(gflags[:n]) else None
+        return {"img": img, "action": torch.stack(actions[:n]), "task": task,
+                "gui": gui, "n": n}
 
     def _split_actions(self, act, start, skips):
         """把 [start, start+Σskips) 的逐帧动作按转移切开。
@@ -352,9 +357,17 @@ class VPTStreamDataset(IterableDataset):
                         "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
                 time.sleep(0.05)              # 缓存里全是短段:避免等后台解码时热旋
                 continue
-            fails = 0
             m = cand[rng.randrange(len(cand))]
             start = rng.randint(0, m["n"] - span)
+            # GUI 窗口拒采:GUI 内画面变化与记录动作零相关(标签噪声),>10% 即重抽
+            if m["gui"] is not None and float(m["gui"][start:start + span].mean()) > 0.1:
+                fails += 1
+                if fails % 8 == 0:
+                    served = self.clip_refresh        # 反复命中 GUI 段:触发换 clip
+                if not self.rescan and fails > 16 * len(self.pairs) + 64:
+                    raise RuntimeError("[VPTStreamDataset] 可用 clip 几乎全是 GUI 段")
+                continue
+            fails = 0
             # 采样帧索引(可变间隔 ⇒ 非等差);窗口 = 缓存 clip 的纯内存切片
             fidx = torch.tensor([0] + skips, dtype=torch.long).cumsum(0) + start
             img = m["img"][fidx]

@@ -3,7 +3,7 @@
 目标:把"看着 Minecraft 录像 + 录像里的真实动作"变成自监督信号,让世界模型学到
 "动作在画面里有什么效果",为后续 prompt-tuning 迁移打底座。
 
-  L_total = L_pred + α·L_inv + γ·L_plan + β·L_sigreg
+  L_total = L_pred + ρ·L_open + α·L_inv + γ·L_plan + β·L_sigreg
 
   L_pred (Δz 预测,逐样本归一化 MSE): 从 (z_obs(t), 区间动作序列, dt, h, t) 预测
     潜表征**增量** Δz = sg[enc_ema(img_{t+dt}) − enc_ema(img_t)],逐样本除以
@@ -12,6 +12,10 @@
   L_inv  (逆动力学): 从 (z_tg(t+dt) − z_obs(t)) ⊙ c 反推区间聚合动作。
     鼠标 = mu-law 分箱分类(CE,堵死"恒 0"平凡解),键盘 = 20 键 BCE。
     z_obs 端带梯度 ⇒ 这是视觉编码器"必须让 Δ 编码动作"的唯一直接压力。
+  L_open (开环 rollout): 同一转移再做一次前向,但感知输入换成**上一步自己的预测**
+    ẑ = z + μ(记忆 h/历史/目标全同闭环)。400ep 基线的头号短板是"闭环胜过复读、
+    开环劣于复读"——teacher forcing 从不训练"把自己的预测当立足点"。梯度穿过
+    上一步的 μ,直接优化预测的**可推演性**;这是"脑内记忆指导行为"的数学前提。
   L_plan (未来动作 BC): 规划头查询槽 k ↔ 未来第 k+1 个转移的聚合动作+时长
     (onset 单调参数化 ⇒ 时间序对齐,免匈牙利匹配;0 时刻 = t_vec,单位帧)。
     学"示范者接下来会做什么"——脑内世界的前向动作输出通道。
@@ -80,17 +84,26 @@ def dz_pred_loss(mu, dz_tg, eps=1e-3):
     读数**,模型有没有学动力学看它。注意诚实下限:转身揭示的新内容在潜空间本质
     不可预测,好模型的 pred_move 预期 ~0.5-0.7,不应拿 0 当目标。
     """
-    per = (mu - dz_tg).square().mean(dim=(1, 2))
+    r = mu - dz_tg
     denom = dz_tg.square().mean(dim=(1, 2)).detach()
     floor = (0.1 * denom.mean()).clamp(min=eps)
-    loss = (per / (denom + floor)).mean()
-    ratio = per.detach() / denom.clamp(min=eps)
+    # 分子 Huber 化(δ = 3×batch RMS):|残差| ≤ δ 时与平方完全一致,超出部分
+    # 线性——极端不可预测事件(GUI 突开/整屏剧变/爆炸)的梯度有界,不再偶发
+    # 拽乱整个 batch。δ 随表征尺度自适应;指标仍用真平方比值(不可被 Huber 美化)。
+    d = 3.0 * denom.mean().sqrt()
+    q = r.abs()
+    qc = torch.minimum(q, d)
+    per_h = (qc * (2.0 * q - qc)).mean(dim=(1, 2))     # = r² (|r|≤δ) / δ(2|r|−δ) (超出)
+    loss = (per_h / (denom + floor)).mean()
+    per = r.detach().square().mean(dim=(1, 2))
+    ratio = per / denom.clamp(min=eps)
     moved = denom > denom.median()
     pred_move = ratio[moved].mean() if bool(moved.any()) else ratio.mean()
     return loss, ratio.mean(), pred_move
 
 
-def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0):
+def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
+                           prev_action=None, kb_edge_w=1.0):
     """逆动力学:从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推混合动作。
 
     鼠标 = mu-law 分箱**加权** CE:中心 bin(没动鼠标)在区间聚合后占 ~2/3,
@@ -110,8 +123,17 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0):
     w = torch.where(mouse_bin.reshape(-1) == center,
                     torch.ones_like(ce), torch.full_like(ce, move_w))
     l_mouse = (ce * w).sum() / w.sum()
-    l_kb = F.binary_cross_entropy(kb_prob.clamp(EPS, 1 - EPS),
-                                  true_action[:, N_MOUSE:])
+    # 键盘跳变加权:400ep 基线 kb_onset_recall 钉死 ~0.17——整段按住的键(占帧
+    # 绝大多数)早学会了,按下/松开瞬间的样本太稀(对平均 BCE 无感)。与上一区间
+    # 聚合键比对,发生跳变的 (样本,键) 元素 ×kb_edge_w,与 mouse_move_w 同思路。
+    kb_t = true_action[:, N_MOUSE:]
+    bce = F.binary_cross_entropy(kb_prob.clamp(EPS, 1 - EPS), kb_t, reduction="none")
+    if prev_action is not None and kb_edge_w > 1.0:
+        edges = (kb_t != prev_action[:, N_MOUSE:]).to(bce.dtype)
+        w_kb = 1.0 + (kb_edge_w - 1.0) * edges
+        l_kb = (bce * w_kb).sum() / w_kb.sum()
+    else:
+        l_kb = bce.mean()
     hit = (mouse_logits.argmax(-1) == mouse_bin)
     moved = (mouse_bin != center)
     mouse_acc = hit.float().mean()
@@ -227,7 +249,7 @@ def roll_hist(a_hist, t_hist, hv, action, dt_cur):
 
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                  alpha_inv, beta_sigreg, move_w, gamma_plan,
+                  alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, kb_edge_w,
                   amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
@@ -269,11 +291,21 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             ).view(B, k, model.N, model.d)
 
         accum = torch.zeros((), device=device)
+        zhat = None     # 上一步预测的状态 ẑ = z + μ(窗口内携带梯度;窗口边界重置)
         for i in range(k):
             t = w0 + i
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
                 out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
                             t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
+                out_open = None
+                if rho_open > 0 and zhat is not None:
+                    # 开环支路:感知输入换成上一步预测 ẑ,记忆/历史/动作/目标全同
+                    # 闭环——梯度穿过上一步 μ,训练"自己的预测可作下一步立足点"
+                    out_open = model(zhat, h, a_hist, act_seq[:, t], dt[:, t],
+                                     t_vec[:, t], t_hist=t_hist, hist_valid=hv,
+                                     task_emb=task_emb)
+            prev_z = z_obs[:, i]
+            prev_act = act_agg[:, t - 1] if t > 0 else act_agg[:, t]   # t=0 无跳变
             a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
 
             # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,CE/归一化 MSE 在 fp32 更稳)
@@ -282,8 +314,12 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             l_pred, r_pred, r_pred_mv = dz_pred_loss(mu, dz)
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
-                model.inv_dyn, move_w)
+                model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w)
             step_loss = l_pred + alpha_inv * l_inv
+            if out_open is not None:
+                l_open, _, r_open_mv = dz_pred_loss(out_open["mu"].float(), dz)
+                step_loss = step_loss + rho_open * l_open
+                acc["pred_open"] += r_open_mv; acc["open_n"] += 1
             pl = plan_bc_loss(out["action_plan"], act_agg, dt, t, model.K, move_w) \
                 if gamma_plan > 0 else None
             if pl is not None:
@@ -293,6 +329,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
             accum = accum + step_loss / (T - 1)
             last_c = c
+            zhat = prev_z + out["mu"]    # ẑ(t+1) 估计,供下一步开环支路(带梯度)
             h = out["h_next"]            # 窗口内保留梯度(截断 BPTT,跨步记忆只走 h)
             # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
             acc["pred"] += r_pred; acc["pred_move"] += r_pred_mv
@@ -317,15 +354,16 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
-                alpha_inv, beta_sigreg, move_w, gamma_plan, text_enc, amp_dev, use_amp):
+                alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, kb_edge_w,
+                text_enc, amp_dev, use_amp):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
-           ["loss", "pred", "pred_move", "pred_rms", "dz_rms", "inv", "mouse",
-            "mouse_acc", "kb", "sigreg", "mv_hit", "mv_n", "plan", "onset_mae"]}
-    acc["inner"] = acc["win"] = acc["plan_n"] = 0
+           ["loss", "pred", "pred_move", "pred_open", "pred_rms", "dz_rms", "inv",
+            "mouse", "mouse_acc", "kb", "sigreg", "mv_hit", "mv_n", "plan", "onset_mae"]}
+    acc["inner"] = acc["win"] = acc["plan_n"] = acc["open_n"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
 
     for batch in itertools.islice(data_iter, steps):
@@ -343,7 +381,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, move_w, gamma_plan,
-                               amp_dev, use_amp, scaler, acc)
+                               rho_open, kb_edge_w, amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
@@ -362,6 +400,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         "loss": (acc["loss"] / wc).item(),
         "pred": (acc["pred"] / ic).item(),          # 1.0 = persistence 基线(含静止样本托底)
         "pred_move": (acc["pred_move"] / ic).item(),  # 仅真运动样本——诚实读数
+        "pred_open": (acc["pred_open"] / max(acc["open_n"], 1)).item(),  # 开环支路(运动样本)
         "pred_rms": (acc["pred_rms"] / ic).item(),  # 真实预测误差(不可被 σ/归一化美化)
         "dz_rms": (acc["dz_rms"] / ic).item(),      # 目标本身的变化幅度(基线尺度)
         "inv": (acc["inv"] / ic).item(),
@@ -530,6 +569,17 @@ def main():
     ap.add_argument("--gamma_plan", type=float, default=0.5,
                     help="未来动作规划 BC 损失权重(查询槽 k ↔ 未来第 k+1 个转移的"
                          "聚合动作+时长;0=关闭,规划头退回无监督)")
+    ap.add_argument("--rho_open", type=float, default=0.5,
+                    help="开环 rollout 损失权重:同一转移再前向一次,感知输入换成上一步"
+                         "自己的预测 ẑ=z+μ(0=关闭)。直攻'闭环胜过复读、开环劣于复读'"
+                         "的差距——脑内推演可用性的训练信号;约 +40%% 前向计算")
+    ap.add_argument("--kb_edge_w", type=float, default=4.0,
+                    help="键盘 BCE 中发生跳变(与上一区间不同)的 (样本,键) 元素权重"
+                         "(onset/release 样本稀疏,平均 BCE 对其无感,kb_onset_recall"
+                         "曾 400ep 钉死 0.17;1.0=不加权)")
+    ap.add_argument("--no_cosine", action="store_true",
+                    help="关闭余弦 lr 衰减(默认开启:lr 余弦退火到 0.1×,按 epoch 步进;"
+                         "恒定 lr 的噪声地板是 pred_move 尾段平台的嫌疑人之一)")
     ap.add_argument("--text_encoder", choices=["minilm", "mock", "none"], default="minilm",
                     help="任务文本条件:minilm=冻结句向量(需 transformers,语义空间"
                          "可外推);mock=哈希伪嵌入(可区分任务无语义,离线冒烟);"
@@ -653,6 +703,8 @@ def main():
                                 encoder_weights=args.encoder_weights).to(dev)
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)
+    sched = None if args.no_cosine else torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=args.epochs, eta_min=args.lr * 0.1)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_frozen = sum(p.numel() for p in model.backbone.parameters())
@@ -667,11 +719,15 @@ def main():
     for ep in range(args.epochs):
         r = train_epoch(model, sigreg, data_iter, opt, scaler, dev, args.steps_per_epoch,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
-                        args.mouse_move_w, args.gamma_plan, text_enc, amp_dev, use_amp)
+                        args.mouse_move_w, args.gamma_plan, args.rho_open,
+                        args.kb_edge_w, text_enc, amp_dev, use_amp)
+        if sched is not None:
+            sched.step()
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
         if use_wandb:
-            _wb = {k: r[k] for k in ("loss", "pred", "pred_move", "pred_rms", "dz_rms",
+            _wb = {k: r[k] for k in ("loss", "pred", "pred_move", "pred_open",
+                                     "pred_rms", "dz_rms",
                                      "inv", "mouse", "mouse_acc", "mouse_move_acc", "kb",
                                      "plan", "plan_onset_mae",
                                      "sigreg", "c_mean", "c_std")}
@@ -681,7 +737,7 @@ def main():
         if ep % args.log_every == 0 or ep == args.epochs - 1:
             gpu = f" | gpu {r['gpu_util']:.0f}%" if r.get("gpu_util") is not None else ""
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f} "
-                  f"mv {r['pred_move']:.3f}×copy "
+                  f"mv {r['pred_move']:.3f} open {r['pred_open']:.3f}×copy "
                   f"(rms {r['pred_rms']:.4f}/dz {r['dz_rms']:.4f}) | "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
                   f"acc {r['mouse_acc']:.2f} mv {r['mouse_move_acc']:.2f}) | "

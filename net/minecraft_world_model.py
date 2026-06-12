@@ -240,6 +240,9 @@ class MinecraftWorldModel(nn.Module):
         self.action_enc = nn.Linear(act_dim + 1, d)
         # 区间内动作的序内位置嵌入(次序携带信息:先转头后前进 ≠ 先前进后转头)
         self.act_pos = nn.Parameter(torch.randn(1, max_skip, d) * 0.02)
+        # 历史动作的位置嵌入:Transformer 对 token 置换不变,不加位置则 a_hist
+        # 退化成无序袋子——roll_append 维护的"哪个动作更近"进模型即被抹掉
+        self.hist_pos = nn.Parameter(torch.randn(1, J, d) * 0.02)
         # Δt 条件编码(契约:以帧为单位,见 primitives.ContinuousTimeEncoding)
         self.dt_enc = ContinuousTimeEncoding(d)
         self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2)
@@ -340,7 +343,8 @@ class MinecraftWorldModel(nn.Module):
         dt_token = self.dt_enc(dt).to(z_ref.dtype).unsqueeze(1)        # [B,1,d]
 
         ones_h = torch.ones(B, a_hist.shape[1], 1, device=z_ref.device, dtype=a_hist.dtype)
-        ah = self.action_enc(torch.cat([a_hist, ones_h], dim=-1))
+        ah = self.action_enc(torch.cat([a_hist, ones_h], dim=-1)) \
+            + self.hist_pos[:, :a_hist.shape[1]]
         S = a_cur.shape[1]
         valid = (torch.arange(S, device=z_ref.device).unsqueeze(0)
                  < dt.unsqueeze(1)).to(a_cur.dtype).unsqueeze(-1)      # [B,S,1]

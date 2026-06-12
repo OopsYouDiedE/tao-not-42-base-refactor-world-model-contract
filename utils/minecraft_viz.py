@@ -64,6 +64,8 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
 
         h = torch.zeros(B, 1, d, device=device)
         a_hist = torch.zeros(B, model.J, act_agg.shape[-1], device=device)
+        t_hist = torch.zeros(B, model.J, device=device)   # 历史条目距"现在"的帧数
+        hv = torch.zeros(B, model.J, device=device)       # 历史有效位(空槽=0)
         Z_state = z_obs[:, 0]                      # 开环推演的滚动状态(锚坐标系)
 
         traj = {k: [] for k in ["pred_err", "pers_err", "kb_pred", "kb_true",
@@ -71,8 +73,12 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
 
         for t in range(T - 1):
             z_ref = z_obs[:, t] if t < open_loop_from else Z_state
-            out = model(z_ref, h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
+            out = model(z_ref, h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
+                        t_hist=t_hist, hist_valid=hv)
             a_hist = torch.cat([a_hist[:, 1:], act_agg[:, t].unsqueeze(1)], dim=1)
+            t_hist = torch.cat([t_hist[:, 1:] + dt[:, t].unsqueeze(1),
+                                torch.zeros(B, 1, device=device)], dim=1)
+            hv = torch.cat([hv[:, 1:], torch.ones(B, 1, device=device)], dim=1)
             mu, c = out["mu"].float(), out["c"].float()
 
             dz = z_tg[:, t + 1] - z_tg[:, t]

@@ -58,11 +58,14 @@ class MinecraftDecoderHeads(nn.Module):
             nn.Linear(d, 128), nn.SiLU(), nn.Linear(128, num_keyboard_keys)
         )
 
-        # 动作规划头 (DETR 式)
+        # 动作规划头 (DETR 式)。时间契约:onset 的 0 时刻 = 本次 forward 传入的
+        # t_vec 时刻("现在"),单位 = **帧**(与 dt/t_hist 同单位,不用秒)。
+        # ⚠ 当前训练无此头的监督(L_pred+L_inv+SIGReg 都不经过它)——语义由将来
+        # 接 BC/规划损失时的标签定义,标签构造必须遵守上述 0 时刻与单位契约。
         self.plan_mouse = nn.Linear(d, 2)
         self.plan_keyboard = nn.Linear(d, num_keyboard_keys)
-        self.plan_onset = nn.Linear(d, 1)             # 多久后按下(秒)
-        self.plan_dur = nn.Linear(d, 1)               # 按住多久(秒)
+        self.plan_onset = nn.Linear(d, 1)             # 多久后按下(帧,自"现在"起算)
+        self.plan_dur = nn.Linear(d, 1)               # 按住多久(帧)
         self.plan_exist = nn.Linear(d, 1)             # 该计划槽是否有效
 
     def decode_action_plan(self, u_tokens):
@@ -235,14 +238,18 @@ class MinecraftWorldModel(nn.Module):
                                            batch_first=True, activation="gelu", dropout=0.0)
         self.blocks = nn.TransformerEncoder(layer, num_layers=4)
 
-        # 复合动作。act_dim+1:末位是**有效位**——区分零填充与真·无操作(全零动作
-        # 是合法输入"什么都没按",不能用全零判别 padding)。历史 token 有效位恒 1。
+        # 复合动作。act_dim+1:末位是**有效位**——区分零填充/空槽与真·无操作
+        # (全零动作是合法输入"什么都没按",不能用全零判别 padding)。
+        # a_cur 的有效位由 dt 推出;a_hist 的由训练侧滚动维护(开头空槽 = 0)。
+        # 同帧并发动作(w+attack+鼠标)合在一个向量的正交维度上——multi-hot 无
+        # 叠加损失,不拆多 token(拆开徒增同帧置换对称与 token 数)。
         self.action_enc = nn.Linear(act_dim + 1, d)
-        # 区间内动作的序内位置嵌入(次序携带信息:先转头后前进 ≠ 先前进后转头)
+        # 区间内动作的序内位置嵌入(次序携带信息:先转头后前进 ≠ 先前进后转头;
+        # 区间内逐帧等距,序数 = 相对当前时刻的帧偏移,即已是时间编码)
         self.act_pos = nn.Parameter(torch.randn(1, max_skip, d) * 0.02)
-        # 历史动作的位置嵌入:Transformer 对 token 置换不变,不加位置则 a_hist
-        # 退化成无序袋子——roll_append 维护的"哪个动作更近"进模型即被抹掉
-        self.hist_pos = nn.Parameter(torch.randn(1, J, d) * 0.02)
+        # 历史动作不用序数位置嵌入而用**时间编码**(dt_enc(t_hist),单位帧):
+        # 可变 Δt 下序数定位不了"多久之前"——第 j 个历史槽可能是 3 帧前也可能是
+        # 24 帧前;历史条目的位置必须由"距当前推算时刻的帧数"给出。
         # Δt 条件编码(契约:以帧为单位,见 primitives.ContinuousTimeEncoding)
         self.dt_enc = ContinuousTimeEncoding(d)
         self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2)
@@ -326,25 +333,39 @@ class MinecraftWorldModel(nn.Module):
 
     # ---------------- 动力学推演 ----------------
 
-    def forward(self, z_ref, h, a_hist, a_cur, dt, t_vec):
+    def forward(self, z_ref, h, a_hist, a_cur, dt, t_vec, t_hist=None, hist_valid=None):
         """一段可变跨度的动力学推演:预测 z 从 t 到 t+dt 的增量。
+
+        **时间锚契约**:t_vec 是本次前向的"现在"——脑内世界以它(正弦 PE,注入
+        h token)自定位;它同时是一切前向输出的 0 时刻(动作规划头的 onset 从
+        这一刻起算,单位 = 帧,与 dt 同单位)。历史/当前区间的定位都相对此刻:
+        t_hist 给出各历史条目距"现在"的帧数,a_cur 的序数位置 = 未来帧偏移。
 
         z_ref:  [B,N,d] 当前帧潜表征(闭环 = encode_obs(img_t);开环 = 上一步 ẑ+μ)。
         a_hist: [B,J,A] 过去 J 个转移的聚合动作(严格过去,当前区间不在内)。
+        t_hist: [B,J]   各历史转移**结束时刻**距"现在"的帧数(0 = 刚刚结束;
+                None = 全 0,仅兼容旧调用)。可变 Δt 下序数定位不了时间,
+                历史 token 的位置编码必须由它给出(dt_enc,与 dt 同单位)。
+        hist_valid: [B,J] 历史有效位(0 = 序列开头尚未填充的空槽;None = 全 1)。
+                全零动作是合法的"什么都没按",不能用全零判别空槽。
         a_cur:  [B,S,A] 当前区间内完整的原始动作序列(右侧零填充)。
         dt:     [B]     当前转移的帧跨度(决定 a_cur 的有效长度与 Δt 条件)。
         返回 mu = **Δz 预测**(z(t+dt) 的估计 = z_ref + mu),c = 逐 slot 可控闸。
         时间 PE 加在 h token 上(不污染感知);Δt 编码为独立条件 token。
         """
         B = z_ref.shape[0]
+        J = a_hist.shape[1]
         text_token = self.text_placeholder.expand(B, -1, -1)
         u_p = self.u_placeholder.expand(B, -1, -1)
         h_token = h + sinusoidal_time_encoding(t_vec, self.d).to(h.dtype)
         dt_token = self.dt_enc(dt).to(z_ref.dtype).unsqueeze(1)        # [B,1,d]
 
-        ones_h = torch.ones(B, a_hist.shape[1], 1, device=z_ref.device, dtype=a_hist.dtype)
-        ah = self.action_enc(torch.cat([a_hist, ones_h], dim=-1)) \
-            + self.hist_pos[:, :a_hist.shape[1]]
+        if t_hist is None:
+            t_hist = torch.zeros(B, J, device=z_ref.device)
+        if hist_valid is None:
+            hist_valid = torch.ones(B, J, device=z_ref.device, dtype=a_hist.dtype)
+        ah = self.action_enc(torch.cat([a_hist, hist_valid.unsqueeze(-1)], dim=-1)) \
+            + self.dt_enc(t_hist).to(z_ref.dtype).view(B, J, self.d)
         S = a_cur.shape[1]
         valid = (torch.arange(S, device=z_ref.device).unsqueeze(0)
                  < dt.unsqueeze(1)).to(a_cur.dtype).unsqueeze(-1)      # [B,S,1]

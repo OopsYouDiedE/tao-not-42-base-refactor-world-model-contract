@@ -145,9 +145,18 @@ def _gpu_util():
 # 训练 / 评估
 # =====================================================================
 
-def roll_append(a_hist, action):
-    """滚动追加一个聚合动作到历史缓冲。a_hist:[B,J,ACT_DIM], action:[B,ACT_DIM]。"""
-    return torch.cat([a_hist[:, 1:], action.unsqueeze(1)], dim=1)
+def roll_hist(a_hist, t_hist, hv, action, dt_cur):
+    """时间前进 dt_cur 帧并滚入一个刚结束的聚合动作。
+
+    a_hist [B,J,A] / t_hist [B,J](各条目结束时刻距"现在"的帧数)/ hv [B,J] 有效位。
+    旧条目统一变老 dt_cur 帧;新条目刚结束 ⇒ age=0、有效位=1。开头的空槽
+    (a_hist 初始全零)有效位为 0——全零动作是合法的"没按",不能用值判空。
+    """
+    B = action.shape[0]
+    z1 = torch.zeros(B, 1, device=action.device, dtype=t_hist.dtype)
+    return (torch.cat([a_hist[:, 1:], action.unsqueeze(1)], dim=1),
+            torch.cat([t_hist[:, 1:] + dt_cur.unsqueeze(1), z1], dim=1),
+            torch.cat([hv[:, 1:], torch.ones_like(z1)], dim=1))
 
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
@@ -168,6 +177,8 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
     B, T = img.shape[0], img.shape[1]
     h = torch.zeros(B, 1, model.d, device=device)
     a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
+    t_hist = torch.zeros(B, model.J, device=device)    # 各历史条目距"现在"的帧数
+    hv = torch.zeros(B, model.J, device=device)        # 历史有效位(空槽=0)
     n_win = -(-(T - 1) // k_bptt)        # ceil:窗口数,用于 SIGReg 权重尺度归一
     last_c = None
 
@@ -192,8 +203,9 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
         for i in range(k):
             t = w0 + i
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
-                out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
-            a_hist = roll_append(a_hist, act_agg[:, t])
+                out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
+                            t_hist=t_hist, hist_valid=hv)
+            a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
 
             # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,CE/归一化 MSE 在 fp32 更稳)
             mu, c = out["mu"].float(), out["c"].float()
@@ -311,11 +323,14 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
         z_obs, z_tg = z_obs.float(), z_tg.float()
         h = torch.zeros(B, 1, model.d, device=device)
         a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
+        t_hist = torch.zeros(B, model.J, device=device)
+        hv = torch.zeros(B, model.J, device=device)
         prev_true = None
         for t in range(T - 1):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
-                out = model(z_obs[:, t], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t])
-            a_hist = roll_append(a_hist, act_agg[:, t])
+                out = model(z_obs[:, t], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
+                            t_hist=t_hist, hist_valid=hv)
+            a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
             # holdout 上的 Δz 预测比值(与训练 pred 同定义:1.0=复读基线)——
             # 与训练曲线对照即泛化差距,这是面板之外唯一能连续监控它的地方
             dz = z_tg[:, t + 1] - z_tg[:, t]

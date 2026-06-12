@@ -12,10 +12,14 @@
   L_inv  (逆动力学): 从 (z_tg(t+dt) − z_obs(t)) ⊙ c 反推区间聚合动作。
     鼠标 = mu-law 分箱分类(CE,堵死"恒 0"平凡解),键盘 = 20 键 BCE。
     z_obs 端带梯度 ⇒ 这是视觉编码器"必须让 Δ 编码动作"的唯一直接压力。
-  L_open (开环 rollout): 同一转移再做一次前向,但感知输入换成**上一步自己的预测**
-    ẑ = z + μ(记忆 h/历史/目标全同闭环)。400ep 基线的头号短板是"闭环胜过复读、
-    开环劣于复读"——teacher forcing 从不训练"把自己的预测当立足点"。梯度穿过
-    上一步的 μ,直接优化预测的**可推演性**;这是"脑内记忆指导行为"的数学前提。
+  L_open (开环 rollout,α 课程混合): 同一转移再做一次前向,感知输入为
+    z + α·(ẑ − z),ẑ = 上一步自己的预测(记忆 h/历史/目标全同闭环)。
+    α 随训练 0→1 渐变(--open_start/--open_full 分数):devoted-eon-26 实证,
+    从第 0 步就喂纯 ẑ 会触发**分支条件摆烂**——早期 μ 是垃圾 ⇒ ẑ 是噪声 ⇒
+    模型学会"区分输入分布并对 ẑ 输出 0"且固化(pred_open 钉死 0.99,
+    开环区 |μ| 塌到 0.1)。课程混合让两种输入分布从重合开始连续分离,
+    分类器式摆烂无处下脚;梯度穿过上一步的 μ(×α),优化预测的**可推演性**
+    ——这是"脑内记忆指导行为"的数学前提。
   L_plan (未来动作 BC): 规划头查询槽 k ↔ 未来第 k+1 个转移的聚合动作+时长
     (onset 单调参数化 ⇒ 时间序对齐,免匈牙利匹配;0 时刻 = t_vec,单位帧)。
     学"示范者接下来会做什么"——脑内世界的前向动作输出通道。
@@ -250,7 +254,7 @@ def roll_hist(a_hist, t_hist, hv, action, dt_cur):
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                   alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
-                  kb_edge_w, amp_dev, use_amp, scaler, acc):
+                  open_alpha, kb_edge_w, amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -298,11 +302,12 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                 out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
                             t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
                 out_open = None
-                if (rho_open > 0 and zhat is not None
+                if (rho_open > 0 and open_alpha > 0 and zhat is not None
                         and i % open_every == open_every - 1):
-                    # 开环支路:感知输入换成上一步预测 ẑ,记忆/历史/动作/目标全同
-                    # 闭环——梯度穿过上一步 μ,训练"自己的预测可作下一步立足点"
-                    out_open = model(zhat, h, a_hist, act_seq[:, t], dt[:, t],
+                    # 开环支路(α 课程):输入 = z + α(ẑ−z),α 随训练 0→1——
+                    # 输入分布连续分离,堵死"识别 ẑ 并条件摆烂";梯度穿过上一步 μ(×α)
+                    z_mix = z_obs[:, i] + open_alpha * (zhat - z_obs[:, i])
+                    out_open = model(z_mix, h, a_hist, act_seq[:, t], dt[:, t],
                                      t_vec[:, t], t_hist=t_hist, hist_valid=hv,
                                      task_emb=task_emb)
             prev_z = z_obs[:, i]
@@ -356,7 +361,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
                 alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
-                kb_edge_w, text_enc, amp_dev, use_amp):
+                open_alpha, kb_edge_w, text_enc, amp_dev, use_amp):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
@@ -382,7 +387,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, move_w, gamma_plan,
-                               rho_open, open_every, kb_edge_w,
+                               rho_open, open_every, open_alpha, kb_edge_w,
                                amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -578,10 +583,17 @@ def main():
     ap.add_argument("--open_every", type=int, default=1,
                     help="每几个内步做一次开环支路(成本旋钮:1=每步,实测总墙钟 ~+20%%;"
                          "2=减半开环前向,~+10%%;k_bptt=4 时取 3 则每窗口仅 1 次)")
-    ap.add_argument("--kb_edge_w", type=float, default=4.0,
-                    help="键盘 BCE 中发生跳变(与上一区间不同)的 (样本,键) 元素权重"
-                         "(onset/release 样本稀疏,平均 BCE 对其无感,kb_onset_recall"
-                         "曾 400ep 钉死 0.17;1.0=不加权)")
+    ap.add_argument("--open_start", type=float, default=0.25,
+                    help="开环 α 课程起点(总 epochs 的分数):此前 α=0 支路全关——"
+                         "μ 未成熟时 ẑ 是噪声,过早开启会固化'识别 ẑ 输出 0'的摆烂盆地")
+    ap.add_argument("--open_full", type=float, default=0.75,
+                    help="开环 α 课程终点(总 epochs 的分数):start→full 线性爬到 α=1"
+                         "(纯 ẑ 输入);两输入分布连续分离,分类器式条件摆烂无处下脚")
+    ap.add_argument("--kb_edge_w", type=float, default=1.0,
+                    help="键盘 BCE 跳变元素加权(默认 1=关)。devoted-eon-26 实证 ×4 对"
+                         "kb_onset_recall 无效——瓶颈是感知信息(onset 后 1-2 帧的视觉"
+                         "效果低于 128px 表征分辨能力)而非损失权重,onset 问题转"
+                         "fovea/分辨率路线;旋钮保留供复验")
     ap.add_argument("--no_cosine", action="store_true",
                     help="关闭余弦 lr 衰减(默认开启:lr 余弦退火到 0.1×,按 epoch 步进;"
                          "恒定 lr 的噪声地板是 pred_move 尾段平台的嫌疑人之一)")
@@ -722,10 +734,15 @@ def main():
     util_hist = []
 
     for ep in range(args.epochs):
+        # 开环 α 课程:ep/epochs 在 [open_start, open_full] 区间内 0→1 线性爬升
+        frac = ep / max(args.epochs - 1, 1)
+        open_alpha = min(1.0, max(0.0, (frac - args.open_start)
+                                  / max(args.open_full - args.open_start, 1e-6)))
         r = train_epoch(model, sigreg, data_iter, opt, scaler, dev, args.steps_per_epoch,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
-                        args.open_every, args.kb_edge_w, text_enc, amp_dev, use_amp)
+                        args.open_every, open_alpha, args.kb_edge_w,
+                        text_enc, amp_dev, use_amp)
         if sched is not None:
             sched.step()
         if r.get("gpu_util") is not None:
@@ -736,6 +753,7 @@ def main():
                                      "inv", "mouse", "mouse_acc", "mouse_move_acc", "kb",
                                      "plan", "plan_onset_mae",
                                      "sigreg", "c_mean", "c_std")}
+            _wb["open_alpha"] = open_alpha    # 解读 pred_open 必须对照 α(α 小时≈闭环)
             if r.get("gpu_util") is not None:
                 _wb["gpu_util"] = r["gpu_util"]
             wandb.log(_wb, step=ep)

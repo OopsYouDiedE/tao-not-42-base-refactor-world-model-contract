@@ -300,8 +300,11 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
     return last_c
 
 
-def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
+def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
                 alpha_inv, beta_sigreg, move_w, gamma_plan, text_enc, amp_dev, use_amp):
+    """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
+    每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
+    无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
            ["loss", "pred", "pred_rms", "dz_rms", "inv", "mouse", "mouse_acc", "kb",
@@ -309,7 +312,7 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
     acc["inner"] = acc["win"] = acc["plan_n"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
 
-    for batch in itertools.islice(loader, steps):
+    for batch in itertools.islice(data_iter, steps):
         batch_dev = {
             "img": _to_float_img(batch["img"].to(device, non_blocking=True)),
             "act_seq": batch["act_seq"].to(device, non_blocking=True),
@@ -578,6 +581,9 @@ def main():
                         pin_memory=is_cuda,
                         persistent_workers=(n_workers > 0),
                         prefetch_factor=(2 if n_workers > 0 else None))
+    # 全程唯一迭代器:每 epoch 重建会丢在途预取 batch、重置 worker 迭代状态,
+    # GPU 功率按 epoch 周期锯齿(无限流数据集没有"epoch 末尾",不需要重建)
+    data_iter = iter(loader)
     # 可视化与评估都用 holdout clip(独立固定目录或按文件名扣末 holdout_n 个,
     # 不进训练):在训练数据上展示/评估,量到的是记忆不是泛化。
     eval_ds = VPTStreamDataset(hold_dir, seq_len=args.seq_len, fps=args.fps,
@@ -636,7 +642,7 @@ def main():
     util_hist = []
 
     for ep in range(args.epochs):
-        r = train_epoch(model, sigreg, loader, opt, scaler, dev, args.steps_per_epoch,
+        r = train_epoch(model, sigreg, data_iter, opt, scaler, dev, args.steps_per_epoch,
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
                         args.mouse_move_w, args.gamma_plan, text_enc, amp_dev, use_amp)
         if r.get("gpu_util") is not None:

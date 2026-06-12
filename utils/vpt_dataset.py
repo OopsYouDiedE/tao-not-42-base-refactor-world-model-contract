@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import threading
 import time
 
 import cv2
@@ -165,9 +166,12 @@ class VPTStreamDataset(IterableDataset):
 
     clip_cache:每个 worker 常驻内存的整段 clip 数(滚动 FIFO)。窗口从缓存内
     随机一段随机位置切出 ⇒ batch 内样本多样性随缓存段数增长(冷启动从第 1 段
-    解码完就开始供数,之后每次刷新多缓存一段直到打满)。
-    clip_refresh:每产出多少个窗口换入一段新 clip(多样性/解码停顿的折中:
-    一段解码 ~20s,refresh=256 时摊到每窗口 <0.1s)。
+    解码完就开始供数,之后随刷新逐步打满)。
+    clip_refresh:每产出多少个窗口**触发一次换段**。换段解码在**后台线程**进行:
+    采样循环只从"已在内存里的段"随机抽、永不等待解码——解码期间照常产出,
+    解完随到随换(FIFO 逐出最老)。因此实际轮换周期 = max(产出 clip_refresh 个
+    窗口的时间, 一段解码时长 ~20s);下载/解码慢只影响数据新鲜度,不影响吞吐。
+    唯一允许阻塞的时刻是冷启动(缓存全空,必须同步解第一段)。
 
     buffer_size/buffer_reuse:窗口级滚动缓存(0/1=关闭,v2 时代的吞吐杠杆,
     clip 缓存落地后窗口切片已免费,保留仅为兼容,正常不需要开)。
@@ -286,24 +290,47 @@ class VPTStreamDataset(IterableDataset):
         quota = max(1, self.buffer_size // n_w) if self.buffer_size > 0 else 0
         buf, ptr = [], 0
         clips, served, fails = {}, 0, 0     # clip 级内存缓存:mp4 -> _load_clip 条目
+        pend, ldr = [], [None]              # 后台解码:结果槽 + 在途线程
+
+        def _spawn_loader():
+            """挑一段未缓存的 clip,起后台线程解码(不阻塞采样循环)。"""
+            pairs = _pair_list(self.data_dir) if self.rescan else self.pairs
+            if not pairs:
+                return
+            mp4, jsonl = pairs[rng.randrange(len(pairs))]
+            if mp4 in clips:
+                return                       # 抽中已缓存的段:本轮放弃,下次再抽
+
+            def _bg():
+                c = self._load_clip(mp4, jsonl)
+                if c is not None:
+                    pend.append((mp4, c))
+
+            ldr[0] = threading.Thread(target=_bg, daemon=True)
+            ldr[0].start()
+
         while True:
-            # 换入 clip:缓存空(冷启动,解完第 1 段立即开始供数)或已产出
-            # clip_refresh 个窗口(滚动刷新;未满时只增,满了 FIFO 逐出最老)。
-            # 滚动目录模式重扫目录:随机抽"当前已有"的段,下载器增删不阻塞采样。
-            if not clips or served >= self.clip_refresh:
+            # 收割后台解码完成的段:随到随换(FIFO 逐出最老),采样从不等它
+            if ldr[0] is not None and not ldr[0].is_alive():
+                ldr[0] = None
+                while pend:
+                    mp4, c = pend.pop()
+                    if len(clips) >= self.clip_cache:
+                        clips.pop(next(iter(clips)))
+                    clips[mp4] = c
+                    served = 0
+            if not clips:
+                # 冷启动/池空:唯一允许同步阻塞的时刻(没有任何段可采)
                 pairs = _pair_list(self.data_dir) if self.rescan else self.pairs
                 if pairs:
                     mp4, jsonl = pairs[rng.randrange(len(pairs))]
-                    if mp4 not in clips:
-                        c = self._load_clip(mp4, jsonl)
-                        if c is not None:
-                            if len(clips) >= self.clip_cache:
-                                clips.pop(next(iter(clips)))
-                            clips[mp4] = c
-                served = 0
+                    c = self._load_clip(mp4, jsonl)
+                    if c is not None:
+                        clips[mp4] = c
+                        served = 0
                 if not clips:
                     fails += 1
-                    if self.rescan:           # 冷启动/文件竞态:等下载器,不报错
+                    if self.rescan:           # 滚动目录:等下载器,不报错
                         if fails % 15 == 1:
                             print(f"[VPTStreamDataset] 等待 {self.data_dir} 出现可用 clip...")
                         time.sleep(2.0)
@@ -311,16 +338,19 @@ class VPTStreamDataset(IterableDataset):
                     if fails > 4 * len(self.pairs) + 8:
                         raise RuntimeError("[VPTStreamDataset] 没有可解码的 clip")
                     continue
+            elif served >= self.clip_refresh and ldr[0] is None:
+                _spawn_loader()              # 额度用完 → 异步换段,继续从现有缓存采样
             # 每个转移独立采样跨度 Δt ~ U{1..frame_skip}(可变间隔,见类 docstring)
             skips = [rng.randint(1, self.frame_skip) for _ in range(self.seq_len - 1)]
             span = sum(skips) + 1                             # 窗口占用的原始帧数
             cand = [c for c in clips.values() if c["n"] >= span]
             if not cand:
                 fails += 1
-                served = self.clip_refresh                    # 强制下轮换入新 clip
+                served = self.clip_refresh                    # 触发换段(异步)
                 if not self.rescan and fails > 4 * len(self.pairs) + 8:
                     raise RuntimeError(
                         "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
+                time.sleep(0.05)              # 缓存里全是短段:避免等后台解码时热旋
                 continue
             fails = 0
             m = cand[rng.randrange(len(cand))]

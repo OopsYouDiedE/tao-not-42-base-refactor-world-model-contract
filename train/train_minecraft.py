@@ -353,7 +353,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", default="runs/vpt_sample", help="VPTDataset 数据目录(.mp4+.jsonl)")
+    ap.add_argument("--data_dir", default="runs/vpt_sample", help="训练数据目录(.mp4+.jsonl)")
+    ap.add_argument("--holdout_dir", default=None,
+                    help="独立的固定 holdout 目录(eval/viz 专用)。设置后进入**滚动目录"
+                         "模式**:data_dir 内容可随时增删(后台滚动下载器),worker 每次"
+                         "换 clip 重扫目录随机抽取;不设则按文件名从 data_dir 扣末"
+                         " holdout_n 个(静态目录模式)")
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--steps_per_epoch", type=int, default=50, help="每 epoch 迭代多少个 batch(流式)")
     ap.add_argument("--batch", type=int, default=16,
@@ -442,7 +447,14 @@ def main():
             print(f"[wandb] 初始化失败,关闭远程记录: {ex}")
             use_wandb = False
 
-    if not os.path.isdir(args.data_dir) or not any(
+    if args.holdout_dir:
+        # 滚动目录模式:train 目录允许暂空(后台下载器在填,worker 会等),
+        # 但 holdout 必须就绪——固定 eval 集/可视化都依赖它。
+        if not os.path.isdir(args.holdout_dir) or not any(
+                f.endswith(".mp4") for f in os.listdir(args.holdout_dir)):
+            print(f"[!] holdout 目录 '{args.holdout_dir}' 里没有 .mp4。先跑 colab §2(固定 holdout 下载)。")
+            sys.exit(1)
+    elif not os.path.isdir(args.data_dir) or not any(
             f.endswith(".mp4") for f in os.listdir(args.data_dir)):
         print(f"[!] 数据目录 '{args.data_dir}' 里没有 .mp4。先准备数据(download_sample_data.py / colab 转换)。")
         sys.exit(1)
@@ -451,10 +463,16 @@ def main():
     cam_scale = args.camera_scale if args.camera_scale is not None else CAMERA_SCALE
     n_workers = args.workers if args.workers is not None \
         else max(2, min(8, (os.cpu_count() or 2) - 1))
+    # 双目录(滚动)模式:train 池整目录用且随时重扫,holdout 是独立固定目录;
+    # 单目录(静态)模式:按文件名扣末 holdout_n 个,与旧行为一致。
+    train_split = None if args.holdout_dir else "train"
+    hold_dir = args.holdout_dir or args.data_dir
+    hold_split = None if args.holdout_dir else "holdout"
+    os.makedirs(args.data_dir, exist_ok=True)      # 滚动模式下可先于下载器启动
     ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                           cache_size=args.cache_size, refresh_every=args.refresh_every,
                           seed=args.seed, img_size=img_size, camera_scale=cam_scale,
-                          frame_skip=args.frame_skip, split="train",
+                          frame_skip=args.frame_skip, split=train_split,
                           holdout_n=args.holdout_n, buffer_size=args.buffer_size,
                           buffer_reuse=args.buffer_reuse,
                           clip_cache=args.clip_cache, clip_refresh=args.clip_refresh)
@@ -465,12 +483,12 @@ def main():
                         pin_memory=is_cuda,
                         persistent_workers=(n_workers > 0),
                         prefetch_factor=(2 if n_workers > 0 else None))
-    # 可视化与评估都用 holdout clip(按文件名扣末 holdout_n 个,不进训练):
-    # 在训练数据上展示/评估,量到的是记忆不是泛化。
-    eval_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
+    # 可视化与评估都用 holdout clip(独立固定目录或按文件名扣末 holdout_n 个,
+    # 不进训练):在训练数据上展示/评估,量到的是记忆不是泛化。
+    eval_ds = VPTStreamDataset(hold_dir, seq_len=args.seq_len, fps=args.fps,
                                cache_size=4, seed=args.seed + 555, img_size=img_size,
                                camera_scale=cam_scale, frame_skip=args.frame_skip,
-                               split="holdout", holdout_n=args.holdout_n)
+                               split=hold_split, holdout_n=args.holdout_n)
 
     # 固定 eval 集:首次评估时从 holdout 一次性采集 4×eval_bs 条序列,之后每次评估
     # 复用同一份数据——指标跨 epoch 严格可比,且评估期零解码、不与训练抢 CPU。
@@ -486,17 +504,18 @@ def main():
                                  num_workers=min(4, n_workers)))
             eval_batches.extend(next(it) for _ in range(4))
             del it                       # 立刻放掉 eval worker,不留后台解码
+            src = args.holdout_dir if args.holdout_dir else f"扣末 {args.holdout_n} clip"
             print(f"  [eval] 固定评估集已采集:4×{eval_bs} 序列 "
-                  f"(holdout {args.holdout_n} clip,{time.time() - t0:.0f}s,此后复用)")
+                  f"(holdout={src},{time.time() - t0:.0f}s,此后复用)")
         return eval_batches
 
     viz_batch = None
     if args.viz_every > 0:
         # 固定一条可视化序列(独立 seed,跨 epoch 同一窗口 → 面板可前后对比)
-        viz_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
+        viz_ds = VPTStreamDataset(hold_dir, seq_len=args.seq_len, fps=args.fps,
                                   cache_size=4, seed=args.seed + 999, img_size=img_size,
                                   camera_scale=cam_scale, frame_skip=args.frame_skip,
-                                  split="holdout", holdout_n=args.holdout_n)
+                                  split=hold_split, holdout_n=args.holdout_n)
         viz_batch = next(iter(DataLoader(viz_ds, batch_size=1)))
         os.makedirs(args.viz_dir, exist_ok=True)
 

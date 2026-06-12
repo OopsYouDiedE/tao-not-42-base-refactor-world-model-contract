@@ -1,6 +1,8 @@
 import os
 import json
 import random
+import time
+
 import cv2
 import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
@@ -153,6 +155,14 @@ class VPTStreamDataset(IterableDataset):
     (确定性切分,与 seed 无关)——可视化与最终评估必须用 holdout,否则展示的是
     记忆而非泛化。clip 总数不足时退化为全量并告警。
 
+    **滚动目录模式(split=None)**:目录内容可以随时增删(配合后台滚动下载器:
+    全量索引循环流式下载、磁盘只保留滑动窗口)。此模式下每次换 clip 都重扫目录、
+    随机抽"当前已有"的段——下载快慢只影响数据轮换速度,训练采样永不阻塞;
+    文件被删/半写导致的读取失败静默跳过重试,目录暂空时等待下载器而不报错。
+    注意:滚动目录下按文件名切 train/holdout 不稳定(文件来来去去,"排序末 N 个"
+    会漂移),所以滚动模式要求 holdout 放在**独立的固定目录**(train_minecraft
+    --holdout_dir),本目录整体作为训练池。
+
     clip_cache:每个 worker 常驻内存的整段 clip 数(滚动 FIFO)。窗口从缓存内
     随机一段随机位置切出 ⇒ batch 内样本多样性随缓存段数增长(冷启动从第 1 段
     解码完就开始供数,之后每次刷新多缓存一段直到打满)。
@@ -178,9 +188,14 @@ class VPTStreamDataset(IterableDataset):
         self.buffer_reuse = max(1, int(buffer_reuse))
         self.clip_cache = max(1, int(clip_cache))
         self.clip_refresh = max(1, int(clip_refresh))
+        self.data_dir = data_dir
+        self.rescan = split is None          # 滚动目录模式:换 clip 时重扫目录
         pairs = _pair_list(data_dir)
         if not pairs:
-            raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
+            if self.rescan:
+                print(f"[VPTStreamDataset] {data_dir} 暂时为空——滚动目录模式,等待下载器填充")
+            else:
+                raise RuntimeError(f"[VPTStreamDataset] {data_dir} 里没有成对的 .mp4/.jsonl")
         if split in ("train", "holdout"):
             if len(pairs) > holdout_n:
                 pairs = pairs[:-holdout_n] if split == "train" else pairs[-holdout_n:]
@@ -200,14 +215,18 @@ class VPTStreamDataset(IterableDataset):
         饿死的根因);解一次之后,从该 clip 切任意窗口都是纯内存索引。
         先 resize 再 cvtColor:色彩转换在 128×128 上做比 360×640 省 ~14× 像素量,
         INTER_AREA 对 BGR/RGB 通道顺序不敏感,两步可交换。
+        文件不存在/半写坏(滚动下载器随时增删)→ 返回 None,调用方换一段重试。
         """
         actions, task = [], ""
-        with open(jsonl, "r", encoding="utf-8") as f:
-            for t, line in enumerate(f):
-                a = json.loads(line)
-                if t == 0 and "task" in a:
-                    task = a["task"]
-                actions.append(_action_vec(a, self.camera_scale))
+        try:
+            with open(jsonl, "r", encoding="utf-8") as f:
+                for t, line in enumerate(f):
+                    a = json.loads(line)
+                    if t == 0 and "task" in a:
+                        task = a["task"]
+                    actions.append(_action_vec(a, self.camera_scale))
+        except (OSError, ValueError):
+            return None
         cap = cv2.VideoCapture(mp4)
         frames = []
         while True:
@@ -269,18 +288,26 @@ class VPTStreamDataset(IterableDataset):
         clips, served, fails = {}, 0, 0     # clip 级内存缓存:mp4 -> _load_clip 条目
         while True:
             # 换入 clip:缓存空(冷启动,解完第 1 段立即开始供数)或已产出
-            # clip_refresh 个窗口(滚动刷新;未满时只增,满了 FIFO 逐出最老)
+            # clip_refresh 个窗口(滚动刷新;未满时只增,满了 FIFO 逐出最老)。
+            # 滚动目录模式重扫目录:随机抽"当前已有"的段,下载器增删不阻塞采样。
             if not clips or served >= self.clip_refresh:
-                mp4, jsonl = self.pairs[rng.randrange(len(self.pairs))]
-                if mp4 not in clips:
-                    c = self._load_clip(mp4, jsonl)
-                    if c is not None:
-                        if len(clips) >= self.clip_cache:
-                            clips.pop(next(iter(clips)))
-                        clips[mp4] = c
+                pairs = _pair_list(self.data_dir) if self.rescan else self.pairs
+                if pairs:
+                    mp4, jsonl = pairs[rng.randrange(len(pairs))]
+                    if mp4 not in clips:
+                        c = self._load_clip(mp4, jsonl)
+                        if c is not None:
+                            if len(clips) >= self.clip_cache:
+                                clips.pop(next(iter(clips)))
+                            clips[mp4] = c
                 served = 0
                 if not clips:
                     fails += 1
+                    if self.rescan:           # 冷启动/文件竞态:等下载器,不报错
+                        if fails % 15 == 1:
+                            print(f"[VPTStreamDataset] 等待 {self.data_dir} 出现可用 clip...")
+                        time.sleep(2.0)
+                        continue
                     if fails > 4 * len(self.pairs) + 8:
                         raise RuntimeError("[VPTStreamDataset] 没有可解码的 clip")
                     continue
@@ -291,7 +318,7 @@ class VPTStreamDataset(IterableDataset):
             if not cand:
                 fails += 1
                 served = self.clip_refresh                    # 强制下轮换入新 clip
-                if fails > 4 * len(self.pairs) + 8:
+                if not self.rescan and fails > 4 * len(self.pairs) + 8:
                     raise RuntimeError(
                         "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
                 continue

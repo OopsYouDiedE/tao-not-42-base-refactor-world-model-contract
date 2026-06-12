@@ -3,7 +3,7 @@
 目标:把"看着 Minecraft 录像 + 录像里的真实动作"变成自监督信号,让世界模型学到
 "动作在画面里有什么效果",为后续 prompt-tuning 迁移打底座。
 
-  L_total = L_pred + ρ·L_open + α·L_inv + γ·L_plan + β·L_sigreg
+  L_total = L_pred + ρ·L_open + α·L_inv + γ·L_plan + β·L_sigreg + β_kl·KL(q‖p)
 
   L_pred (Δz 预测,逐样本归一化 MSE): 从 (z_obs(t), 区间动作序列, dt, h, t) 预测
     潜表征**增量** Δz = sg[enc_ema(img_{t+dt}) − enc_ema(img_t)],逐样本除以
@@ -26,6 +26,11 @@
   L_sigreg (防坍缩): sliced 高斯正则,施加在**在线感知编码 z_obs** 上(坍缩
     发生的位置;旧版施加在 Z_out 上,Transformer 可放大时间 PE/动作 token 的
     方差来满足检验,视觉内容照样坍缩)。
+  KL(q‖p) (随机隐变量 ξ): Δz 的不可预测新内容路由进 d_xi 维通道(后验看真实
+    Δz 池化视图,先验只看当下;free-bits 防过惩罚)。闭环用后验采样训练,
+    开环/eval 用先验均值(诚实口径)。kl 曲线 = 通道用量计:≈0 说明没用上,
+    暴涨说明在作弊(β_kl 调价)。确定性框架对开环的修补已到极限(α 课程后
+    pred_open 仍回 0.99),这是结构性解。
 
 目标编码器 = 在线权重的 EMA 副本(每个优化步后 model.ema_update()),平稳靶。
 可变 Δt(--frame_skip = 跨度上限,逐转移 Δt~U{1..skip}):消除固定步长的"默认
@@ -193,6 +198,12 @@ def plan_bc_loss(plan, act_agg, dt, t, K, move_w=4.0):
     return loss, (onset - onset_tgt).abs().mean().detach()
 
 
+def kl_diag_gauss(mu_q, lv_q, mu_p, lv_p):
+    """对角高斯 KL(q‖p),逐样本求和过维度 → [B](nats)。fp32 调用方负责。"""
+    return 0.5 * (lv_p - lv_q + ((lv_q.exp() + (mu_q - mu_p).square())
+                                 / lv_p.exp()) - 1.0).sum(dim=-1)
+
+
 def _to_float_img(img):
     """uint8 [.,3,H,W] → float∈[0,1](归一化推迟到 GPU 上做,PCIe 传 uint8 省 4×)。"""
     return img.float().div_(255.0) if img.dtype == torch.uint8 else img.float()
@@ -254,7 +265,8 @@ def roll_hist(a_hist, t_hist, hv, action, dt_cur):
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                   alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
-                  open_alpha, kb_edge_w, amp_dev, use_amp, scaler, acc):
+                  open_alpha, kb_edge_w, beta_kl, kl_free,
+                  amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -298,30 +310,41 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
         zhat = None     # 上一步预测的状态 ẑ = z + μ(窗口内携带梯度;窗口边界重置)
         for i in range(k):
             t = w0 + i
+            dz = z_tg[:, t + 1] - z_tg[:, t]                    # Δz 目标(no_grad)
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
+                # ξ:闭环用后验采样(主干不再为不可预测的新内容赔钱),
+                # 先验经 KL 被拉向后验——它是 eval/开环/推演的"想象通道"
+                mu_q, lv_q = model.xi_posterior(z_obs[:, i], h, dt[:, t], dz)
+                mu_p, lv_p = model.xi_prior(z_obs[:, i], h, dt[:, t])
                 out = model(z_obs[:, i], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
-                            t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
+                            t_hist=t_hist, hist_valid=hv, task_emb=task_emb,
+                            xi=model.xi_sample(mu_q, lv_q))
                 out_open = None
                 if (rho_open > 0 and open_alpha > 0 and zhat is not None
                         and i % open_every == open_every - 1):
                     # 开环支路(α 课程):输入 = z + α(ẑ−z),α 随训练 0→1——
-                    # 输入分布连续分离,堵死"识别 ẑ 并条件摆烂";梯度穿过上一步 μ(×α)
+                    # 输入分布连续分离,堵死"识别 ẑ 并条件摆烂";梯度穿过上一步 μ(×α)。
+                    # ξ 用该输入自己的先验**均值**(MSE 下采样只添方差且会压塌先验)
                     z_mix = z_obs[:, i] + open_alpha * (zhat - z_obs[:, i])
                     out_open = model(z_mix, h, a_hist, act_seq[:, t], dt[:, t],
                                      t_vec[:, t], t_hist=t_hist, hist_valid=hv,
-                                     task_emb=task_emb)
+                                     task_emb=task_emb,
+                                     xi=model.xi_prior(z_mix, h, dt[:, t])[0])
             prev_z = z_obs[:, i]
             prev_act = act_agg[:, t - 1] if t > 0 else act_agg[:, t]   # t=0 无跳变
             a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
 
             # 损失在 fp32 计算(autocast 外:BCE 不可 autocast,CE/归一化 MSE 在 fp32 更稳)
             mu, c = out["mu"].float(), out["c"].float()
-            dz = z_tg[:, t + 1] - z_tg[:, t]                    # Δz 目标(no_grad)
             l_pred, r_pred, r_pred_mv = dz_pred_loss(mu, dz)
+            l_kl = kl_diag_gauss(mu_q.float(), lv_q.float(),
+                                 mu_p.float(), lv_p.float())            # [B] nats
+            # free-bits:低于 kl_free 不再压(防后验坍缩到先验、通道废弃)
+            l_kl_fb = torch.clamp(l_kl, min=kl_free).mean()
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
                 model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w)
-            step_loss = l_pred + alpha_inv * l_inv
+            step_loss = l_pred + alpha_inv * l_inv + beta_kl * l_kl_fb
             if out_open is not None:
                 l_open, _, r_open_mv = dz_pred_loss(out_open["mu"].float(), dz)
                 step_loss = step_loss + rho_open * l_open
@@ -339,6 +362,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             h = out["h_next"]            # 窗口内保留梯度(截断 BPTT,跨步记忆只走 h)
             # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
             acc["pred"] += r_pred; acc["pred_move"] += r_pred_mv
+            acc["kl"] += l_kl.mean().detach()
             acc["inv"] += l_inv.detach()
             acc["mouse"] += l_mouse; acc["kb"] += l_kb; acc["mouse_acc"] += m_acc
             acc["mv_hit"] += mv_hit; acc["mv_n"] += mv_n
@@ -361,14 +385,15 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
                 alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
-                open_alpha, kb_edge_w, text_enc, amp_dev, use_amp):
+                open_alpha, kb_edge_w, beta_kl, kl_free, text_enc, amp_dev, use_amp):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
            ["loss", "pred", "pred_move", "pred_open", "pred_rms", "dz_rms", "inv",
-            "mouse", "mouse_acc", "kb", "sigreg", "mv_hit", "mv_n", "plan", "onset_mae"]}
+            "mouse", "mouse_acc", "kb", "sigreg", "mv_hit", "mv_n", "plan",
+            "onset_mae", "kl"]}
     acc["inner"] = acc["win"] = acc["plan_n"] = acc["open_n"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
 
@@ -388,7 +413,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, move_w, gamma_plan,
                                rho_open, open_every, open_alpha, kb_edge_w,
-                               amp_dev, use_amp, scaler, acc)
+                               beta_kl, kl_free, amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
@@ -408,6 +433,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         "pred": (acc["pred"] / ic).item(),          # 1.0 = persistence 基线(含静止样本托底)
         "pred_move": (acc["pred_move"] / ic).item(),  # 仅真运动样本——诚实读数
         "pred_open": (acc["pred_open"] / max(acc["open_n"], 1)).item(),  # 开环支路(运动样本)
+        "kl": (acc["kl"] / ic).item(),              # ξ 通道用量(nats):≈0 闲置,暴涨=作弊
         "pred_rms": (acc["pred_rms"] / ic).item(),  # 真实预测误差(不可被 σ/归一化美化)
         "dz_rms": (acc["dz_rms"] / ic).item(),      # 目标本身的变化幅度(基线尺度)
         "inv": (acc["inv"] / ic).item(),
@@ -594,6 +620,14 @@ def main():
                          "kb_onset_recall 无效——瓶颈是感知信息(onset 后 1-2 帧的视觉"
                          "效果低于 128px 表征分辨能力)而非损失权重,onset 问题转"
                          "fovea/分辨率路线;旋钮保留供复验")
+    ap.add_argument("--d_xi", type=int, default=32,
+                    help="随机隐变量 ξ 维度(Δz 不可预测新内容的有价通道;"
+                         "闭环训练用后验采样,开环/eval 用先验均值)")
+    ap.add_argument("--beta_kl", type=float, default=0.1,
+                    help="KL(q‖p) 权重 = ξ 通道的价格(kl 曲线暴涨说明在作弊 → 提价;"
+                         "kl≈free-bits 地板说明通道闲置 → 降价或检查)")
+    ap.add_argument("--kl_free", type=float, default=1.0,
+                    help="free-bits(nats):KL 低于此值不再压,防后验坍缩到先验、通道废弃")
     ap.add_argument("--no_cosine", action="store_true",
                     help="关闭余弦 lr 衰减(默认开启:lr 余弦退火到 0.1×,按 epoch 步进;"
                          "恒定 lr 的噪声地板是 pred_move 尾段平台的嫌疑人之一)")
@@ -717,7 +751,8 @@ def main():
     model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM,
                                 n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
                                 max_skip=args.frame_skip, encoder=args.encoder,
-                                encoder_weights=args.encoder_weights).to(dev)
+                                encoder_weights=args.encoder_weights,
+                                d_xi=args.d_xi).to(dev)
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)
     sched = None if args.no_cosine else torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -742,7 +777,7 @@ def main():
                         args.k_bptt, args.alpha_inv, args.beta_sigreg,
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
                         args.open_every, open_alpha, args.kb_edge_w,
-                        text_enc, amp_dev, use_amp)
+                        args.beta_kl, args.kl_free, text_enc, amp_dev, use_amp)
         if sched is not None:
             sched.step()
         if r.get("gpu_util") is not None:
@@ -751,7 +786,7 @@ def main():
             _wb = {k: r[k] for k in ("loss", "pred", "pred_move", "pred_open",
                                      "pred_rms", "dz_rms",
                                      "inv", "mouse", "mouse_acc", "mouse_move_acc", "kb",
-                                     "plan", "plan_onset_mae",
+                                     "plan", "plan_onset_mae", "kl",
                                      "sigreg", "c_mean", "c_std")}
             _wb["open_alpha"] = open_alpha    # 解读 pred_open 必须对照 α(α 小时≈闭环)
             if r.get("gpu_util") is not None:
@@ -765,7 +800,7 @@ def main():
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
                   f"acc {r['mouse_acc']:.2f} mv {r['mouse_move_acc']:.2f}) | "
                   f"plan {r['plan']:.2f} (onset±{r['plan_onset_mae']:.1f}f) | "
-                  f"sig {r['sigreg']:.2f} | "
+                  f"kl {r['kl']:.2f} | sig {r['sigreg']:.2f} | "
                   f"c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
         # 节奏用 (ep+1):第 viz_every/eval_every 个 epoch 训练完才首次出图/评估,
         # 不在训练刚起步时就花算力展示一个随机初始化的模型

@@ -175,7 +175,8 @@ class MinecraftWorldModel(nn.Module):
     """Δz-JEPA 世界模型:统一锚坐标系感知 + EMA 目标 + Transformer 动力学推演。"""
 
     def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
-                 ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None):
+                 ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None,
+                 d_xi=32):
         super().__init__()
         self.d = d
         self.N = N # 实体槽数量
@@ -268,6 +269,24 @@ class MinecraftWorldModel(nn.Module):
         # 不传 task_emb 时回退 placeholder(可学常数,等价"无条件")。
         self.task_proj = nn.Linear(384, d)
 
+        # 随机隐变量 ξ(Dreamer 式,确定性开环修补的结构性接班人):Δz 中"转身
+        # 揭示的新内容"本质不可预测,确定性 μ 只能输出模式平均/摆烂(实证:α 课程
+        # 到纯 ẑ 后 pred_open 仍回 0.99)。ξ 给不可预测部分一个**有价格的去处**:
+        #   后验 q(ξ|ctx, Δz):训练时看真实 Δz 的池化视图(仅 [d] 维 ⇒ 天然限制
+        #     作弊带宽),把新内容压成 d_xi 维;
+        #   先验 p(ξ|ctx):只看当下,KL(q‖p) 把两者拉近——β_kl 是通道的价格;
+        #   μ = f(z, a, ξ):闭环训练用后验采样(主干不再为不知道的事赔钱),
+        #     开环/eval 用先验均值(诚实口径),想象/推演从先验采样。
+        # xi_proj 零初始化:通道从静默开始,有利可图才被打开(KL 曲线 = 用量计)。
+        self.d_xi = d_xi
+        self.xi_prior_net = nn.Sequential(
+            nn.Linear(3 * d, d), nn.SiLU(), nn.Linear(d, 2 * d_xi))
+        self.xi_post_net = nn.Sequential(
+            nn.Linear(4 * d, d), nn.SiLU(), nn.Linear(d, 2 * d_xi))
+        self.xi_proj = nn.Linear(d_xi, d)
+        nn.init.zeros_(self.xi_proj.weight)
+        nn.init.zeros_(self.xi_proj.bias)
+
     def train(self, mode=True):
         """冻结骨干永远保持 eval(drop_path/随机性关闭),其余模块正常切换。"""
         super().train(mode)
@@ -339,10 +358,34 @@ class MinecraftWorldModel(nn.Module):
             for bo, bt in zip(online.buffers(), target.buffers()):
                 bt.copy_(bo)
 
+    # ---------------- 随机隐变量 ξ ----------------
+
+    def _xi_ctx(self, z_ref, h, dt):
+        """ξ 先验/后验共用的上下文特征:[B, 3d](槽池化 + 记忆 + Δt 编码)。"""
+        return torch.cat([z_ref.mean(dim=1), h.squeeze(1),
+                          self.dt_enc(dt).to(z_ref.dtype)], dim=-1)
+
+    def xi_prior(self, z_ref, h, dt):
+        """p(ξ|当下) → (mu, logvar)。开环/eval 用均值,想象推演用采样。"""
+        o = self.xi_prior_net(self._xi_ctx(z_ref, h, dt))
+        return o[:, :self.d_xi], o[:, self.d_xi:].clamp(-6.0, 3.0)
+
+    def xi_posterior(self, z_ref, h, dt, dz_tg):
+        """q(ξ|当下, Δz) → (mu, logvar)。仅训练用;Δz 走池化视图限制作弊带宽。"""
+        ctx = torch.cat([self._xi_ctx(z_ref, h, dt),
+                         dz_tg.mean(dim=1).to(z_ref.dtype)], dim=-1)
+        o = self.xi_post_net(ctx)
+        return o[:, :self.d_xi], o[:, self.d_xi:].clamp(-6.0, 3.0)
+
+    @staticmethod
+    def xi_sample(mu, logvar):
+        """重参数化采样(梯度可穿)。"""
+        return mu + torch.randn_like(mu) * (0.5 * logvar).exp()
+
     # ---------------- 动力学推演 ----------------
 
     def forward(self, z_ref, h, a_hist, a_cur, dt, t_vec, t_hist=None, hist_valid=None,
-                task_emb=None):
+                task_emb=None, xi=None):
         """一段可变跨度的动力学推演:预测 z 从 t 到 t+dt 的增量。
 
         **时间锚契约**:t_vec 是本次前向的"现在"——脑内世界以它(正弦 PE,注入
@@ -362,6 +405,8 @@ class MinecraftWorldModel(nn.Module):
         task_emb: [B,384] 冻结任务文本句向量(None = 无条件 placeholder)。
                 条件是否被利用取决于数据:单任务数据下文本是常数(零互信息),
                 四任务混采时它解释任务间行为方差,并给 plan 头坍缩意图多峰。
+        xi:     [B,d_xi] 随机隐变量(None = 先验均值,即 eval/开环的诚实默认;
+                训练闭环传后验采样,想象推演传先验采样)。
         返回 mu = **Δz 预测**(z(t+dt) 的估计 = z_ref + mu),c = 逐 slot 可控闸。
         时间 PE 加在 h token 上(不污染感知);Δt 编码为独立条件 token。
         """
@@ -384,8 +429,13 @@ class MinecraftWorldModel(nn.Module):
                  < dt.unsqueeze(1)).to(a_cur.dtype).unsqueeze(-1)      # [B,S,1]
         ac = self.action_enc(torch.cat([a_cur, valid], dim=-1)) + self.act_pos[:, :S]
 
-        # [N slots, 1 text, 1 h, 1 dt, J hist, S cur, K action_queries]
-        X = torch.cat([z_ref, text_token, h_token, dt_token, ah, ac, u_p], dim=1)
+        if xi is None:
+            xi = self.xi_prior(z_ref, h, dt)[0]          # 诚实默认:先验均值
+        xi_token = self.xi_proj(xi.to(z_ref.dtype)).unsqueeze(1)
+
+        # [N slots, 1 text, 1 h, 1 dt, 1 xi, J hist, S cur, K action_queries]
+        X = torch.cat([z_ref, text_token, h_token, dt_token, xi_token, ah, ac, u_p],
+                      dim=1)
 
         # Transformer 推演
         X = self.blocks(X)
@@ -393,7 +443,7 @@ class MinecraftWorldModel(nn.Module):
         # 解码
         out_Z = X[:, 0:self.N, :]
         out_h = X[:, self.N+1:self.N+2, :]
-        base = self.N + 3 + ah.shape[1] + S
+        base = self.N + 4 + ah.shape[1] + S
         out_u = X[:, base:base+self.K, :]
 
         out_state = self.state_dec(out_Z)

@@ -71,22 +71,33 @@ def dz_pred_loss(mu, dz_tg, eps=1e-3):
     return (per / denom).mean()
 
 
-def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head):
+def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0):
     """逆动力学:从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推混合动作。
 
-    鼠标 = mu-law 分箱 CE(分箱见 utils.vpt_action;MSE 下"恒预测 0"是平凡解,
-    分类下基率解的 CE = 边缘熵,真实信号可压过)。键盘 = 20 键 BCE。
+    鼠标 = mu-law 分箱**加权** CE:中心 bin(没动鼠标)在区间聚合后占 ~2/3,
+    无权重时基率解(恒猜中心)的 CE 已接近最优——实测 100 epoch 模型先学会抓
+    极端转身、又退化回恒中心(基率解损失更低,把它推了回去)。非中心目标
+    ×move_w 后,基率解不再是不动点,运动帧才有有效梯度。键盘 = 20 键 BCE。
     delta_z 的 z_obs 端带梯度:本损失是编码器"让 Δ 编码动作"的唯一直接压力,
     也是可控闸 c 的唯一梯度来源(动作可解释 → c↑;噪声槽稀释池化特征 → c↓)。
+    返回的 move_hit/move_n 用于训练侧 mouse_move_acc(全帧 acc 会被中心基率
+    灌到 0.66 一动不动,运动帧 acc 才是诚实读数)。
     """
     mouse_logits, kb_prob = inv_dyn_head(delta_z * c)
     mouse_bin = camera_to_bin(true_action[:, :N_MOUSE])               # [B,2] long
-    l_mouse = F.cross_entropy(mouse_logits.reshape(-1, mouse_logits.shape[-1]),
-                              mouse_bin.reshape(-1))
+    ce = F.cross_entropy(mouse_logits.reshape(-1, mouse_logits.shape[-1]),
+                         mouse_bin.reshape(-1), reduction="none")
+    center = (CAMERA_BINS - 1) // 2
+    w = torch.where(mouse_bin.reshape(-1) == center,
+                    torch.ones_like(ce), torch.full_like(ce, move_w))
+    l_mouse = (ce * w).sum() / w.sum()
     l_kb = F.binary_cross_entropy(kb_prob.clamp(EPS, 1 - EPS),
                                   true_action[:, N_MOUSE:])
-    mouse_acc = (mouse_logits.argmax(-1) == mouse_bin).float().mean()
-    return l_kb + l_mouse, l_mouse.detach(), l_kb.detach(), mouse_acc.detach()
+    hit = (mouse_logits.argmax(-1) == mouse_bin)
+    moved = (mouse_bin != center)
+    mouse_acc = hit.float().mean()
+    return (l_kb + l_mouse, l_mouse.detach(), l_kb.detach(), mouse_acc.detach(),
+            (hit & moved).float().sum().detach(), moved.float().sum().detach())
 
 
 def _to_float_img(img):
@@ -140,7 +151,7 @@ def roll_append(a_hist, action):
 
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                  alpha_inv, beta_sigreg, amp_dev, use_amp, scaler, acc):
+                  alpha_inv, beta_sigreg, move_w, amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -188,8 +199,9 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             mu, c = out["mu"].float(), out["c"].float()
             dz = z_tg[:, t + 1] - z_tg[:, t]                    # Δz 目标(no_grad)
             l_pred = dz_pred_loss(mu, dz)
-            l_inv, l_mouse, l_kb, m_acc = minecraft_inv_dyn_loss(
-                z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t], model.inv_dyn)
+            l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
+                z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
+                model.inv_dyn, move_w)
 
             accum = accum + (l_pred + alpha_inv * l_inv) / (T - 1)
             last_c = c
@@ -197,6 +209,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             # 张量累加(不 .item(),epoch 末一次性取出 → 去掉逐步 GPU↔CPU 同步)
             acc["pred"] += l_pred.detach(); acc["inv"] += l_inv.detach()
             acc["mouse"] += l_mouse; acc["kb"] += l_kb; acc["mouse_acc"] += m_acc
+            acc["mv_hit"] += mv_hit; acc["mv_n"] += mv_n
             acc["pred_rms"] += (mu - dz).square().mean().sqrt().detach()
             acc["dz_rms"] += dz.square().mean().sqrt()
             acc["inner"] += 1
@@ -215,10 +228,11 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 
 def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
-                alpha_inv, beta_sigreg, amp_dev, use_amp):
+                alpha_inv, beta_sigreg, move_w, amp_dev, use_amp):
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
-           ["loss", "pred", "pred_rms", "dz_rms", "inv", "mouse", "mouse_acc", "kb", "sigreg"]}
+           ["loss", "pred", "pred_rms", "dz_rms", "inv", "mouse", "mouse_acc", "kb",
+            "sigreg", "mv_hit", "mv_n"]}
     acc["inner"] = acc["win"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
 
@@ -233,7 +247,8 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
 
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                               alpha_inv, beta_sigreg, amp_dev, use_amp, scaler, acc)
+                               alpha_inv, beta_sigreg, move_w, amp_dev, use_amp,
+                               scaler, acc)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
@@ -253,6 +268,7 @@ def train_epoch(model, sigreg, loader, opt, scaler, device, steps, k_bptt,
         "dz_rms": (acc["dz_rms"] / ic).item(),      # 目标本身的变化幅度(基线尺度)
         "inv": (acc["inv"] / ic).item(),
         "mouse": (acc["mouse"] / ic).item(), "mouse_acc": (acc["mouse_acc"] / ic).item(),
+        "mouse_move_acc": (acc["mv_hit"] / acc["mv_n"].clamp(min=1)).item(),
         "kb": (acc["kb"] / ic).item(),
         "sigreg": (acc["sigreg"] / wc).item(),
         "c_mean": cv.mean().item(), "c_std": cv.std().item(),
@@ -394,6 +410,9 @@ def main():
     ap.add_argument("--J", type=int, default=8, help="历史动作长度")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--alpha_inv", type=float, default=1.0, help="逆动力学损失权重")
+    ap.add_argument("--mouse_move_w", type=float, default=4.0,
+                    help="鼠标 CE 中非中心 bin 目标的权重(中心 bin 占 ~2/3,不加权时"
+                         "基率解近似最优,模型会退化成恒猜中心;1.0=不加权)")
     ap.add_argument("--beta_sigreg", type=float, default=0.1, help="SIGReg 防坍缩权重(施加在 z_obs 上)")
     ap.add_argument("--ema_decay", type=float, default=0.99,
                     help="目标编码器 EMA 衰减(时间常数 ≈ 1/(1−τ) 个优化步;短跑程用 0.99,"
@@ -500,12 +519,14 @@ def main():
 
     for ep in range(args.epochs):
         r = train_epoch(model, sigreg, loader, opt, scaler, dev, args.steps_per_epoch,
-                        args.k_bptt, args.alpha_inv, args.beta_sigreg, amp_dev, use_amp)
+                        args.k_bptt, args.alpha_inv, args.beta_sigreg,
+                        args.mouse_move_w, amp_dev, use_amp)
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
         if use_wandb:
             _wb = {k: r[k] for k in ("loss", "pred", "pred_rms", "dz_rms", "inv",
-                                     "mouse", "mouse_acc", "kb", "sigreg", "c_mean", "c_std")}
+                                     "mouse", "mouse_acc", "mouse_move_acc", "kb",
+                                     "sigreg", "c_mean", "c_std")}
             if r.get("gpu_util") is not None:
                 _wb["gpu_util"] = r["gpu_util"]
             wandb.log(_wb, step=ep)
@@ -514,7 +535,8 @@ def main():
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | pred {r['pred']:.3f}×copy "
                   f"(rms {r['pred_rms']:.4f}/dz {r['dz_rms']:.4f}) | "
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
-                  f"acc {r['mouse_acc']:.2f}) | sig {r['sigreg']:.2f} | "
+                  f"acc {r['mouse_acc']:.2f} mv {r['mouse_move_acc']:.2f}) | "
+                  f"sig {r['sigreg']:.2f} | "
                   f"c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
         # 节奏用 (ep+1):第 viz_every/eval_every 个 epoch 训练完才首次出图/评估,
         # 不在训练刚起步时就花算力展示一个随机初始化的模型

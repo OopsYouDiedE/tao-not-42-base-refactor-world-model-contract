@@ -473,6 +473,11 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
     on_tp = on_n = off_tp = off_n = 0
     m_hit = m_n = mv_hit = mv_n = 0
     pred_sum, pred_mv_sum, pred_bk_sum, pred_n = 0.0, 0.0, 0.0, 0
+    pred_post_sum = 0.0          # 后验条件 pred(偷看真值 ξ)= ξ 通道信息天花板
+    # 按转移类型分桶 pred 比值(动作维度,与 Δz 幅度正交)——诊断 0.58 是
+    # "转头揭示新内容的不可预测下限"还是"可预测结构(平移/静止)被漏失"
+    bkt_sum = {"turn": 0.0, "walk": 0.0, "still": 0.0}
+    bkt_n = {"turn": 0, "walk": 0, "still": 0}
     center = (CAMERA_BINS - 1) // 2
     for batch in itertools.islice(loader, steps):
         img = _to_float_img(batch["img"].to(device))
@@ -529,6 +534,25 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
                     best = torch.minimum(best, rk)
                 pred_bk_sum += (best[moved_s].mean() if bool(moved_s.any())
                                 else best.mean()).item()
+            # 后验条件 pred:喂偷看真值 Δz 的后验 ξ(取均值,稳定读数)。
+            # ≈ pred_move ⇒ ξ 通道关死/内容不可降;≪ pred_move ⇒ 通道有容量、瓶颈在先验猜不中。
+            mu_q, _ = model.xi_posterior(z_obs[:, t], h, dt[:, t], dz)
+            with torch.autocast(device_type=amp_dev, enabled=use_amp):
+                o_post = model(z_obs[:, t], h, a0, act_seq[:, t], dt[:, t], t_vec[:, t],
+                               t_hist=th0, hist_valid=hv0, task_emb=task_emb, xi=mu_q)
+            r_post = (o_post["mu"].float() - dz).square().mean(dim=(1, 2)) / den.clamp(min=1e-3)
+            pred_post_sum += (r_post[moved_s].mean() if bool(moved_s.any())
+                              else r_post.mean()).item()
+            # 转移类型分桶:转头(相机非中心)/ 平移(无转头但有键)/ 静止(都无)。
+            # 元素加权(桶大小逐步变化),分母用 clamp 后的 den 同 ratio 口径。
+            cam_turn = (camera_to_bin(act_agg[:, t, :N_MOUSE]) != center).any(-1)
+            kb_on = (act_agg[:, t, N_MOUSE:] > 0.5).any(-1)
+            sels = {"turn": cam_turn, "walk": (~cam_turn) & kb_on,
+                    "still": (~cam_turn) & (~kb_on)}
+            for name, sel in sels.items():
+                if bool(sel.any()):
+                    bkt_sum[name] += ratio[sel].sum().item()
+                    bkt_n[name] += int(sel.sum().item())
             pred_n += 1
             pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
             mouse_logits, kb_prob = model.inv_dyn(
@@ -557,6 +581,10 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
             "kb_onset_recall": on_tp / max(on_n, 1),
             "kb_release_recall": off_tp / max(off_n, 1),
             "kb_edges": on_n + off_n,
+            "pred_post": pred_post_sum / max(pred_n, 1),       # ξ 通道天花板:≈pred_move=通道关死
+            "pred_turn": bkt_sum["turn"] / max(bkt_n["turn"], 1),    # 转头(疑不可降)
+            "pred_walk": bkt_sum["walk"] / max(bkt_n["walk"], 1),    # 平移(应可预测,高=预测器漏失)
+            "pred_still": bkt_sum["still"] / max(bkt_n["still"], 1), # 静止(≈1 噪声地板,锚)
             "mouse_bin_acc": m_hit / max(m_n, 1),
             "mouse_move_acc": mv_hit / max(mv_n, 1),
             "mouse_moves": mv_n}
@@ -621,6 +649,10 @@ def main():
     ap.add_argument("--best_metric", default="pred_move",
                     help="选 best 的 eval 指标。pred_move/pred/pred_bestk 越小越好;"
                          "kb_bal_acc/kb_onset_recall/mouse_move_acc 越大越好")
+    ap.add_argument("--eval_only", default=None,
+                    help="加载 best checkpoint(只含可训练+EMA,骨干从 hub),对 holdout "
+                         "跑一次 evaluate 打印分叉(pred_post / 分桶)后退出——零训练成本读"
+                         "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--d/--N/--K/--d_xi 等)")
     ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov2",
                     help="视觉骨干(冻结):dinov3=ViT-S/16(默认;稠密特征最强,patch=16 "
                          "整除 128;hubconf 依赖 torchmetrics,Colab 端 pip 安装即可;"
@@ -795,6 +827,24 @@ def main():
                                 max_skip=args.frame_skip, encoder=args.encoder,
                                 encoder_weights=args.encoder_weights,
                                 d_xi=args.d_xi).to(dev)
+
+    if args.eval_only:
+        ck = torch.load(args.eval_only, map_location=dev)
+        sd = ck.get("model", ck) if isinstance(ck, dict) else ck
+        miss, unexp = model.load_state_dict(sd, strict=False)
+        miss = [k for k in miss if not k.startswith("backbone.")]   # 骨干本就不在 ckpt 里
+        print(f"[eval_only] 加载 {args.eval_only} | 缺失(非骨干){len(miss)} 多余{len(unexp)}"
+              + (f" @ep{ck.get('epoch')} {ck.get('metric')}={ck.get('score')}" if isinstance(ck, dict) else ""))
+        e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k)
+        print(f"\n--- 前向预测分叉(holdout,1-step)---")
+        print(f"pred {e['pred']:.3f} | 运动样本 pred_move {e['pred_move']:.3f} | "
+              f"best-of-{args.open_k} {e['pred_bestk']:.3f}")
+        print(f"ξ 通道天花板 post {e['pred_post']:.3f}  "
+              f"(≈pred_move ⇒ 通道关死/内容不可降 → 加容量或换路;≪ ⇒ 瓶颈在先验猜不中 → 改想象)")
+        print(f"分桶  转头 {e['pred_turn']:.3f} | 平移 {e['pred_walk']:.3f} | 静止 {e['pred_still']:.3f}  "
+              f"(转头≫平移≈近不可预测下限,火力转 rollout;平移也高=预测器漏失可预测结构,修预测器)")
+        return
+
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)
     sched = None if args.no_cosine else torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -902,8 +952,10 @@ def main():
             ev = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp,
                           open_k=args.open_k)
             print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f} "
-                  f"bestK {ev['pred_bestk']:.3f}×copy | kb bal {ev['kb_bal_acc']:.3f} "
-                  f"onset {ev['kb_onset_recall']:.3f} | mouse move {ev['mouse_move_acc']:.3f}")
+                  f"bestK {ev['pred_bestk']:.3f} post {ev['pred_post']:.3f}×copy | "
+                  f"turn {ev['pred_turn']:.3f} walk {ev['pred_walk']:.3f} | "
+                  f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f} | "
+                  f"mouse move {ev['mouse_move_acc']:.3f}")
             if use_wandb:
                 wandb.log({f"eval/{k}": v for k, v in ev.items()}, step=ep)
             _update_best(ev, ep)            # 持续跟踪 best(每次 eval)
@@ -920,6 +972,9 @@ def main():
     e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k)
     print(f"Δz 预测 {e['pred']:.3f}×copy | 运动样本 {e['pred_move']:.3f} | "
           f"best-of-{args.open_k} {e['pred_bestk']:.3f}(明显 < 运动样本 = ξ 在覆盖新内容)")
+    print(f"ξ 通道天花板 post {e['pred_post']:.3f}(≈运动样本 ⇒ 通道关死/不可降;≪ ⇒ 瓶颈在先验)| "
+          f"分桶 转头 {e['pred_turn']:.3f} 平移 {e['pred_walk']:.3f} 静止 {e['pred_still']:.3f}"
+          f"(转头≫平移 ⇒ 近不可预测下限;平移也高 ⇒ 预测器漏失可预测结构)")
     print(f"键盘 recall {e['kb_recall']:.3f} | spec {e['kb_spec']:.3f} | "
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")
     print(f"跳变检出 onset {e['kb_onset_recall']:.3f} | release {e['kb_release_recall']:.3f} "

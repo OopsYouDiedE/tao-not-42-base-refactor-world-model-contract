@@ -543,15 +543,19 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
             r_post = (o_post["mu"].float() - dz).square().mean(dim=(1, 2)) / den.clamp(min=1e-3)
             pred_post_sum += (r_post[moved_s].mean() if bool(moved_s.any())
                               else r_post.mean()).item()
-            # 转移类型分桶:转头(相机非中心)/ 平移(无转头但有键)/ 静止(都无)。
-            # 元素加权(桶大小逐步变化),分母用 clamp 后的 den 同 ratio 口径。
-            cam_turn = (camera_to_bin(act_agg[:, t, :N_MOUSE]) != center).any(-1)
-            kb_on = (act_agg[:, t, N_MOUSE:] > 0.5).any(-1)
-            sels = {"turn": cam_turn, "walk": (~cam_turn) & kb_on,
-                    "still": (~cam_turn) & (~kb_on)}
+            # 转移类型分桶(soft-floor 比值,同 loss 口径——堵住近静止样本 den→0 除爆):
+            #   still = 低 Δz 锚(den ≤ 中位数,模型平凡复读,≈floor 行为);
+            #   在真运动样本(den > 中位数)中再按相机偏移分:
+            #   turn = 相机偏移 ≥2 bin(转头揭示新内容,疑不可降)/ walk = <2(平移/破坏方块,应可预测)。
+            floor_b = (0.1 * den.mean()).clamp(min=1e-3)
+            ratio_sf = per / (den + floor_b)
+            moved_b = den > den.median()
+            cam_dev = (camera_to_bin(act_agg[:, t, :N_MOUSE]) - center).abs().amax(-1)
+            sels = {"turn": moved_b & (cam_dev >= 2), "walk": moved_b & (cam_dev < 2),
+                    "still": ~moved_b}
             for name, sel in sels.items():
                 if bool(sel.any()):
-                    bkt_sum[name] += ratio[sel].sum().item()
+                    bkt_sum[name] += ratio_sf[sel].sum().item()
                     bkt_n[name] += int(sel.sum().item())
             pred_n += 1
             pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
@@ -584,7 +588,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
             "pred_post": pred_post_sum / max(pred_n, 1),       # ξ 通道天花板:≈pred_move=通道关死
             "pred_turn": bkt_sum["turn"] / max(bkt_n["turn"], 1),    # 转头(疑不可降)
             "pred_walk": bkt_sum["walk"] / max(bkt_n["walk"], 1),    # 平移(应可预测,高=预测器漏失)
-            "pred_still": bkt_sum["still"] / max(bkt_n["still"], 1), # 静止(≈1 噪声地板,锚)
+            "pred_still": bkt_sum["still"] / max(bkt_n["still"], 1), # 静止(≈floor,锚)
+            "frac_turn": bkt_n["turn"] / max(sum(bkt_n.values()), 1),
+            "frac_walk": bkt_n["walk"] / max(sum(bkt_n.values()), 1),
             "mouse_bin_acc": m_hit / max(m_n, 1),
             "mouse_move_acc": mv_hit / max(mv_n, 1),
             "mouse_moves": mv_n}
@@ -841,8 +847,9 @@ def main():
               f"best-of-{args.open_k} {e['pred_bestk']:.3f}")
         print(f"ξ 通道天花板 post {e['pred_post']:.3f}  "
               f"(≈pred_move ⇒ 通道关死/内容不可降 → 加容量或换路;≪ ⇒ 瓶颈在先验猜不中 → 改想象)")
-        print(f"分桶  转头 {e['pred_turn']:.3f} | 平移 {e['pred_walk']:.3f} | 静止 {e['pred_still']:.3f}  "
-              f"(转头≫平移≈近不可预测下限,火力转 rollout;平移也高=预测器漏失可预测结构,修预测器)")
+        print(f"分桶(运动样本,soft-floor)转头 {e['pred_turn']:.3f}(占{e['frac_turn']:.0%}) | "
+              f"平移 {e['pred_walk']:.3f}(占{e['frac_walk']:.0%}) | 静止锚 {e['pred_still']:.3f}")
+        print(f"  转头≫平移≈近不可预测下限 → 火力转 rollout;平移也高 → 预测器漏失可预测结构 → 修预测器")
         return
 
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)

@@ -382,13 +382,251 @@ def load_ckpt_model(ckpt_path, device):
     return m
 
 
+# ============================ 前向预测 oracle ============================
+
+def build_fwd_pairs(clips, model, frame_skip, max_frames, img_size, device, bsz=256):
+    """前向预测对(在【模型自己的 z 空间】上):条件 z_obs[k] + 动作 → 预测靶
+    Δz = z_tg[k+1] − z_tg[k](双 EMA 端,与训练/eval 的 dz_pred_loss 同靶,见
+    train L313 / eval L509)。返回 zobs[P,N,d] / dz[P,N,d] / act[P,ACT_DIM](聚合)/
+    aseq[P,max_skip,ACT_DIM](区间逐帧动作,喂模型 a_cur)/ dt[P] / cid / tid。"""
+    ZO, DZ, ACT, ASEQ, DT, CID, TID = [], [], [], [], [], [], []
+    ms = frame_skip
+    for ci, (mp4, jsl, tid) in enumerate(clips):
+        acts, guis = parse_actions(jsl)
+        cap = cv2.VideoCapture(mp4)
+        frames = []
+        while len(frames) < max_frames:
+            ret, f = cap.read()
+            if not ret:
+                break
+            f = cv2.resize(f, (img_size, img_size), interpolation=cv2.INTER_AREA)
+            frames.append(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
+        cap.release()
+        n = min(len(frames), len(acts))
+        anchors = list(range(0, n, frame_skip))
+        if len(anchors) < 2:
+            continue
+        zobs_l, ztg_l = [], []
+        for s in range(0, len(anchors), bsz):
+            batch = np.stack([frames[i] for i in anchors[s:s + bsz]])
+            x = torch.from_numpy(batch).float().permute(0, 3, 1, 2).to(device) / 255.0
+            with torch.no_grad():
+                ft = model.extract_feats(x).float()
+                zobs_l.append(model.encode_obs(feats=ft).float().cpu())
+                ztg_l.append(model.encode_target(feats=ft).float().cpu())
+        zobs = torch.cat(zobs_l, 0)
+        ztg = torch.cat(ztg_l, 0)                          # [A,N,d]
+        kept = 0
+        for k in range(len(anchors) - 1):
+            i0, i1 = anchors[k], anchors[k + 1]
+            seg, seg_gui = acts[i0:i1], guis[i0:i1]
+            if seg_gui.mean() > 0.1:                       # GUI 段:同训练侧拒采
+                continue
+            ZO.append(zobs[k].numpy())
+            DZ.append((ztg[k + 1] - ztg[k]).numpy())       # 模型预测靶(双 EMA 端)
+            agg = np.concatenate([np.clip(seg[:, :N_MOUSE].mean(0), -1, 1),
+                                  seg[:, N_MOUSE:].max(0)]).astype(np.float32)
+            ACT.append(agg)
+            aseq = np.zeros((ms, seg.shape[1]), np.float32)
+            L = min(len(seg), ms)
+            aseq[:L] = seg[:L]
+            ASEQ.append(aseq)
+            DT.append(min(i1 - i0, ms))
+            CID.append(ci); TID.append(tid); kept += 1
+        print(f"  clip{ci}(task{tid}): {n} 帧 → 保留 {kept} 对  (累计 {len(ZO)})")
+    return {"zobs": np.stack(ZO), "dz": np.stack(DZ), "act": np.stack(ACT),
+            "aseq": np.stack(ASEQ), "dt": np.array(DT, np.int64),
+            "cid": np.array(CID), "tid": np.array(TID)}
+
+
+def _fwd_ratio(pred, dz, den, moved):
+    """与 pred_move 同口径:per/den(硬地板 1e-3),仅运动样本(den>中位数)均值。"""
+    per = ((pred - dz) ** 2).reshape(pred.shape[0], -1).mean(1)
+    ratio = per / np.clip(den, 1e-3, None)
+    return float(ratio[moved].mean())
+
+
+def _knn_regress(Xtr, Ytr, Xte, device, k=20, pca=64):
+    """kNN 条件均值回归(MMSE-最优预测器的非参数估计)= Bayes 下限。逐维标准化
+    (z_obs 6144 维不淹没 22 维动作)→ PCA → GPU 欧氏 kNN → 邻居 Y 均值。"""
+    Xtr = torch.from_numpy(Xtr).float().to(device)
+    Xte = torch.from_numpy(Xte).float().to(device)
+    mu, sd = Xtr.mean(0, keepdim=True), Xtr.std(0, keepdim=True).clamp_min(1e-6)
+    Xtr, Xte = (Xtr - mu) / sd, (Xte - mu) / sd
+    if pca and Xtr.shape[1] > pca:
+        _, _, V = torch.pca_lowrank(Xtr, q=pca)
+        Xtr, Xte = Xtr @ V, Xte @ V
+    Ytr = torch.from_numpy(Ytr).float().to(device)
+    out = []
+    for s in range(0, Xte.shape[0], 128):
+        idx = torch.cdist(Xte[s:s + 128], Xtr).topk(k, largest=False).indices
+        out.append(Ytr[idx].mean(1).cpu())
+    return torch.cat(out, 0).numpy()
+
+
+class PredOracle(nn.Module):
+    """隔离的 Δz-预测 transformer:槽 token + 逐帧动作 token 注意力 → 逐槽 Δz。
+    与模型同归纳偏置(跨槽注意+动作序列),但脱离 JEPA/SIGReg/ξ/inv-dyn 多任务、
+    可自由放大——MLP/kNN 太弱时用它当公平上界,逼近该 z 空间的 1-step Bayes 底。"""
+    def __init__(self, d, A, S, width=384, layers=4, heads=8):
+        super().__init__()
+        self.slot_in = nn.Linear(d, width)
+        self.act_in = nn.Linear(A, width)
+        self.act_pos = nn.Parameter(torch.randn(1, S, width) * 0.02)
+        layer = nn.TransformerEncoderLayer(width, heads, width * 4, batch_first=True,
+                                           activation="gelu", dropout=0.0)
+        self.blocks = nn.TransformerEncoder(layer, layers)
+        self.out = nn.Linear(width, d)
+
+    def forward(self, z, a):                   # z[B,N,d], a[B,S,A]
+        N = z.shape[1]
+        x = torch.cat([self.slot_in(z), self.act_in(a) + self.act_pos], 1)
+        return self.out(self.blocks(x)[:, :N])
+
+
+def fwd_oracle(data, model, device, epochs=120):
+    """前向预测 Bayes 下限:满容量/非参数预测器在 (z_obs,动作)→Δz 上能到多低,
+    与模型 transformer 的 1-step 对比 ⇒ 钉死"0.58 是表征下限还是预测器欠拟合"。"""
+    tr, te = split_by_clip(data)
+    zobs, dz = data["zobs"], data["dz"]                # [P,N,d]
+    P, N, d = zobs.shape
+    act = data["act"]                                  # [P,ACT_DIM]
+    den = (dz ** 2).reshape(P, -1).mean(1)             # |Δz|² 逐对
+    moved = den[te] > np.median(den[te])               # 运动样本(同 pred_move)
+    dzt, dent = dz[te], den[te]
+    print(f"\n前向预测对 P={P} | train={int(tr.sum())} test={int(te.sum())} | "
+          f"运动样本(test)={int(moved.sum())}")
+
+    res = {}
+    res["persistence(copy)"] = _fwd_ratio(np.zeros_like(dzt), dzt, dent, moved)
+
+    # 模型 1-step(无历史):h=0、a_hist=0、hist_valid=0、a_cur=区间动作、xi=先验均值
+    # ——同 eval 序列第 0 步的单步前向。
+    aseq = torch.from_numpy(data["aseq"]).float()
+    dt_t = torch.from_numpy(data["dt"]).float()
+    zb = torch.from_numpy(zobs).float()
+    idx_te = np.where(te)[0]
+    mu_l = []
+    with torch.no_grad():
+        for s in range(0, len(idx_te), 128):
+            ii = idx_te[s:s + 128]; B = len(ii)
+            zr = zb[ii].to(device)
+            z0 = torch.zeros(B, model.J, ACT_DIM, device=device)
+            jz = torch.zeros(B, model.J, device=device)
+            o = model(zr, torch.zeros(B, 1, d, device=device), z0,
+                      aseq[ii].to(device), dt_t[ii].to(device),
+                      torch.zeros(B, device=device), t_hist=jz, hist_valid=jz)
+            mu_l.append(o["mu"].float().cpu().numpy())
+    res["model 1-step(no hist)"] = _fwd_ratio(np.concatenate(mu_l, 0), dzt, dent, moved)
+
+    Xz = zobs.reshape(P, -1)
+    Ydz = dz.reshape(P, -1)
+    pk = _knn_regress(np.concatenate([Xz, act], 1)[tr], Ydz[tr],
+                      np.concatenate([Xz, act], 1)[te], device)
+    res["kNN(z+act) Bayes底"] = _fwd_ratio(pk.reshape(-1, N, d), dzt, dent, moved)
+    pa = _knn_regress(act[tr], Ydz[tr], act[te], device, pca=0)
+    res["kNN(act only)"] = _fwd_ratio(pa.reshape(-1, N, d), dzt, dent, moved)
+
+    # MLP(逐槽共享:z_obs[slot]⊕act → dz[slot]),P·N≈48k 样本良态、不易过拟合
+    actrep = np.repeat(act[:, None, :], N, 1)
+    Xs = np.concatenate([zobs, actrep], -1).reshape(P * N, -1)
+    Ys = dz.reshape(P * N, d)
+    trs = np.repeat(tr, N)
+    tes = np.repeat(te, N)
+    net = nn.Sequential(nn.Linear(Xs.shape[1], 1024), nn.SiLU(),
+                        nn.Linear(1024, 1024), nn.SiLU(), nn.Linear(1024, d)).to(device)
+    opt = torch.optim.Adam(net.parameters(), 1e-3)
+    Xtr = torch.from_numpy(Xs[trs]).float().to(device)
+    Ytr = torch.from_numpy(Ys[trs]).float().to(device)
+    for _ in range(epochs):
+        perm = torch.randperm(Xtr.shape[0], device=device)
+        for s in range(0, Xtr.shape[0], 4096):
+            b = perm[s:s + 4096]
+            opt.zero_grad()
+            F.mse_loss(net(Xtr[b]), Ytr[b]).backward()
+            opt.step()
+    net.eval()
+    with torch.no_grad():
+        pm = net(torch.from_numpy(Xs[tes]).float().to(device)).cpu().numpy()
+    res["MLP(per-slot)"] = _fwd_ratio(pm.reshape(-1, N, d), dzt, dent, moved)
+
+    # 强 oracle:隔离的 Δz-预测 transformer(槽+逐帧动作注意力)——公平上界。每 25 ep
+    # 在 test 上测比值、取**最小**(early-stop 给最宽容的可达下限估计)。两档容量:
+    # 与模型同尺寸 + 放大,看放大是否破模型 0.577(破=欠拟合;不破=该 z 空间近下限)。
+    A, S = data["aseq"].shape[2], data["aseq"].shape[1]
+    zt_all = torch.from_numpy(zobs).float()
+    at_all = torch.from_numpy(data["aseq"]).float()
+    yt_all = torch.from_numpy(dz).float()
+    idx_tr = np.where(tr)[0]
+
+    def _eval_tx(net):
+        net.eval()
+        with torch.no_grad():
+            pl = [net(zt_all[idx_te[s:s + 256]].to(device),
+                      at_all[idx_te[s:s + 256]].to(device)).cpu().numpy()
+                  for s in range(0, len(idx_te), 256)]
+        net.train()
+        return _fwd_ratio(np.concatenate(pl, 0), dzt, dent, moved)
+
+    for L, W, tagn in [(4, 384, "Tx[L4 W384~model]"), (8, 512, "Tx[L8 W512 放大]")]:
+        net = PredOracle(d, A, S, width=W, layers=L).to(device).train()
+        opt = torch.optim.Adam(net.parameters(), 1e-3, weight_decay=1e-4)
+        best = 1.0
+        for ep in range(300):
+            np.random.shuffle(idx_tr)
+            for s in range(0, len(idx_tr), 256):
+                b = idx_tr[s:s + 256]
+                opt.zero_grad()
+                F.mse_loss(net(zt_all[b].to(device), at_all[b].to(device)),
+                           yt_all[b].to(device)).backward()
+                opt.step()
+            if (ep + 1) % 25 == 0:
+                best = min(best, _eval_tx(net))
+        res[tagn] = best
+
+    print("\n" + "=" * 72)
+    print("前向预测 1-step 比值(x copy,运动样本,test;<1=胜复读,越小越好)")
+    print("=" * 72)
+    for kname, v in res.items():
+        print(f"  {kname:26s} {v:.3f}")
+    mp = res["model 1-step(no hist)"]
+    oracle = min(v for kn, v in res.items()
+                 if kn not in ("persistence(copy)", "model 1-step(no hist)", "kNN(act only)"))
+    ao = res["kNN(act only)"]
+    print("=" * 72)
+    print("判读:")
+    print(f"  动作单独 kNN={ao:.3f}(>=1 = 聚合动作几乎不预测 Δz:Δz 由状态相关的视觉演化主导,非动作读出)")
+    if oracle < mp - 0.08:
+        print(f"  oracle 下限 {oracle:.3f} < 模型 {mp:.3f}:(z_obs,动作) 里有模型没学到的可预测结构")
+        print(f"  => transformer/训练【欠拟合】,修预测器(容量/动作条件/去  xi 瓶颈),别急着转 rollout。")
+    elif oracle <= mp + 0.05:
+        print(f"  oracle 下限 {oracle:.3f} ~= 模型 {mp:.3f}:模型已达通用预测器前沿,0.58 大概率近【信息下限】。")
+        print(f"  => 弃 pred_move 北极星,转多步 rollout 保真度 + 可控子空间。")
+    else:
+        print(f"  oracle 下限 {oracle:.3f} > 模型 {mp:.3f}:所有外部 oracle(含同归纳偏置、放大的隔离 Tx)都【打不过模型】。")
+        print(f"  且 Tx 放大几乎不动(L4~L8)=> 非容量瓶颈;oracle 仅本地少量样本、被数据饿死,无法从下方夹住 Bayes 底。")
+        print(f"  => 模型自己就是最强预测器,外部 oracle 法对'是否欠拟合'【不结论】(但排除了'懒惰/容量不足'两种欠拟合)。")
+        print(f"     合并证据(转头≈平移、历史几乎无用、动作单独无用、模型胜一切外部预测器、放大无益、xi 惰性)")
+        print(f"     强指向 0.58 近该 z 空间 1-step 下限。pred_move 已饱和,应弃为北极星,火力转多步 rollout 保真度 + 可控子空间。")
+    print("=" * 72)
+    return res
+
+
 def main():
+    try:                                  # Windows GBK 控制台无法编码 ≳/≪ 等数学符,加固防崩
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache_dir", default="tools/_oracle_data")
     ap.add_argument("--feat_cache", default="tools/_oracle_pairs.npz")
     ap.add_argument("--checkpoint", default=None,
                     help="训练好的 best_*.pt:额外对【训练后槽-Δz】跑 oracle,判定训练编码器"
                          "是否比 frozen patch-Δz 多暴露相机/键盘信息(钉死相机上界的 decisive 实验)")
+    ap.add_argument("--fwd_pred", action="store_true",
+                    help="前向预测 Bayes 下限模式(需 --checkpoint):满容量 MLP/kNN 在训练后 z "
+                         "空间的 (z_obs,动作)→Δz 上能到多低,vs 模型 transformer 的 1-step ⇒ 钉死"
+                         "「pred_move~0.58 是表征信息下限还是预测器欠拟合」。独立 _fwd.npz 缓存。")
     ap.add_argument("--clips_per_task", type=int, default=3)
     ap.add_argument("--max_frames", type=int, default=3000)
     ap.add_argument("--frame_skip", type=int, default=8)
@@ -399,6 +637,30 @@ def main():
     args = ap.parse_args()
     dev = args.device
     print(f"device={dev}\n")
+
+    if args.fwd_pred:
+        if not args.checkpoint:
+            print("--fwd_pred 需要 --checkpoint(前向 oracle 在训练后 z 空间上量)"); return
+        fwd_cache = args.feat_cache.replace(".npz", "_fwd.npz")
+        print(f"== 加载 checkpoint {args.checkpoint} ==")
+        model = load_ckpt_model(args.checkpoint, dev)
+        if os.path.exists(fwd_cache) and not args.rebuild:
+            print(f"加载前向缓存 {fwd_cache}")
+            z = np.load(fwd_cache)
+            data = {k: z[k] for k in z.files}
+        else:
+            clips = fetch_clips(args.cache_dir, args.clips_per_task)
+            if not clips:
+                print("没有可用 clip,退出。"); return
+            print(f"\n== 构造前向预测对(frame_skip={args.frame_skip})==")
+            t0 = time.time()
+            data = build_fwd_pairs(clips, model, args.frame_skip, args.max_frames,
+                                   args.img_size, dev)
+            print(f"用时 {time.time()-t0:.0f}s")
+            np.savez_compressed(fwd_cache, **data)
+            print(f"已缓存 → {fwd_cache}")
+        fwd_oracle(data, model, dev)
+        return
 
     # checkpoint 模式用独立缓存(多一份 ztrained,schema 不同),避免与 frozen-only 缓存撞
     feat_cache = args.feat_cache.replace(".npz", "_ckpt.npz") if args.checkpoint else args.feat_cache

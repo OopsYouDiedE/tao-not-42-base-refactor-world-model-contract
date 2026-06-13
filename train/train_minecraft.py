@@ -112,7 +112,7 @@ def dz_pred_loss(mu, dz_tg, eps=1e-3):
 
 
 def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
-                           prev_action=None, kb_edge_w=1.0):
+                           prev_action=None, kb_edge_w=1.0, patch_dz=None):
     """逆动力学:从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推混合动作。
 
     鼠标 = mu-law 分箱**加权** CE:中心 bin(没动鼠标)在区间聚合后占 ~2/3,
@@ -124,7 +124,7 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
     返回的 move_hit/move_n 用于训练侧 mouse_move_acc(全帧 acc 会被中心基率
     灌到 0.66 一动不动,运动帧 acc 才是诚实读数)。
     """
-    mouse_logits, kb_prob = inv_dyn_head(delta_z * c)
+    mouse_logits, kb_prob = inv_dyn_head(delta_z * c, patch_dz=patch_dz)
     mouse_bin = camera_to_bin(true_action[:, :N_MOUSE])               # [B,2] long
     ce = F.cross_entropy(mouse_logits.reshape(-1, mouse_logits.shape[-1]),
                          mouse_bin.reshape(-1), reduction="none")
@@ -341,9 +341,12 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                  mu_p.float(), lv_p.float())            # [B] nats
             # free-bits:低于 kl_free 不再压(防后验坍缩到先验、通道废弃)
             l_kl_fb = torch.clamp(l_kl, min=kl_free).mean()
+            # 全 patch 平均 Δz(冻结特征,与 oracle pool 口径一致;.float 脱 autocast)
+            pdz = (feats[:, t + 1].mean(1) - feats[:, t].mean(1)).float()
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
-                model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w)
+                model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w,
+                patch_dz=pdz)
             step_loss = l_pred + alpha_inv * l_inv + beta_kl * l_kl_fb
             if out_open is not None:
                 l_open, _, r_open_mv = dz_pred_loss(out_open["mu"].float(), dz)
@@ -482,9 +485,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
         B, T = img.shape[0], img.shape[1]
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
             feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
+            featsBT = feats.view(B, T, *feats.shape[-2:])
             z_obs = model.encode_obs(
-                feats=feats.view(B, T, *feats.shape[-2:])[:, :T - 1]
-                .reshape(B * (T - 1), *feats.shape[-2:])
+                feats=featsBT[:, :T - 1].reshape(B * (T - 1), *feats.shape[-2:])
             ).view(B, T - 1, model.N, model.d)
             z_tg = model.encode_target(feats=feats).view(B, T, model.N, model.d)
         z_obs, z_tg = z_obs.float(), z_tg.float()
@@ -527,8 +530,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
                 pred_bk_sum += (best[moved_s].mean() if bool(moved_s.any())
                                 else best.mean()).item()
             pred_n += 1
+            pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
             mouse_logits, kb_prob = model.inv_dyn(
-                (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float())
+                (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float(), patch_dz=pdz)
             kb_pred = (kb_prob > 0.5)
             kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
@@ -609,6 +613,14 @@ def main():
                          "(0=只在训练结束跑;首次在第 eval_every 个 epoch 之后——"
                          "训练没开始不评估)。泛化差距 = eval/pred 与训练 pred 之差")
     ap.add_argument("--viz_dir", default="runs/mc_viz")
+    ap.add_argument("--ckpt_dir", default="runs/mc_ckpt",
+                    help="best checkpoint 落盘目录(只存可训练 + EMA 权重,不含冻结骨干)")
+    ap.add_argument("--save_best_every", type=int, default=50,
+                    help="每多少 epoch 把当前 best checkpoint 传一次 wandb artifact(0=关闭;"
+                         "best 由 --best_metric 在每次 eval 时持续跟踪,这里只控制上传节奏)")
+    ap.add_argument("--best_metric", default="pred_move",
+                    help="选 best 的 eval 指标。pred_move/pred/pred_bestk 越小越好;"
+                         "kb_bal_acc/kb_onset_recall/mouse_move_acc 越大越好")
     ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov2",
                     help="视觉骨干(冻结):dinov3=ViT-S/16(默认;稠密特征最强,patch=16 "
                          "整除 128;hubconf 依赖 torchmetrics,Colab 端 pip 安装即可;"
@@ -798,6 +810,46 @@ def main():
         torch.cuda.reset_peak_memory_stats()
     util_hist = []
 
+    # best checkpoint 跟踪:每次 eval 更新 best(--best_metric),落盘只存可训练 + EMA
+    # 权重(不含 21M 冻结骨干,reload 时从 torch.hub 取);每 --save_best_every 个 epoch
+    # 把当前 best 传一次 wandb artifact(节流上传,跟踪与上传解耦)。
+    os.makedirs(args.ckpt_dir, exist_ok=True)
+    _LOWER_BETTER = {"pred", "pred_move", "pred_bestk", "pred_rms"}
+    _lower = args.best_metric in _LOWER_BETTER
+    best_score, best_ep, last_up_ep = None, -1, -1
+    best_path = os.path.join(args.ckpt_dir, f"best_{args.wandb_run or 'run'}.pt")
+
+    def _save_best(ep, score):
+        sd = {k: v for k, v in model.state_dict().items() if not k.startswith("backbone.")}
+        torch.save({"model": sd, "epoch": ep, "metric": args.best_metric, "score": score,
+                    "encoder": args.encoder, "camera_scale": cam_scale,
+                    "args": vars(args)}, best_path)
+
+    def _update_best(ev, ep):
+        nonlocal best_score, best_ep
+        s = ev.get(args.best_metric)
+        if s is None:
+            return
+        if best_score is None or (s < best_score if _lower else s > best_score):
+            best_score, best_ep = s, ep
+            _save_best(ep, s)
+            print(f"  [best] {args.best_metric}={s:.4f} @ep{ep} → {best_path}")
+
+    def _upload_best(ep):
+        nonlocal last_up_ep
+        if not (use_wandb and best_score is not None and best_ep != last_up_ep):
+            return
+        try:
+            art = wandb.Artifact(f"best-{args.wandb_run or 'run'}", type="model",
+                                 metadata={"epoch": best_ep, args.best_metric: best_score})
+            art.add_file(best_path)
+            wandb.log_artifact(art)
+            last_up_ep = best_ep
+            print(f"  [wandb] best artifact 上传 (ep{best_ep}, "
+                  f"{args.best_metric}={best_score:.4f})")
+        except Exception as ex:
+            print(f"  [wandb] artifact 上传失败: {ex}")
+
     for ep in range(args.epochs):
         # 开环 α 课程:ep/epochs 在 [open_start, open_full] 区间内 0→1 线性爬升
         frac = ep / max(args.epochs - 1, 1)
@@ -854,6 +906,10 @@ def main():
                   f"onset {ev['kb_onset_recall']:.3f} | mouse move {ev['mouse_move_acc']:.3f}")
             if use_wandb:
                 wandb.log({f"eval/{k}": v for k, v in ev.items()}, step=ep)
+            _update_best(ev, ep)            # 持续跟踪 best(每次 eval)
+        # best 上传节流:每 save_best_every 个 epoch 传一次当前 best artifact
+        if args.save_best_every > 0 and (ep + 1) % args.save_best_every == 0:
+            _upload_best(ep)
 
     if util_hist:
         peak = torch.cuda.max_memory_allocated() / 1e9
@@ -873,11 +929,17 @@ def main():
     ok = e["kb_bal_acc"] > 0.6 or e["mouse_move_acc"] > 0.2
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
 
+    _update_best(e, args.epochs - 1)        # 末次评估也参与 best 评选
+    if best_score is not None:
+        print(f"best {args.best_metric}={best_score:.4f} @ep{best_ep} → {best_path}")
     if use_wandb:
         wandb.log({f"eval/{k}": v for k, v in e.items()})
         wandb.summary["kb_bal_acc"] = e["kb_bal_acc"]
         wandb.summary["mouse_move_acc"] = e["mouse_move_acc"]
         wandb.summary["eval_pred"] = e["pred"]
+        wandb.summary[f"best_{args.best_metric}"] = best_score
+        wandb.summary["best_epoch"] = best_ep
+        _upload_best(args.epochs - 1)        # 收尾上传最终 best(若末次刷新了)
         wandb.finish()
 
 

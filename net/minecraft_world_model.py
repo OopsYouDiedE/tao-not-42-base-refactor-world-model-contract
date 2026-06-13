@@ -93,7 +93,7 @@ class MinecraftInverseDynamicsHead(nn.Module):
     基率解的 CE = 边缘熵,任何真实信号都能压过它。分箱定义在 utils.vpt_action
     (camera_to_bin/bin_to_camera),与 VPT 原版的 mu-law 离散相机一致。
     """
-    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS):
+    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS, enc_dim=None):
         super().__init__()
         self.n_cam_bins = n_cam_bins
         self.net = nn.Sequential(
@@ -101,14 +101,31 @@ class MinecraftInverseDynamicsHead(nn.Module):
         )
         self.mouse_out = nn.Linear(64, 2 * n_cam_bins)
         self.kb_out = nn.Linear(64, num_keyboard_keys)
+        # 全 patch 平均 Δz 支路(oracle 复盘新增):本地 oracle 阶梯实测,从冻结 DINOv2
+        # 的**全 patch 平均** Δz 直接读键盘可达 onset 0.34 / bal 0.81,而经 16 槽池化+c
+        # 门控后只剩 0.15——信息在槽池化处丢了。这条支路绕开槽瓶颈,直接吃 patch 平均
+        # Δz(就是 oracle 的 pool 口径),与槽路 logits **相加**:槽路仍拿 inv-dyn 梯度
+        # (c 门控的唯一梯度来源不变),patch 路补回被池化丢掉的读出精度。enc_dim=None
+        # 时退化为原行为(无 patch 路),向后兼容。
+        self.use_patch = enc_dim is not None
+        if self.use_patch:
+            self.patch_net = nn.Sequential(
+                nn.Linear(enc_dim, 128), nn.SiLU(), nn.Linear(128, 64), nn.SiLU()
+            )
+            self.patch_mouse = nn.Linear(64, 2 * n_cam_bins)
+            self.patch_kb = nn.Linear(64, num_keyboard_keys)
 
-    def forward(self, residual_z):
-        # residual_z: [B, N, d] → mouse_logits [B, 2, n_bins], kb_prob [B, n_keys]
-        pooled = residual_z.mean(dim=1)
-        feat = self.net(pooled)
+    def forward(self, residual_z, patch_dz=None):
+        # residual_z: [B, N, d](槽-Δz·c);patch_dz: [B, enc_dim](全 patch 平均 Δz)
+        # → mouse_logits [B, 2, n_bins], kb_prob [B, n_keys]
+        feat = self.net(residual_z.mean(dim=1))
         mouse_logits = self.mouse_out(feat).view(-1, 2, self.n_cam_bins)
-        kb_prob = torch.sigmoid(self.kb_out(feat))
-        return mouse_logits, kb_prob
+        kb_logit = self.kb_out(feat)
+        if self.use_patch and patch_dz is not None:
+            pf = self.patch_net(patch_dz)
+            mouse_logits = mouse_logits + self.patch_mouse(pf).view(-1, 2, self.n_cam_bins)
+            kb_logit = kb_logit + self.patch_kb(pf)
+        return mouse_logits, torch.sigmoid(kb_logit)
 
 
 def sinusoidal_time_encoding(t_vec, d):
@@ -260,7 +277,7 @@ class MinecraftWorldModel(nn.Module):
         self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2,
                                            n_cam_bins=n_cam_bins)
         self.inv_dyn = MinecraftInverseDynamicsHead(d, num_keyboard_keys=act_dim-2,
-                                                    n_cam_bins=n_cam_bins)
+                                                    n_cam_bins=n_cam_bins, enc_dim=enc_dim)
 
         # Placeholders
         self.u_placeholder = nn.Parameter(torch.randn(1, K, d))

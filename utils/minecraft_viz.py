@@ -90,7 +90,9 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
             traj["pers_err"].append(dz.pow(2).mean().sqrt().item())
             traj["mu_norm"].append(mu.pow(2).mean().sqrt().item())
 
-            mouse_logits, kb_prob = model.inv_dyn((z_tg[:, t + 1] - z_obs[:, t]) * c)
+            pdz = (feats[:, t + 1].mean(1) - feats[:, t].mean(1)).float()
+            mouse_logits, kb_prob = model.inv_dyn(
+                (z_tg[:, t + 1] - z_obs[:, t]) * c, patch_dz=pdz)
             traj["kb_pred"].append(kb_prob[0].float().cpu().numpy())
             traj["kb_true"].append(act_agg[0, t, N_MOUSE:].float().cpu().numpy())
             traj["mouse_pred"].append(

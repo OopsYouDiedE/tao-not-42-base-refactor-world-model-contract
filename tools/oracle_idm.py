@@ -39,6 +39,7 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
+from utils.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名(key_w/key_a…),≠ vpt_action
 
 # ---- 数据契约(与 colab §1/§2 + utils.vpt_action 严格一致)----
 BASE = "https://openaipublic.blob.core.windows.net/minecraft-rl"
@@ -107,6 +108,42 @@ def fetch_clips(cache_dir, clips_per_task, workers=8, clip_offset=0):
         res = list(ex.map(lambda j: _download_one(*j), jobs))
     # 稳定 cid:按 (任务序, mp4 名) 排序,避免并行完成顺序影响留出划分
     return sorted([r for r in res if r], key=lambda r: (r[2], r[0]))
+
+
+# 原始 VPT 键名 → **训练契约键名**(utils.vpt_dataset.VPT_KEYS:key_w/key_a/…)。
+# ⚠ 注意 vpt_dataset 的键名/顺序 ≠ vpt_action.VPT_KEYS,训练走 vpt_dataset._action_vec,
+# 故转换必须用这套名字,否则 _action_vec 读不到(键盘标签全 0,即此前假崩塌的根因)。
+RAW2NAME = {
+    "key.keyboard.w": "key_w", "key.keyboard.a": "key_a", "key.keyboard.s": "key_s",
+    "key.keyboard.d": "key_d", "key.keyboard.space": "key_space",
+    "key.keyboard.left.shift": "key_sneak", "key.keyboard.left.control": "key_sprint",
+    "key.keyboard.q": "key_drop", "key.keyboard.e": "key_inventory",
+    **{f"key.keyboard.{i}": f"key_hotbar.{i}" for i in range(1, 10)},
+}
+BTN2NAME = {0: "key_attack", 1: "key_use"}
+
+
+def raw_to_converted_line(d, task):
+    """原始 BASALT jsonl 单帧 → §2 转换格式(utils.vpt_dataset._action_vec 期望的 schema):
+    keyboard = {训练契约键名(key_w…): 1.0}(原始 keys 列表经 RAW2NAME 映射,鼠标键经
+    BTN2NAME 折进 key_attack/key_use)、mouse.dx/dy 转**度**(×PX2DEG,_action_vec 再
+    /camera_scale)、gui、task。GUI 段动作置零(同 parse_actions)。"""
+    gui = bool(d.get("isGuiOpen", False))
+    kbd = {}
+    for k in d.get("keyboard", {}).get("keys", []):
+        nm = RAW2NAME.get(k)
+        if nm is not None:
+            kbd[nm] = 1.0
+    m = d.get("mouse", {}) or {}
+    dx = dy = 0.0
+    if not gui:
+        for b in m.get("buttons", []) or []:
+            if b in BTN2NAME:
+                kbd[BTN2NAME[b]] = 1.0
+        dx = (m.get("dx", 0.0) or 0.0) * PX2DEG     # px → deg
+        dy = (m.get("dy", 0.0) or 0.0) * PX2DEG
+    return {"task": task, "gui": gui, "isGuiOpen": gui,
+            "mouse": {"dx": dx, "dy": dy}, "keyboard": kbd}
 
 
 def parse_actions(jsonl_path):
@@ -647,29 +684,47 @@ def main():
     dev = args.device
     print(f"device={dev}\n")
 
-    if args.fetch_to:                      # 纯数据准备:下载 disjoint 切片 + 扁平化
+    if args.fetch_to:                      # 数据准备:下载 disjoint 切片,jsonl 转 §2 格式 + 扁平化
+        import shutil
+        from utils.vpt_dataset import _action_vec
         os.makedirs(args.fetch_to, exist_ok=True)
         clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
         if not clips:
             print("没有可用 clip,退出。"); return
-        n = 0
-        for mp4, jsl, _ in clips:
-            for src in (mp4, jsl):
-                dst = os.path.join(args.fetch_to, os.path.basename(src))
-                if not os.path.exists(dst):
-                    try:
-                        os.link(src, dst)
-                    except OSError:
-                        import shutil; shutil.copy2(src, dst)
-                n += 1
+        for mp4, jsl, ti in clips:
+            base = os.path.basename(mp4)[:-4]
+            dmp4 = os.path.join(args.fetch_to, base + ".mp4")
+            if not os.path.exists(dmp4):
+                try:
+                    os.link(mp4, dmp4)
+                except OSError:
+                    shutil.copy2(mp4, dmp4)
+            task = TASKS[ti]
+            with open(jsl, encoding="utf-8") as f, \
+                    open(os.path.join(args.fetch_to, base + ".jsonl"), "w", encoding="utf-8") as g:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    g.write(json.dumps(raw_to_converted_line(json.loads(line), task)) + "\n")
+        # 自校验:转换后经 _action_vec(§2 路径)解析 == parse_actions(原始路径),逐帧一致
+        mp4, jsl, _ = clips[0]
+        raw_v, _ = parse_actions(jsl)
+        conv = [_action_vec(json.loads(l), camera_scale=CAM_SCALE).numpy()
+                for l in open(os.path.join(args.fetch_to,
+                                           os.path.basename(mp4)[:-4] + ".jsonl"), encoding="utf-8")]
+        conv = np.stack(conv[:len(raw_v)])
+        max_err = float(np.abs(conv - raw_v[:len(conv)]).max())
         names = sorted(os.path.basename(m)[:-4] for m, _, _ in clips)
-        print(f"\n扁平化 {n} 文件 → {args.fetch_to}(offset={args.clip_offset},{len(clips)} clip)")
+        print(f"\n转换+扁平化 {len(clips)} clip → {args.fetch_to}(offset={args.clip_offset})")
+        print(f"自校验(_action_vec vs parse_actions 逐帧最大差):{max_err:.2e}  "
+              f"{'✓ 一致' if max_err < 1e-4 else '✗ 不一致!转换有误'}")
         print("clip 文件名(与训练 data_dir 比对确认 disjoint):")
         for nm in names:
             print(f"  {nm}")
         print(f"\n下一步:python train/train_minecraft.py --eval_only <ckpt> "
               f"--holdout_dir {args.fetch_to} --data_dir {args.fetch_to} "
-              f"--camera_scale 20 --img_size 128 --frame_skip 8 --batch 32 --seq_len 32 --text_encoder none")
+              f"--camera_scale 20 --img_size 128 --frame_skip 8 --batch 32 --seq_len 30 --text_encoder minilm")
         return
 
     if args.fwd_pred:

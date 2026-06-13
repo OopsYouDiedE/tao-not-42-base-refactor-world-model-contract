@@ -24,7 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.tao_not_42 import TaoNot42Model
-from utils.rhythm_env import ProceduralRhythmEnv
+from train.rhythm.rhythm_env import ProceduralRhythmEnv
 from utils.losses import action_plan_loss
 
 

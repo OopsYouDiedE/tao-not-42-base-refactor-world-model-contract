@@ -11,7 +11,7 @@
 """
 import torch
 
-from utils.rhythm_env import ProceduralRhythmEnv
+from train.rhythm.rhythm_env import ProceduralRhythmEnv
 
 
 class RhythmActionEnv(ProceduralRhythmEnv):

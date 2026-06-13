@@ -71,7 +71,7 @@ img ──┬─ PeripheralVision ─→ M 个余光 token ┐                  
 要点：
 
 - **双通道感知 = 余光 + 中央凹**。余光（`PeripheralVision`）廉价常开、给全局显著性；中央凹（`FoveatedVision`）只对 `gaze` 指向的局部裁剪做高清 ViT。这就是"偶尔扫一眼"的物理实现——**不把整帧高清灌进脑子**。
-- **correct = `SlotBinder`**：感知 token 经 cross-attn + 门控残差（增益 sigmoid 限幅，I5）注入 Z。"只动误差部分"由注意力自行定位 + 门控残差涌现，**不手工挑**该改哪个槽。
+- **correct = `SlotBinder`**：感知 token 经 cross-attn + 门控残差（增益 sigmoid 限幅，I5）注入 Z。"只动误差部分"由注意力自行定位 + 门控残差涌现，**不手工挑**该改哪个槽。`compete=True`（Minecraft）用 `SlotCompetitiveAttn`：softmax 沿 **slot 维**做零和竞争——一个 patch 的注意力质量被各槽瓜分，从结构上抑制多槽冗余。残余的"多槽盯同一显著物体"再由训练侧 **`slot_diversity_loss`（`--beta_div`）软惩罚竞争注意力图的成对重叠**收敛：约束加在**注意力空间(谁看哪里)**、前向注意力仍是合法分布(非负、沿 token 和 1)。**不**在前向里硬正交化(施密特那样硬改聚合权重会打破 `out=w·v` 的加权平均语义、并按 slot 序饿死后排槽,把"都看同一物体"换成"首槽看、后排饿死")。
 - **predict = `WorldTransformerBlock`**：双向无掩码 Transformer 一次推演**全部** token。
 - **异步节律**：`wake` 头输出 `T_wake`（多久后再睁眼），`τ = ContinuousTimeEncoding(Δt)` 把"距上次观测的时长"喂进推演——稀疏/不规则观测靠 Δt 兜底，没看清 ≈ null token。
 - **主动感知出口 = `gaze`**：决定下一眼看哪 `(g_x, g_y, g_s)`，经 `crop_fovea` 的 **STN（affine_grid + grid_sample）可导** —— 这一点很关键：**"看哪里"可以被梯度直接学**，不必退回高方差的硬注意力 RL。

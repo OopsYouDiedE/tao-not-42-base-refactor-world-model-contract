@@ -31,7 +31,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.tao_not_42 import TaoNot42Model
-from utils.rhythm_action_env import RhythmActionEnv
+from train.rhythm.rhythm_action_env import RhythmActionEnv
 from blocks.primitives import SIGReg, PreLNAttn
 
 EPS = 1e-4  # I1
@@ -41,27 +41,7 @@ EPS = 1e-4  # I1
 # 探针（纯评估用，不参与世界模型训练）
 # =====================================================================
 
-class EvalLaneProbe(nn.Module):
-    """冻结的事后评估探针：验证 Z 是否学到了世界信息。
-
-    与 train_action_world.py 中的 LaneProbe 结构相同，但在自监督训练中
-    不参与主损失的反向传播，仅在评估阶段使用。
-    """
-    def __init__(self, d, n_lanes=4):
-        super().__init__()
-        self.queries = nn.Parameter(torch.randn(1, n_lanes, d) * 0.02)
-        self.attn = PreLNAttn(d, heads=4, mode="cross")
-        self.trunk = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 128), nn.SiLU())
-        self.y = nn.Linear(128, 1)
-        self.present = nn.Linear(128, 1)
-        self.hittable = nn.Linear(128, 1)
-
-    def forward(self, slots):
-        q = self.queries.expand(slots.shape[0], -1, -1)
-        f = self.trunk(self.attn(q, slots))
-        return {"y_norm": torch.sigmoid(self.y(f).squeeze(-1)),
-                "present": torch.sigmoid(self.present(f).squeeze(-1)),
-                "hittable": torch.sigmoid(self.hittable(f).squeeze(-1))}
+from train.rhythm.probes import LaneProbe as EvalLaneProbe
 
 
 # =====================================================================

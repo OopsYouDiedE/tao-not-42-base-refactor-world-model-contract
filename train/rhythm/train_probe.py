@@ -28,7 +28,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from net.tao_not_42 import TaoNot42Model
 from net.world_probe import WorldProbeDecoder
-from utils.rhythm_env import ProceduralRhythmEnv
+from train.rhythm.rhythm_env import ProceduralRhythmEnv
 
 Y_MIN, Y_MAX = -24.0, 280.0
 

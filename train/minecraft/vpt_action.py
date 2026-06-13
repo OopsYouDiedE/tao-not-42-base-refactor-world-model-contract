@@ -18,10 +18,10 @@ import math
 import torch
 
 VPT_KEYS = [
-    "forward", "back", "left", "right", "jump", "sneak", "sprint",
-    "attack", "use", "drop", "inventory",
-    "hotbar.1", "hotbar.2", "hotbar.3", "hotbar.4", "hotbar.5",
-    "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9",
+    "key_w", "key_a", "key_s", "key_d", "key_space", "key_sneak", "key_sprint",
+    "key_attack", "key_use", "key_drop", "key_inventory",
+    "key_hotbar.1", "key_hotbar.2", "key_hotbar.3", "key_hotbar.4", "key_hotbar.5",
+    "key_hotbar.6", "key_hotbar.7", "key_hotbar.8", "key_hotbar.9",
 ]                                       # 20 个二值键
 N_KEYS = len(VPT_KEYS)
 N_MOUSE = 2                              # 连续相机 (dx, dy),位于向量头部
@@ -51,13 +51,13 @@ def bin_to_camera(idx):
 _KEY_IDX = {k: i for i, k in enumerate(VPT_KEYS)}
 # VPT jsonl 的键名 → 我们的键名(部分;按真文件补全)
 _KEYMAP = {
-    "key.keyboard.w": "forward", "key.keyboard.s": "back",
-    "key.keyboard.a": "left", "key.keyboard.d": "right",
-    "key.keyboard.space": "jump", "key.keyboard.left.shift": "sneak",
-    "key.keyboard.left.control": "sprint", "key.keyboard.q": "drop",
-    "key.keyboard.e": "inventory",
+    "key.keyboard.w": "key_w", "key.keyboard.s": "key_s",
+    "key.keyboard.a": "key_a", "key.keyboard.d": "key_d",
+    "key.keyboard.space": "key_space", "key.keyboard.left.shift": "key_sneak",
+    "key.keyboard.left.control": "key_sprint", "key.keyboard.q": "key_drop",
+    "key.keyboard.e": "key_inventory",
 }
-_KEYMAP.update({f"key.keyboard.{i}": f"hotbar.{i}" for i in range(1, 10)})
+_KEYMAP.update({f"key.keyboard.{i}": f"key_hotbar.{i}" for i in range(1, 10)})
 
 
 def encode_vpt_jsonl(d):
@@ -74,9 +74,9 @@ def encode_vpt_jsonl(d):
     mouse = d.get("mouse", {}) or {}
     for b in mouse.get("buttons", []) or []:
         if b == 0:
-            v[N_MOUSE + _KEY_IDX["attack"]] = 1.0
+            v[N_MOUSE + _KEY_IDX["key_attack"]] = 1.0
         elif b == 1:
-            v[N_MOUSE + _KEY_IDX["use"]] = 1.0
+            v[N_MOUSE + _KEY_IDX["key_use"]] = 1.0
     v[0] = float(max(-1.0, min(1.0, (mouse.get("dx", 0.0) or 0.0) / CAMERA_SCALE)))
     v[1] = float(max(-1.0, min(1.0, (mouse.get("dy", 0.0) or 0.0) / CAMERA_SCALE)))
     return v

@@ -38,8 +38,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
-from utils.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名(key_w/key_a…),≠ vpt_action
+from train.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
+from train.minecraft.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名
 
 # ---- 数据契约(与 colab §1/§2 + utils.vpt_action 严格一致)----
 BASE = "https://openaipublic.blob.core.windows.net/minecraft-rl"
@@ -57,7 +57,7 @@ ACT_DIM = 2 + 20
 
 # 原始 VPT 键名 → 动作向量索引([dx, dy, 20 键],键序 = utils.vpt_action.VPT_KEYS)
 RAW2IDX = {
-    "key.keyboard.w": 2, "key.keyboard.s": 3, "key.keyboard.a": 4, "key.keyboard.d": 5,
+    "key.keyboard.w": 2, "key.keyboard.a": 3, "key.keyboard.s": 4, "key.keyboard.d": 5,
     "key.keyboard.space": 6, "key.keyboard.left.shift": 7, "key.keyboard.left.control": 8,
     "key.keyboard.q": 11, "key.keyboard.e": 12,
     **{f"key.keyboard.{i}": 12 + i for i in range(1, 10)},   # hotbar.1..9 → 13..21
@@ -110,9 +110,7 @@ def fetch_clips(cache_dir, clips_per_task, workers=8, clip_offset=0):
     return sorted([r for r in res if r], key=lambda r: (r[2], r[0]))
 
 
-# 原始 VPT 键名 → **训练契约键名**(utils.vpt_dataset.VPT_KEYS:key_w/key_a/…)。
-# ⚠ 注意 vpt_dataset 的键名/顺序 ≠ vpt_action.VPT_KEYS,训练走 vpt_dataset._action_vec,
-# 故转换必须用这套名字,否则 _action_vec 读不到(键盘标签全 0,即此前假崩塌的根因)。
+# 原始 VPT 键名 → 训练契约键名
 RAW2NAME = {
     "key.keyboard.w": "key_w", "key.keyboard.a": "key_a", "key.keyboard.s": "key_s",
     "key.keyboard.d": "key_d", "key.keyboard.space": "key_space",
@@ -657,8 +655,8 @@ def main():
     except Exception:
         pass
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cache_dir", default="tools/_oracle_data")
-    ap.add_argument("--feat_cache", default="tools/_oracle_pairs.npz")
+    ap.add_argument("--cache_dir", default="runs/data/oracle_data")
+    ap.add_argument("--feat_cache", default="runs/data/oracle_pairs.npz")
     ap.add_argument("--checkpoint", default=None,
                     help="训练好的 best_*.pt:额外对【训练后槽-Δz】跑 oracle,判定训练编码器"
                          "是否比 frozen patch-Δz 多暴露相机/键盘信息(钉死相机上界的 decisive 实验)")
@@ -686,7 +684,7 @@ def main():
 
     if args.fetch_to:                      # 数据准备:下载 disjoint 切片,jsonl 转 §2 格式 + 扁平化
         import shutil
-        from utils.vpt_dataset import _action_vec
+        from train.minecraft.vpt_dataset import _action_vec
         os.makedirs(args.fetch_to, exist_ok=True)
         clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
         if not clips:

@@ -59,10 +59,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.minecraft_world_model import MinecraftWorldModel
-from utils.vpt_dataset import VPTStreamDataset
-from utils.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
-from utils.minecraft_viz import visualize_minecraft
-from utils.task_text import TaskTextEncoder
+from train.minecraft.vpt_dataset import VPTStreamDataset
+from train.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
+from train.minecraft.minecraft_viz import visualize_minecraft
+from train.minecraft.task_text import TaskTextEncoder
 from blocks.primitives import SIGReg
 
 EPS = 1e-4          # I1
@@ -109,6 +109,27 @@ def dz_pred_loss(mu, dz_tg, eps=1e-3):
     moved = denom > denom.median()
     pred_move = ratio[moved].mean() if bool(moved.any()) else ratio.mean()
     return loss, ratio.mean(), pred_move
+
+
+def slot_diversity_loss(attn):
+    """槽间多样性损失:软惩罚竞争注意力图的成对空间重叠。
+
+    attn [*, N, M]:每行 = 一个 slot 在 M 个 patch 上的注意力分布(非负、沿 M 和≈1,
+    SlotCompetitiveAttn 头平均后的 attn_map)。Gram G=attn·attnᵀ 的非对角元 ⟨w_i,w_j⟩
+    度量 slot i,j 的空间重叠(分布非负 ⇒ ⟨·⟩=0 ⟺ 支撑不相交)。最小化非对角均值,
+    逼不同 slot 落在不同 patch——修"多个 slot 盯同一最显著物体"的冗余。
+
+    软版替代硬施密特正交化:前向 attn 保持合法分布,约束只进损失;且作用在
+    **注意力空间(谁看哪里)**而非表征空间(后者与"实体语义相关性应可由内积表达"冲突,
+    见 SlotCompetitiveAttn docstring)。
+    """
+    if attn is None or attn.shape[-2] < 2:
+        return attn.new_zeros(()) if attn is not None else None
+    N = attn.shape[-2]
+    a = attn.float().flatten(0, -3) if attn.dim() > 3 else attn.float()        # [*,N,M]→[B,N,M]
+    g = a @ a.transpose(-1, -2)                                                # [B,N,N] 成对重叠
+    off = g.sum(dim=(-1, -2)) - torch.diagonal(g, dim1=-1, dim2=-2).sum(-1)    # 减对角(自重叠)
+    return (off / (N * (N - 1))).mean()
 
 
 def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
@@ -264,7 +285,7 @@ def roll_hist(a_hist, t_hist, hv, action, dt_cur):
 
 
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                  alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
+                  alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
                   open_alpha, kb_edge_w, beta_kl, kl_free,
                   amp_dev, use_amp, scaler, acc):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
@@ -378,16 +399,22 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
         # 小 batch 下 ECF 检验才有功效)。除以 n_win:总权重 = β·mean_w(sig),
         # 不随 rollout 长度/k_bptt 改变与 pred 项的相对比例。
         l_sig = sigreg(z_obs.float().permute(2, 1, 0, 3).reshape(model.N, k * B, model.d))
-        win_loss = accum + (beta_sigreg / n_win) * l_sig
+        # 槽间多样性:在线 binder 本窗口竞争注意力图([B·k,N,M],encode_obs 时写入)的
+        # 成对重叠软惩罚——逼不同 slot 落在不同 patch,修多 slot 盯同一物体的冗余。
+        # 同 SIGReg 除以 n_win,使总权重 = β·mean_w 不随 rollout 长度漂移。
+        amap = getattr(getattr(model.binder, "attn", None), "attn_map", None)
+        l_div = slot_diversity_loss(amap) if (beta_div > 0 and amap is not None) \
+            else torch.zeros((), device=device)
+        win_loss = accum + (beta_sigreg / n_win) * l_sig + (beta_div / n_win) * l_div
         scaler.scale(win_loss).backward()
         acc["loss"] += win_loss.detach()
-        acc["sigreg"] += l_sig.detach(); acc["win"] += 1
+        acc["sigreg"] += l_sig.detach(); acc["div"] += l_div.detach(); acc["win"] += 1
         h = h.detach()                                           # 窗口边界截断
     return last_c
 
 
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
-                alpha_inv, beta_sigreg, move_w, gamma_plan, rho_open, open_every,
+                alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
                 open_alpha, kb_edge_w, beta_kl, kl_free, text_enc, amp_dev, use_amp):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
@@ -395,7 +422,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
     model.train()
     acc = {k: torch.zeros((), device=device) for k in
            ["loss", "pred", "pred_move", "pred_open", "pred_rms", "dz_rms", "inv",
-            "mouse", "mouse_acc", "kb", "sigreg", "mv_hit", "mv_n", "plan",
+            "mouse", "mouse_acc", "kb", "sigreg", "div", "mv_hit", "mv_n", "plan",
             "onset_mae", "kl"]}
     acc["inner"] = acc["win"] = acc["plan_n"] = acc["open_n"] = 0
     gpu_samples, c_last, n_batches = [], None, 0
@@ -414,7 +441,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
 
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
-                               alpha_inv, beta_sigreg, move_w, gamma_plan,
+                               alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan,
                                rho_open, open_every, open_alpha, kb_edge_w,
                                beta_kl, kl_free, amp_dev, use_amp, scaler, acc)
         scaler.unscale_(opt)
@@ -444,6 +471,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         "mouse_move_acc": (acc["mv_hit"] / acc["mv_n"].clamp(min=1)).item(),
         "kb": (acc["kb"] / ic).item(),
         "sigreg": (acc["sigreg"] / wc).item(),
+        "div": (acc["div"] / wc).item(),            # 槽间注意力成对重叠(↓=槽差异↑)
         "c_mean": cv.mean().item(), "c_std": cv.std().item(),
         "batches": n_batches,
         "gpu_util": (sum(gpu_samples) / len(gpu_samples)) if gpu_samples else None,
@@ -801,6 +829,9 @@ def main():
                          "none=不条件化(text token 用可学常数)。单任务数据下文本是"
                          "常数,条件只在多任务混采时携带信息")
     ap.add_argument("--beta_sigreg", type=float, default=0.1, help="SIGReg 防坍缩权重(施加在 z_obs 上)")
+    ap.add_argument("--beta_div", type=float, default=0.05,
+                    help="槽间多样性权重:软惩罚竞争注意力图的成对重叠(谁看哪里),逼不同 "
+                         "slot 落在不同 patch、修多 slot 盯同一物体的冗余。0=关闭")
     ap.add_argument("--ema_decay", type=float, default=0.99,
                     help="目标编码器 EMA 衰减(时间常数 ≈ 1/(1−τ) 个优化步;短跑程用 0.99,"
                          "长跑程可升 0.996+)")
@@ -1001,7 +1032,7 @@ def main():
         open_alpha = min(1.0, max(0.0, (frac - args.open_start)
                                   / max(args.open_full - args.open_start, 1e-6)))
         r = train_epoch(model, sigreg, data_iter, opt, scaler, dev, args.steps_per_epoch,
-                        args.k_bptt, args.alpha_inv, args.beta_sigreg,
+                        args.k_bptt, args.alpha_inv, args.beta_sigreg, args.beta_div,
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
                         args.open_every, open_alpha, args.kb_edge_w,
                         args.beta_kl, args.kl_free, text_enc, amp_dev, use_amp)
@@ -1014,7 +1045,7 @@ def main():
                                      "pred_rms", "dz_rms",
                                      "inv", "mouse", "mouse_acc", "mouse_move_acc", "kb",
                                      "plan", "plan_onset_mae", "kl",
-                                     "sigreg", "c_mean", "c_std")}
+                                     "sigreg", "div", "c_mean", "c_std")}
             _wb["open_alpha"] = open_alpha    # 解读 pred_open 必须对照 α(α 小时≈闭环)
             if r.get("gpu_util") is not None:
                 _wb["gpu_util"] = r["gpu_util"]
@@ -1027,7 +1058,7 @@ def main():
                   f"inv {r['inv']:.3f} (kb {r['kb']:.3f}/mouse {r['mouse']:.2f} "
                   f"acc {r['mouse_acc']:.2f} mv {r['mouse_move_acc']:.2f}) | "
                   f"plan {r['plan']:.2f} (onset±{r['plan_onset_mae']:.1f}f) | "
-                  f"kl {r['kl']:.2f} | sig {r['sigreg']:.2f} | "
+                  f"kl {r['kl']:.2f} | sig {r['sigreg']:.2f} div {r['div']:.3f} | "
                   f"c mean={r['c_mean']:.3f} std={r['c_std']:.3f}{gpu}")
         # 节奏用 (ep+1):第 viz_every/eval_every 个 epoch 训练完才首次出图/评估,
         # 不在训练刚起步时就花算力展示一个随机初始化的模型

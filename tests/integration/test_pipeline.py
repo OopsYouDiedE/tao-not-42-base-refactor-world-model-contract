@@ -6,9 +6,8 @@ import torch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from net.tao_not_42 import TaoNot42Model
-from utils.rhythm_env import ProceduralRhythmEnv
-from utils.losses import gaussian_action_loss, gaussian_nll_loss
-
+from train.rhythm.rhythm_env import ProceduralRhythmEnv
+from utils.losses import gaussian_nll_loss
 def test_full_pipeline():
     print("Initializing environment and model...")
     B = 2
@@ -41,8 +40,15 @@ def test_full_pipeline():
     # 4. Compute Losses
     print("Computing losses...")
     # -- Action Loss --
-    # out["action"] is [B, 4]. target_times is [B, 4]. env.current_time is [B]
-    loss_action = gaussian_action_loss(out["action"], target_times, env.current_time, sigma_gauss=0.1)
+    from utils.losses import action_plan_loss
+    
+    gt_action_mock = {
+        "onset": target_times,
+        "duration": torch.ones_like(target_times) * 0.1,
+        "track": torch.zeros_like(target_times, dtype=torch.long),
+        "valid": torch.ones_like(target_times)
+    }
+    loss_action, _ = action_plan_loss(out["action_plan"], gt_action_mock)
     
     # -- NLL Loss (Mock Target) --
     # In reality, target comes from Teacher Network. Here we mock it as random tensor.

@@ -154,9 +154,14 @@ class SlotCompetitiveAttn(nn.Module):
         logits = (q @ k.transpose(-1, -2)).float() / (self.dh ** 0.5)          # [B,h,N,M] fp32
         attn = logits.softmax(dim=2)                       # 竞争:沿 slot 维归一
         w = attn / attn.sum(dim=-1, keepdim=True).clamp(min=self.eps)  # 聚合:沿 token 维归一
+        # 槽间多样性用的注意力图(谁看哪块 patch);头平均、带梯度,供训练侧
+        # slot_diversity_loss 软惩罚成对重叠。前向 w 仍是合法分布(非负、沿 token 和 1)
+        # ——把"不同 slot 别盯同一块"写进损失,不在前向里硬改聚合权重(硬正交化会
+        # 打破 out=w·v 的加权平均语义、并按 slot 序饿死后排槽)。
+        self.attn_map = w.mean(dim=1)                                          # [B,N,M] fp32
         out = (w.to(v.dtype) @ v).transpose(1, 2).reshape(B, N, d)
         if self.store_attn:
-            self.last_attn = w.mean(dim=1).detach()                            # [B,N,M]
+            self.last_attn = self.attn_map.detach()                            # [B,N,M] 可视化
         return Z + self.out(out)
 
 
@@ -175,6 +180,7 @@ class SlotBinder(nn.Module):
 
     def __init__(self, d, compete=False):
         super().__init__()
+        self.compete = compete
         self.attn = SlotCompetitiveAttn(d, heads=4) if compete \
             else PreLNAttn(d, heads=4, mode="cross")
         self.ln = nn.LayerNorm(d)

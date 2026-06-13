@@ -17,7 +17,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils.rhythm_env import ProceduralRhythmEnv
+from train.rhythm.rhythm_env import ProceduralRhythmEnv
 
 
 def to_bgr(f):

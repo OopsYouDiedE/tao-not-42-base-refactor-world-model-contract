@@ -90,8 +90,10 @@ def _download_one(task, ti, basedir, rel, tdir):
         return None
 
 
-def fetch_clips(cache_dir, clips_per_task, workers=8):
-    """并行下载真 BASALT(公开,无需鉴权)。返回按 (task, name) 稳定排序的 [(mp4, jsonl, ti), ...]。"""
+def fetch_clips(cache_dir, clips_per_task, workers=8, clip_offset=0):
+    """并行下载真 BASALT(公开,无需鉴权)。返回按 (task, name) 稳定排序的 [(mp4, jsonl, ti), ...]。
+    clip_offset:取每任务索引的 [offset:offset+clips_per_task] 切片——取索引深处切片可得到
+    与训练(通常从索引前部流式取)极可能 disjoint 的全新 clip,用于真泛化 eval。"""
     os.makedirs(cache_dir, exist_ok=True)
     jobs = []
     for ti, (task, url) in enumerate(INDEX.items()):
@@ -99,7 +101,7 @@ def fetch_clips(cache_dir, clips_per_task, workers=8):
         basedir = idx["basedir"].rstrip("/")
         tdir = os.path.join(cache_dir, task)
         os.makedirs(tdir, exist_ok=True)
-        for rel in idx["relpaths"][:clips_per_task]:
+        for rel in idx["relpaths"][clip_offset:clip_offset + clips_per_task]:
             jobs.append((task, ti, basedir, rel, tdir))
     with ThreadPoolExecutor(max_workers=workers) as ex:
         res = list(ex.map(lambda j: _download_one(*j), jobs))
@@ -627,6 +629,13 @@ def main():
                     help="前向预测 Bayes 下限模式(需 --checkpoint):满容量 MLP/kNN 在训练后 z "
                          "空间的 (z_obs,动作)→Δz 上能到多低,vs 模型 transformer 的 1-step ⇒ 钉死"
                          "「pred_move~0.58 是表征信息下限还是预测器欠拟合」。独立 _fwd.npz 缓存。")
+    ap.add_argument("--clip_offset", type=int, default=0,
+                    help="每任务索引切片起点。取深处切片(如 100)= 与训练(通常取索引前部)"
+                         "极可能 disjoint 的全新 clip,用于真泛化 eval。")
+    ap.add_argument("--fetch_to", default=None,
+                    help="纯数据准备模式:下载 [clip_offset:+clips_per_task] 的 clip 并**扁平化**"
+                         "(mp4+jsonl 平铺,VPTStreamDataset 要求)进该目录、打印文件名后退出。"
+                         "配 train_minecraft --eval_only --holdout_dir <该目录> 做 disjoint holdout eval。")
     ap.add_argument("--clips_per_task", type=int, default=3)
     ap.add_argument("--max_frames", type=int, default=3000)
     ap.add_argument("--frame_skip", type=int, default=8)
@@ -637,6 +646,31 @@ def main():
     args = ap.parse_args()
     dev = args.device
     print(f"device={dev}\n")
+
+    if args.fetch_to:                      # 纯数据准备:下载 disjoint 切片 + 扁平化
+        os.makedirs(args.fetch_to, exist_ok=True)
+        clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
+        if not clips:
+            print("没有可用 clip,退出。"); return
+        n = 0
+        for mp4, jsl, _ in clips:
+            for src in (mp4, jsl):
+                dst = os.path.join(args.fetch_to, os.path.basename(src))
+                if not os.path.exists(dst):
+                    try:
+                        os.link(src, dst)
+                    except OSError:
+                        import shutil; shutil.copy2(src, dst)
+                n += 1
+        names = sorted(os.path.basename(m)[:-4] for m, _, _ in clips)
+        print(f"\n扁平化 {n} 文件 → {args.fetch_to}(offset={args.clip_offset},{len(clips)} clip)")
+        print("clip 文件名(与训练 data_dir 比对确认 disjoint):")
+        for nm in names:
+            print(f"  {nm}")
+        print(f"\n下一步:python train/train_minecraft.py --eval_only <ckpt> "
+              f"--holdout_dir {args.fetch_to} --data_dir {args.fetch_to} "
+              f"--camera_scale 20 --img_size 128 --frame_skip 8 --batch 32 --seq_len 32 --text_encoder none")
+        return
 
     if args.fwd_pred:
         if not args.checkpoint:
@@ -649,7 +683,7 @@ def main():
             z = np.load(fwd_cache)
             data = {k: z[k] for k in z.files}
         else:
-            clips = fetch_clips(args.cache_dir, args.clips_per_task)
+            clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
             if not clips:
                 print("没有可用 clip,退出。"); return
             print(f"\n== 构造前向预测对(frame_skip={args.frame_skip})==")
@@ -671,7 +705,7 @@ def main():
         data = {k: z[k] for k in z.files}
     else:
         print("== 下载真 BASALT(公开,无密钥)==")
-        clips = fetch_clips(args.cache_dir, args.clips_per_task)
+        clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
         if not clips:
             print("没有可用 clip,退出。"); return
         model = None

@@ -158,11 +158,15 @@ class Backbone:
         return out["x_norm_patchtokens"] if isinstance(out, dict) else out   # [B,M,384]
 
 
-def build_pairs(clips, bb, frame_skip, max_frames, img_size, device, bsz=256):
-    """每段 clip 每 frame_skip 取一锚帧抽 DINOv2 特征;相邻锚 = 一个转移对。
-    返回 dict:pool[P,384], grid[P,384,gh,gw], ybin[P,2], kb[P,20], kb_prev[P,20], cid[P], tid[P]。
+def build_pairs(clips, feat_fn, frame_skip, max_frames, img_size, device, model=None, bsz=256):
+    """每段 clip 每 frame_skip 取一锚帧抽 patch 特征;相邻锚 = 一个转移对。
+    feat_fn: img01[B,3,H,W]∈[0,1] → patch tokens [B,M,Ed](Backbone.feats 或 model.extract_feats)。
+    model 非空时额外算**训练后槽-Δz**(z_tg[k+1]−z_obs[k] 槽平均,与 IDM 输入同构、不带 c
+    门控——纯测训练编码器的表征是否比 frozen patch-Δz 多暴露相机/键盘信息)。
+    返回 dict:pool[P,384], grid[P,384,gh,gw], ybin[P,2], kb[P,20], kb_prev[P,20], cid, tid
+    (+ 若 model:ztrained[P,d])。
     """
-    POOL, GRID, YB, KB, KBP, CID, TID = [], [], [], [], [], [], []
+    POOL, GRID, YB, KB, KBP, CID, TID, ZT = [], [], [], [], [], [], [], []
     for ci, (mp4, jsl, tid) in enumerate(clips):
         acts, guis = parse_actions(jsl)
         cap = cv2.VideoCapture(mp4)
@@ -178,12 +182,19 @@ def build_pairs(clips, bb, frame_skip, max_frames, img_size, device, bsz=256):
         anchors = list(range(0, n, frame_skip))
         if len(anchors) < 2:
             continue
-        feats = []
+        feats, zobs_l, ztg_l = [], [], []
         for s in range(0, len(anchors), bsz):
             batch = np.stack([frames[i] for i in anchors[s:s + bsz]])
             x = torch.from_numpy(batch).float().permute(0, 3, 1, 2).to(device) / 255.0
-            feats.append(bb.feats(x).float().cpu())
-        feats = torch.cat(feats, 0)                       # [A, M, 384]
+            with torch.no_grad():
+                ft = feat_fn(x).float()                          # [b, M, Ed] on device
+                feats.append(ft.cpu())
+                if model is not None:
+                    zobs_l.append(model.encode_obs(feats=ft).float().cpu())     # [b,N,d] 在线
+                    ztg_l.append(model.encode_target(feats=ft).float().cpu())   # [b,N,d] EMA
+        feats = torch.cat(feats, 0)                       # [A, M, Ed]
+        zobs = torch.cat(zobs_l, 0) if model is not None else None
+        ztg = torch.cat(ztg_l, 0) if model is not None else None
         A, M, D = feats.shape
         gh = gw = int(round(math.sqrt(M)))
         prev_kb = np.zeros(20, dtype=np.float32)
@@ -196,19 +207,24 @@ def build_pairs(clips, bb, frame_skip, max_frames, img_size, device, bsz=256):
             agg_m = np.clip(seg[:, :N_MOUSE].mean(0), -1.0, 1.0)
             agg_kb = seg[:, N_MOUSE:].max(0)
             ybin = camera_to_bin(torch.from_numpy(agg_m)).numpy()
-            dz = feats[k + 1] - feats[k]                              # [M,384]
+            dz = feats[k + 1] - feats[k]                              # [M,Ed]
             POOL.append(dz.mean(0).numpy())
-            GRID.append(dz.numpy().reshape(gh, gw, D).transpose(2, 0, 1))   # [384,gh,gw]
+            GRID.append(dz.numpy().reshape(gh, gw, D).transpose(2, 0, 1))   # [Ed,gh,gw]
+            if model is not None:
+                ZT.append((ztg[k + 1] - zobs[k]).mean(0).numpy())           # [d] 训练后槽-Δz
             YB.append(ybin); KB.append(agg_kb); KBP.append(prev_kb.copy())
             CID.append(ci); TID.append(tid)
             prev_kb = agg_kb
             kept += 1
         print(f"  clip{ci}(task{tid}): {n} 帧 → 保留 {kept} 对  (累计 {len(YB)})")
-    return {
+    out = {
         "pool": np.stack(POOL), "grid": np.stack(GRID),
         "ybin": np.stack(YB), "kb": np.stack(KB), "kb_prev": np.stack(KBP),
         "cid": np.array(CID), "tid": np.array(TID),
     }
+    if model is not None:
+        out["ztrained"] = np.stack(ZT)
+    return out
 
 
 # ============================ oracle 模型 ============================
@@ -349,10 +365,30 @@ def fmt(m):
             f"kb_bal={m['kb_bal_acc']:.3f}")
 
 
+def load_ckpt_model(ckpt_path, device):
+    """从 best checkpoint 重建训练好的 MinecraftWorldModel(骨干从 hub,trainable+EMA 从 ckpt)。"""
+    from net.minecraft_world_model import MinecraftWorldModel
+    ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+    a = ck["args"]
+    m = MinecraftWorldModel(
+        d=a["d"], N=a["N"], K=a["K"], J=a["J"], act_dim=ACT_DIM, n_cam_bins=CAMERA_BINS,
+        ema_decay=a["ema_decay"], max_skip=a["frame_skip"],
+        encoder=ck.get("encoder", a.get("encoder", "dinov2")), d_xi=a["d_xi"]).to(device).eval()
+    missing, unexpected = m.load_state_dict(ck["model"], strict=False)
+    nb_missing = [k for k in missing if not k.startswith("backbone.")]
+    print(f"  [ckpt] ep{ck['epoch']} {ck['metric']}={ck['score']:.4f} | "
+          f"非骨干缺失键 {len(nb_missing)} | 多余键 {len(unexpected)}"
+          + (f"  ⚠ 缺失:{nb_missing[:3]}" if nb_missing else ""))
+    return m
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache_dir", default="tools/_oracle_data")
     ap.add_argument("--feat_cache", default="tools/_oracle_pairs.npz")
+    ap.add_argument("--checkpoint", default=None,
+                    help="训练好的 best_*.pt:额外对【训练后槽-Δz】跑 oracle,判定训练编码器"
+                         "是否比 frozen patch-Δz 多暴露相机/键盘信息(钉死相机上界的 decisive 实验)")
     ap.add_argument("--clips_per_task", type=int, default=3)
     ap.add_argument("--max_frames", type=int, default=3000)
     ap.add_argument("--frame_skip", type=int, default=8)
@@ -364,22 +400,33 @@ def main():
     dev = args.device
     print(f"device={dev}\n")
 
-    if os.path.exists(args.feat_cache) and not args.rebuild:
-        print(f"加载缓存 {args.feat_cache}")
-        z = np.load(args.feat_cache)
+    # checkpoint 模式用独立缓存(多一份 ztrained,schema 不同),避免与 frozen-only 缓存撞
+    feat_cache = args.feat_cache.replace(".npz", "_ckpt.npz") if args.checkpoint else args.feat_cache
+
+    if os.path.exists(feat_cache) and not args.rebuild:
+        print(f"加载缓存 {feat_cache}")
+        z = np.load(feat_cache)
         data = {k: z[k] for k in z.files}
     else:
         print("== 下载真 BASALT(公开,无密钥)==")
         clips = fetch_clips(args.cache_dir, args.clips_per_task)
         if not clips:
             print("没有可用 clip,退出。"); return
-        print(f"\n== 抽 DINOv2 特征 + 构造转移对(frame_skip={args.frame_skip})==")
-        bb = Backbone(dev)
+        model = None
+        if args.checkpoint:
+            print(f"== 加载 checkpoint {args.checkpoint} ==")
+            model = load_ckpt_model(args.checkpoint, dev)
+            feat_fn = model.extract_feats          # 复用模型骨干,免二次加载 DINOv2
+        else:
+            feat_fn = Backbone(dev).feats
+        print(f"\n== 抽特征 + 构造转移对(frame_skip={args.frame_skip}"
+              f"{',含训练后槽-Δz' if model else ''})==")
         t0 = time.time()
-        data = build_pairs(clips, bb, args.frame_skip, args.max_frames, args.img_size, dev)
+        data = build_pairs(clips, feat_fn, args.frame_skip, args.max_frames, args.img_size,
+                           dev, model=model)
         print(f"特征用时 {time.time()-t0:.0f}s")
-        np.savez_compressed(args.feat_cache, **data)
-        print(f"已缓存 → {args.feat_cache}")
+        np.savez_compressed(feat_cache, **data)
+        print(f"已缓存 → {feat_cache}")
 
     P = data["ybin"].shape[0]
     moved_frac = (data["ybin"] != CENTER).mean()
@@ -422,18 +469,41 @@ def main():
     print(f"[shuffle  ]  {fmt(sm)}   ← 应跌到 chance(证明上面不是泄漏)")
     print(f"[center   ]  move_acc=0.000  bin_acc={1-moved_frac:.3f}   ← 平凡基线")
 
+    # checkpoint 模式:训练后槽-Δz 臂(IDM 同构,无 c 门控)——测训练编码器表征内容
+    zm = zo = ztr_cam = None
+    if "ztrained" in data:
+        din = data["ztrained"].shape[1]
+        zm, zmodel = train_oracle(PoolHead(din=din), sl("ztrained", tr_m),
+                                  sl("ztrained", te_m), dev, args.epochs, tag="ztrained")
+        zo, _ = onset_recall(zmodel, data["ztrained"][te_m].astype(np.float32),
+                             data["kb"][te_m].astype(np.float32),
+                             data["kb_prev"][te_m].astype(np.float32), dev)
+        zk = knn_camera(data["ztrained"][tr_m], data["ybin"][tr_m].astype(np.int64),
+                        data["ztrained"][te_m], data["ybin"][te_m].astype(np.int64), dev)
+        print(f"[ztrain MLP] {fmt(zm)}  onset_recall={zo:.3f}   ← 训练后槽-Δz(IDM 同构,无 c)")
+        print(f"[ztrain kNN] {fmt(zk)}")
+        ztr_cam = max(zm["mouse_move_acc"], zk["mouse_move_acc"])
+
     print("\n" + "=" * 80)
     cam = max(gm["mouse_move_acc"], pm["mouse_move_acc"])      # kNN 多数票偏中心,不计入
     print("判读(分通道,口径同 eval):")
-    print(f"  相机 move_acc:oracle 上界≈{cam:.3f}(shuffle≈{sm['mouse_move_acc']:.3f}=chance) | "
-          f"我们模型 eval 典型 0.13~0.32(基线 0.52 为异常,待查)")
-    print(f"  键盘 onset_recall:oracle≈{gm['kb_onset_recall']:.3f} / bal≈{gm['kb_bal_acc']:.3f} | "
+    print(f"  相机 move_acc:frozen patch 上界≈{cam:.3f}(shuffle≈{sm['mouse_move_acc']:.3f}"
+          f"=chance) | 我们模型 eval 典型 0.13~0.32(基线 0.52 为异常,待查)")
+    print(f"  键盘 onset_recall:frozen patch oracle≈{go:.3f} / bal≈{gm['kb_bal_acc']:.3f} | "
           f"我们模型 eval 0.15 / 0.74")
-    print("  ── 相机:frozen patch-Δz 仅含【弱但真】的相机信息(远高于 chance,远低于可用)。"
-          "语义 patch token 不暴露位移(需对应/光流),调 lr/ema/分辨率难奏效。")
-    print("  ── 键盘:信息充足且【我们的模型没吃满】(onset 还有 ~2× 余量)——训练/头问题,非数据极限。")
-    print("  ⚠ caveat:oracle 用 frozen 原始 patch-Δz,而我们模型在其上还有【可训练 proj+SlotBinder】,"
-          "故 oracle 非严格上界。要钉死相机上界,需对【训练好的 checkpoint 的 z】跑同一 oracle。")
+    print("  ── 相机:frozen patch-Δz 仅含【弱但真】相机信息(远高于 chance,远低于可用)。"
+          "语义 patch token 不暴露位移(需对应/光流)。")
+    print("  ── 键盘:信息充足且【模型没吃满】(onset 还有 ~2× 余量)——训练/头问题,非数据极限。")
+    if ztr_cam is not None:
+        print(f"  ── 训练后 z:相机 move_acc≈{ztr_cam:.3f} / onset≈{zo:.3f}  vs frozen patch {cam:.3f}")
+        if ztr_cam > cam + 0.08:
+            print("     ⇒ 训练编码器**确实多暴露**相机信息:方向对,继续训 / 改 IDM 能涨,非信息极限。")
+        else:
+            print("     ⇒ 训练编码器也没多出相机 ⇒ 坐实需换**运动表征**(帧差/光流/patch 对应),"
+                  "别再拧 lr/ema/分辨率。")
+    else:
+        print("  ⚠ caveat:oracle 用 frozen 原始 patch-Δz,我们模型在其上还有【可训练 proj+binder】,"
+              "故非严格上界。传 --checkpoint <best.pt> 对训练后 z 复跑即可钉死相机上界。")
     print("=" * 80)
 
 

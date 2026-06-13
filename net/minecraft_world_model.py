@@ -272,17 +272,22 @@ class MinecraftWorldModel(nn.Module):
         # 随机隐变量 ξ(Dreamer 式,确定性开环修补的结构性接班人):Δz 中"转身
         # 揭示的新内容"本质不可预测,确定性 μ 只能输出模式平均/摆烂(实证:α 课程
         # 到纯 ẑ 后 pred_open 仍回 0.99)。ξ 给不可预测部分一个**有价格的去处**:
-        #   后验 q(ξ|ctx, Δz):训练时看真实 Δz 的池化视图(仅 [d] 维 ⇒ 天然限制
-        #     作弊带宽),把新内容压成 d_xi 维;
-        #   先验 p(ξ|ctx):只看当下,KL(q‖p) 把两者拉近——β_kl 是通道的价格;
+        #   后验 q(ξ|ctx, Δz):训练时看真实 Δz;先验 p(ξ|ctx):只看当下;
+        #   KL(q‖p) 把两者拉近——β_kl 是通道的价格;
         #   μ = f(z, a, ξ):闭环训练用后验采样(主干不再为不知道的事赔钱),
         #     开环/eval 用先验均值(诚实口径),想象/推演从先验采样。
         # xi_proj 零初始化:通道从静默开始,有利可图才被打开(KL 曲线 = 用量计)。
+        # ⚠ 后验视图(deep-yogurt-28 复盘修):旧版用 Δz.mean(slots) ——"新内容"
+        # 恰是**槽级**局部细节,跨 16 槽一平均互相抵消 ⇒ 通道无信息可装(kl<free,
+        # 闲置)。改为逐槽 φ 投影(d→phi)后 mean+max 双池化:保留槽级新奇,
+        # 作弊带宽仍由 phi/d_xi/KL 把守(max 池化专门保住"某个槽突现的意外")。
         self.d_xi = d_xi
+        phi = max(8, d // 8)
+        self.xi_dz_phi = nn.Linear(d, phi)            # 逐槽 Δz → phi(降维限带宽)
         self.xi_prior_net = nn.Sequential(
             nn.Linear(3 * d, d), nn.SiLU(), nn.Linear(d, 2 * d_xi))
         self.xi_post_net = nn.Sequential(
-            nn.Linear(4 * d, d), nn.SiLU(), nn.Linear(d, 2 * d_xi))
+            nn.Linear(3 * d + 2 * phi, d), nn.SiLU(), nn.Linear(d, 2 * d_xi))
         self.xi_proj = nn.Linear(d_xi, d)
         nn.init.zeros_(self.xi_proj.weight)
         nn.init.zeros_(self.xi_proj.bias)
@@ -371,9 +376,14 @@ class MinecraftWorldModel(nn.Module):
         return o[:, :self.d_xi], o[:, self.d_xi:].clamp(-6.0, 3.0)
 
     def xi_posterior(self, z_ref, h, dt, dz_tg):
-        """q(ξ|当下, Δz) → (mu, logvar)。仅训练用;Δz 走池化视图限制作弊带宽。"""
-        ctx = torch.cat([self._xi_ctx(z_ref, h, dt),
-                         dz_tg.mean(dim=1).to(z_ref.dtype)], dim=-1)
+        """q(ξ|当下, Δz) → (mu, logvar)。仅训练用。
+
+        Δz 视图:逐槽 φ 投影后 mean+max 双池化——保留**槽级**新奇(新内容是
+        局部细节,跨槽平均会抵消;max 专门保住某个槽突现的意外),带宽由 phi 把守。
+        """
+        phi = self.xi_dz_phi(dz_tg.to(z_ref.dtype))      # [B,N,phi]
+        dz_view = torch.cat([phi.mean(dim=1), phi.amax(dim=1)], dim=-1)   # [B,2phi]
+        ctx = torch.cat([self._xi_ctx(z_ref, h, dt), dz_view], dim=-1)
         o = self.xi_post_net(ctx)
         return o[:, :self.d_xi], o[:, self.d_xi:].clamp(-6.0, 3.0)
 

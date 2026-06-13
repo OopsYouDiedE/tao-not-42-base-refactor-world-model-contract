@@ -448,7 +448,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, steps, amp_dev, use_amp):
+def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
     """逆动力学评估:能否从潜变化里反推出"做了什么操作"。
 
     键盘:平衡准确率 + **跳变**(onset/release recall)——VPT 数据里 w/attack 等键
@@ -457,12 +457,19 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     鼠标:分箱准确率,分全帧 acc 与 **move_acc**(仅 GT 非中心 bin、即真动了
     鼠标的帧)——基率解(恒中心 bin)在 move_acc 上得 0,同 onset 逻辑。
     loader 应来自 **holdout split**(不进训练的 clip),量泛化而非记忆。
+
+    pred_bestk(ξ 的诚实量尺,deep-yogurt-28 复盘新增):pred_move 用先验**均值**
+    ——均值不携带任何新内容(就是期望),所以确定性框架下它永远碰不到比 persistence
+    更好的开环。ξ 的真实价值在**采样多样性**:想象的若干种未来里有一种接近真实。
+    故 best-of-K = 每步从先验采 open_k 个 ξ、取最小比值——衡量"先验分布是否覆盖
+    真值"。clean 口径:输入用 z_obs(闭环,无复合误差),只隔离"ξ 采样有没有用":
+    若 pred_bestk 明显 < pred_move,说明 ξ 在工作。
     """
     model.eval()
     tp = fp = fn = tn = 0
     on_tp = on_n = off_tp = off_n = 0
     m_hit = m_n = mv_hit = mv_n = 0
-    pred_sum, pred_mv_sum, pred_n = 0.0, 0.0, 0
+    pred_sum, pred_mv_sum, pred_bk_sum, pred_n = 0.0, 0.0, 0.0, 0
     center = (CAMERA_BINS - 1) // 2
     for batch in itertools.islice(loader, steps):
         img = _to_float_img(batch["img"].to(device))
@@ -490,6 +497,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             with torch.autocast(device_type=amp_dev, enabled=use_amp):
                 out = model(z_obs[:, t], h, a_hist, act_seq[:, t], dt[:, t], t_vec[:, t],
                             t_hist=t_hist, hist_valid=hv, task_emb=task_emb)
+            # 先存当前步的历史(roll_hist 返回新张量、不就地改 ⇒ 旧引用仍有效),
+            # best-of-K 重前向须用与 out 同一份 pre-roll 历史
+            a0, th0, hv0 = a_hist, t_hist, hv
             a_hist, t_hist, hv = roll_hist(a_hist, t_hist, hv, act_agg[:, t], dt[:, t])
             # holdout 上的 Δz 预测比值(与训练 pred 同定义:1.0=复读基线)——
             # 与训练曲线对照即泛化差距,这是面板之外唯一能连续监控它的地方
@@ -501,6 +511,21 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
             pred_sum += ratio.mean().item()
             pred_mv_sum += (ratio[moved_s].mean() if bool(moved_s.any())
                             else ratio.mean()).item()
+            # best-of-K:每步从先验采 open_k 个 ξ,逐样本取最小比值(运动样本口径)
+            if open_k > 1:
+                den_c = den.clamp(min=1e-3)
+                best = ratio.clone()
+                mu_p, lv_p = model.xi_prior(z_obs[:, t], h, dt[:, t])
+                for _ in range(open_k):
+                    with torch.autocast(device_type=amp_dev, enabled=use_amp):
+                        o_k = model(z_obs[:, t], h, a0, act_seq[:, t], dt[:, t],
+                                    t_vec[:, t], t_hist=th0, hist_valid=hv0,
+                                    task_emb=task_emb,
+                                    xi=model.xi_sample(mu_p, lv_p))
+                    rk = (o_k["mu"].float() - dz).square().mean(dim=(1, 2)) / den_c
+                    best = torch.minimum(best, rk)
+                pred_bk_sum += (best[moved_s].mean() if bool(moved_s.any())
+                                else best.mean()).item()
             pred_n += 1
             mouse_logits, kb_prob = model.inv_dyn(
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float())
@@ -523,6 +548,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp):
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
     return {"pred": pred_sum / max(pred_n, 1),
             "pred_move": pred_mv_sum / max(pred_n, 1),
+            "pred_bestk": pred_bk_sum / max(pred_n, 1),   # ξ 价值:明显 < pred_move = 有用
             "kb_recall": recall, "kb_spec": spec, "kb_bal_acc": 0.5 * (recall + spec),
             "kb_onset_recall": on_tp / max(on_n, 1),
             "kb_release_recall": off_tp / max(off_n, 1),
@@ -628,6 +654,10 @@ def main():
                          "kl≈free-bits 地板说明通道闲置 → 降价或检查)")
     ap.add_argument("--kl_free", type=float, default=1.0,
                     help="free-bits(nats):KL 低于此值不再压,防后验坍缩到先验、通道废弃")
+    ap.add_argument("--open_k", type=int, default=4,
+                    help="eval 的 best-of-K:每步从 ξ 先验采 K 个、取最小预测比值(诚实量"
+                         "ξ 价值——pred_bestk 明显 < pred_move 才说明先验覆盖了真实新内容;"
+                         "1=关闭,仅 eval 期生效不影响训练)")
     ap.add_argument("--no_cosine", action="store_true",
                     help="关闭余弦 lr 衰减(默认开启:lr 余弦退火到 0.1×,按 epoch 步进;"
                          "恒定 lr 的噪声地板是 pred_move 尾段平台的嫌疑人之一)")
@@ -817,9 +847,10 @@ def main():
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):
             # 轻量 holdout 评估(固定 4 个 batch,首次采集后复用):
             # eval/pred 对照训练 pred = 泛化差距曲线
-            ev = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
-            print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f}×copy | "
-                  f"kb bal {ev['kb_bal_acc']:.3f} "
+            ev = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp,
+                          open_k=args.open_k)
+            print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f} "
+                  f"bestK {ev['pred_bestk']:.3f}×copy | kb bal {ev['kb_bal_acc']:.3f} "
                   f"onset {ev['kb_onset_recall']:.3f} | mouse move {ev['mouse_move_acc']:.3f}")
             if use_wandb:
                 wandb.log({f"eval/{k}": v for k, v in ev.items()}, step=ep)
@@ -830,8 +861,9 @@ def main():
               f"({len(util_hist)} epoch) | 峰值显存 {peak:.2f} GB")
 
     print("\n--- 最终评估:逆动力学(从画面变化反推操作;holdout clip,未进训练)---")
-    e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
-    print(f"Δz 预测 {e['pred']:.3f}×copy(holdout;<1 = 泛化意义上胜过复读)")
+    e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k)
+    print(f"Δz 预测 {e['pred']:.3f}×copy | 运动样本 {e['pred_move']:.3f} | "
+          f"best-of-{args.open_k} {e['pred_bestk']:.3f}(明显 < 运动样本 = ξ 在覆盖新内容)")
     print(f"键盘 recall {e['kb_recall']:.3f} | spec {e['kb_spec']:.3f} | "
           f"平衡准确率 {e['kb_bal_acc']:.3f}(随机基线≈0.5)")
     print(f"跳变检出 onset {e['kb_onset_recall']:.3f} | release {e['kb_release_recall']:.3f} "

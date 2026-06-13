@@ -596,6 +596,90 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
             "mouse_moves": mv_n}
 
 
+@torch.no_grad()
+def rollout_probe(model, loader, device, steps, amp_dev, use_amp, horizon=16):
+    """多步开环 rollout 保真度(脑内 rollout 能否用于规划的真考题)。从真首帧 z_obs[0]
+    起,用真动作序列在潜空间盲滚 H 步(ξ=先验均值,h 携带),按 rollout 深度 d 量:
+      roll_err = ‖ẑ_d − z_tg[d]‖² / ‖z_tg[d] − z_tg[0]‖²
+                 (frozen@start 基线 = 1.0;<1 = 滚动胜过"原地不动",>1 = 滚飞了)
+      OL_move/OL_onset = 从滚出的 μ_d 经逆动力学读动作的 move_acc/onset_recall
+                 (rollout 无真未来 patch ⇒ patch_dz=None,仅槽路)
+      CL_move/CL_onset = 从真 Δz 读(逆动力学天花板参考,近深度无关)
+    判读:OL 读出随深度衰减多快 = 滚出的潜还能保住多少控制相关结构。若到深度
+    5~10 仍 ≈ CL ⇒ 世界模型可用于多步规划;若深度 2 就塌到 chance ⇒ 不可用,
+    且这才是该修的真瓶颈(开环训练 / 可用的 ξ)。"""
+    model.eval()
+    center = (CAMERA_BINS - 1) // 2
+    # 深度分桶池化(per-depth 在小集上太噪);比值用"批方差之比"(分子分母分别累加再除,
+    # 杀浅层除爆);CL 走独立闭环前向(真 z_obs + 闭环 c)= 干净的逆动力学天花板。
+    buckets = [(0, 2, "1-2"), (2, 5, "3-5"), (5, 10, "6-10"), (10, 16, "11-16")]
+    agg = {nm: {"rn": 0.0, "rd": 0.0, "olh": 0, "oln": 0, "clh": 0, "cln": 0}
+           for _, _, nm in buckets}
+
+    def _bk(d):
+        for lo, hi, nm in buckets:
+            if lo <= d < hi:
+                return agg[nm]
+        return None
+
+    for batch in itertools.islice(loader, steps):
+        img = _to_float_img(batch["img"].to(device))
+        act_seq = batch["act_seq"].to(device)
+        act_agg = batch["act_agg"].to(device)
+        dt = batch["dt"].to(device); t_vec = batch["t_vec"].to(device)
+        task_emb = batch.get("task_emb")
+        task_emb = task_emb.to(device) if task_emb is not None else None
+        B, T = img.shape[0], img.shape[1]
+        Hb = min(horizon, T - 1)
+        with torch.autocast(device_type=amp_dev, enabled=use_amp):
+            feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
+            featsBT = feats.view(B, T, *feats.shape[-2:])
+            z_obs = model.encode_obs(
+                feats=featsBT[:, :T - 1].reshape(B * (T - 1), *feats.shape[-2:])
+            ).view(B, T - 1, model.N, model.d).float()
+            z_tg = model.encode_target(feats=feats).view(B, T, model.N, model.d).float()
+        z0 = z_tg[:, 0]
+        zhat = z_obs[:, 0]                                          # 开环状态
+        h_ol = torch.zeros(B, 1, model.d, device=device)
+        h_cl = torch.zeros(B, 1, model.d, device=device)
+        zero_j = torch.zeros(B, model.J, ACT_DIM, device=device)
+        zj = torch.zeros(B, model.J, device=device)
+        a_ol, t_ol, hv_ol = zero_j, zj, zj
+        a_cl, t_cl, hv_cl = zero_j.clone(), zj.clone(), zj.clone()
+        for d in range(Hb):
+            with torch.autocast(device_type=amp_dev, enabled=use_amp):
+                out_cl = model(z_obs[:, d], h_cl, a_cl, act_seq[:, d], dt[:, d], t_vec[:, d],
+                               t_hist=t_cl, hist_valid=hv_cl, task_emb=task_emb)
+                out = model(zhat, h_ol, a_ol, act_seq[:, d], dt[:, d], t_vec[:, d],
+                            t_hist=t_ol, hist_valid=hv_ol, task_emb=task_emb)
+            a_cl, t_cl, hv_cl = roll_hist(a_cl, t_cl, hv_cl, act_agg[:, d], dt[:, d])
+            a_ol, t_ol, hv_ol = roll_hist(a_ol, t_ol, hv_ol, act_agg[:, d], dt[:, d])
+            mu = out["mu"].float()
+            zhat_next = zhat + mu
+            pdz = (featsBT[:, d + 1].mean(1) - featsBT[:, d].mean(1)).float()
+            cl_logits, _ = model.inv_dyn(
+                (z_tg[:, d + 1] - z_obs[:, d]) * out_cl["c"].float(), patch_dz=pdz)  # 天花板
+            ol_logits, _ = model.inv_dyn(mu * out["c"].float(), patch_dz=None)       # 从滚出 μ 读
+            A = _bk(d)
+            if A is not None:
+                A["rn"] += ((zhat_next - z_tg[:, d + 1]) ** 2).sum().item()
+                A["rd"] += ((z0 - z_tg[:, d + 1]) ** 2).sum().item()                 # frozen@start
+                mb_true = camera_to_bin(act_agg[:, d, :N_MOUSE]); moved = (mb_true != center)
+                A["olh"] += ((ol_logits.argmax(-1) == mb_true) & moved).sum().item()
+                A["clh"] += ((cl_logits.argmax(-1) == mb_true) & moved).sum().item()
+                A["oln"] += moved.sum().item(); A["cln"] += moved.sum().item()
+            zhat = zhat_next; h_ol = out["h_next"]; h_cl = out_cl["h_next"]
+    print("\n--- 多步开环 rollout 保真度(真首帧盲滚,真动作,ξ先验均值)---")
+    print(f"  {'深度桶':>6} {'vs_freeze':>10} {'OL_move':>8} {'CL_move':>8}   "
+          f"(vs_freeze<1=胜原地不动;OL_move→CL=滚出潜仍可读出动作)")
+    for _, _, nm in buckets:
+        a = agg[nm]
+        if a["oln"] == 0:
+            continue
+        print(f"  {nm:>6} {a['rn']/max(a['rd'],1e-9):>10.3f} "
+              f"{a['olh']/max(a['oln'],1):>8.3f} {a['clh']/max(a['cln'],1):>8.3f}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="runs/vpt_sample", help="训练数据目录(.mp4+.jsonl)")
@@ -850,6 +934,10 @@ def main():
         print(f"分桶(运动样本,soft-floor)转头 {e['pred_turn']:.3f}(占{e['frac_turn']:.0%}) | "
               f"平移 {e['pred_walk']:.3f}(占{e['frac_walk']:.0%}) | 静止锚 {e['pred_still']:.3f}")
         print(f"  转头≫平移≈近不可预测下限 → 火力转 rollout;平移也高 → 预测器漏失可预测结构 → 修预测器")
+        print(f"逆动力学(本地clip,闭环):mouse_move {e['mouse_move_acc']:.3f} | "
+              f"kb_onset {e['kb_onset_recall']:.3f} | kb_bal {e['kb_bal_acc']:.3f}"
+              f"  ← 与 rollout 表的 CL 列对齐;若 ≪ Colab(0.48/0.23)则本地 clip 是真 holdout,有泛化差")
+        rollout_probe(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
         return
 
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)

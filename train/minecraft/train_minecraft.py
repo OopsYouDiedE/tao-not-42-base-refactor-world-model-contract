@@ -38,12 +38,12 @@
 模型同时接收区间内完整原始动作序列与聚合历史(见 VPTStreamDataset/模型 docstring)。
 可视化与最终评估用 **holdout clip**(按文件名扣末 1 个,不进训练),展示泛化而非记忆。
 
-数据:utils.vpt_dataset.VPTStreamDataset —— 流式加载(不全量预载),每个 worker 维护
+数据:train.minecraft.vpt_dataset.VPTStreamDataset —— 流式加载(不全量预载),每个 worker 维护
 <=cache_size 个已解码序列的滚动缓存,多 worker 并行喂数据,每步随机取 batch 个序列。
 吞吐优化:截断 BPTT、AMP 混合精度、损失张量累积(避免逐步 .item() 同步)。
 
 先准备数据(Colab 见 colab_demo.ipynb 的转换;本地合成见 download_sample_data.py),然后:
-    python train/train_minecraft.py --data_dir runs/vpt_sample --epochs 50 --device cuda
+    python train/minecraft/train_minecraft.py --data_dir runs/vpt_sample --epochs 50 --device cuda
 """
 import argparse
 import itertools
@@ -54,7 +54,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

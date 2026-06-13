@@ -59,3 +59,6 @@ cov.xml
 colab_quickstart.ipynb
 # colab_demo.ipynb 含明文 PAT,严禁入库
 colab_demo.ipynb
+
+# Claude Code local settings (personal, do not commit)
+.claude/settings.local.json

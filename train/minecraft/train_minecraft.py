@@ -61,6 +61,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from net.minecraft_world_model import MinecraftWorldModel
 from train.minecraft.vpt_dataset import VPTStreamDataset
 from train.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
+from train.minecraft.control_remap import ControlRemap
 from train.minecraft.minecraft_viz import visualize_minecraft
 from train.minecraft.task_text import TaskTextEncoder
 from blocks.primitives import SIGReg
@@ -428,7 +429,8 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
                 alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
-                open_alpha, kb_edge_w, beta_kl, kl_free, text_enc, amp_dev, use_amp):
+                open_alpha, kb_edge_w, beta_kl, kl_free, text_enc, amp_dev, use_amp,
+                remap=None):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
@@ -451,6 +453,13 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
             "task_emb": (text_enc.encode(batch["task_text"]).to(device)
                          if text_enc is not None else None),
         }
+        # 控制重映射(档①):逐样本(= 逐 episode)抽 train 置换,作用在动作上、video 不动。
+        # act_seq/act_agg 共用同一 spec ⇒ 前向 a_cur、历史 a_hist、inv-dyn/plan 目标全在同一
+        # 重映射坐标系;模型只能从 window 早期步 in-context 推出 T 才能预测/反推。
+        if remap is not None:
+            spec = remap.sample(batch_dev["act_seq"].shape[0], device)
+            batch_dev["act_seq"] = remap.apply(batch_dev["act_seq"], spec)
+            batch_dev["act_agg"] = remap.apply(batch_dev["act_agg"], spec)
 
         opt.zero_grad(set_to_none=True)
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
@@ -492,7 +501,7 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
+def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=None):
     """逆动力学评估:能否从潜变化里反推出"做了什么操作"。
 
     键盘:平衡准确率 + **跳变**(onset/release recall)——VPT 数据里 w/attack 等键
@@ -529,6 +538,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
         task_emb = batch.get("task_emb")
         task_emb = task_emb.to(device) if task_emb is not None else None
         B, T = img.shape[0], img.shape[1]
+        # 控制重映射:eval 用 **disjoint 的 holdout 置换**(训练从没见过的控制方案),
+        # 固定种子 ⇒ 每次 eval 同一组方案(低方差固定 eval 集)。量的是「靠观察掌握新控制」。
+        if remap is not None:
+            spec = remap.sample(B, device, holdout=True,
+                                generator=torch.Generator().manual_seed(12345))
+            act_seq, act_agg = remap.apply(act_seq, spec), remap.apply(act_agg, spec)
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
             feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
             featsBT = feats.view(B, T, *feats.shape[-2:])
@@ -855,6 +870,14 @@ def main():
     ap.add_argument("--wandb_run", default=None, help="wandb run 名(默认自动生成)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
+    # 控制重映射(in-context「看视频掌握玩法」证明,档①):逐 episode 打乱动作语义、video 不动,
+    # train/eval 用 disjoint 置换集 ⇒ 逼模型从 context in-context 辨识控制,而非把单一方案背进权重。
+    ap.add_argument("--control_remap", action="store_true",
+                    help="开启逐 episode 控制重映射(键盘置换);train 用 train 置换、eval 用 holdout 置换")
+    ap.add_argument("--remap_camera", action="store_true",
+                    help="同时重映射相机(轴 swap + 符号);默认仅键盘(强信号,第一枪更干净)")
+    ap.add_argument("--remap_holdout_n", type=int, default=64,
+                    help="holdout 键盘置换 bank 大小(eval 从中抽;train 拒采保证 disjoint)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -862,6 +885,12 @@ def main():
     is_cuda = str(dev).startswith("cuda")
     amp_dev = "cuda" if is_cuda else "cpu"
     use_amp = is_cuda and not args.no_amp
+    remap = (ControlRemap(remap_keys=True, remap_camera=args.remap_camera,
+                          n_holdout=args.remap_holdout_n, seed=args.seed)
+             if args.control_remap else None)
+    if remap is not None:
+        print(f"[control_remap] 开启 | 键盘置换{' + 相机' if args.remap_camera else ''} | "
+              f"holdout bank={args.remap_holdout_n}(train/eval disjoint)")
     print(f"=== MINECRAFT WORLD MODEL (Δz-JEPA + InvDyn + SIGReg) | device={dev} | amp={use_amp} ===")
 
     use_wandb = args.wandb
@@ -969,7 +998,7 @@ def main():
         miss = [k for k in miss if not k.startswith("backbone.")]   # 骨干本就不在 ckpt 里
         print(f"[eval_only] 加载 {args.eval_only} | 缺失(非骨干){len(miss)} 多余{len(unexp)}"
               + (f" @ep{ck.get('epoch')} {ck.get('metric')}={ck.get('score')}" if isinstance(ck, dict) else ""))
-        e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k)
+        e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k, remap=remap)
         print(f"\n--- 前向预测分叉(holdout,1-step)---")
         print(f"pred {e['pred']:.3f} | 运动样本 pred_move {e['pred_move']:.3f} | "
               f"best-of-{args.open_k} {e['pred_bestk']:.3f}")
@@ -1048,7 +1077,8 @@ def main():
                         args.k_bptt, args.alpha_inv, args.beta_sigreg, args.beta_div,
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
                         args.open_every, open_alpha, args.kb_edge_w,
-                        args.beta_kl, args.kl_free, text_enc, amp_dev, use_amp)
+                        args.beta_kl, args.kl_free, text_enc, amp_dev, use_amp,
+                        remap=remap)
         if sched is not None:
             sched.step()
         if r.get("gpu_util") is not None:
@@ -1095,7 +1125,7 @@ def main():
             # 轻量 holdout 评估(固定 4 个 batch,首次采集后复用):
             # eval/pred 对照训练 pred = 泛化差距曲线
             ev = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp,
-                          open_k=args.open_k)
+                          open_k=args.open_k, remap=remap)
             print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f} "
                   f"bestK {ev['pred_bestk']:.3f} post {ev['pred_post']:.3f}×copy | "
                   f"turn {ev['pred_turn']:.3f} walk {ev['pred_walk']:.3f} | "
@@ -1120,7 +1150,7 @@ def main():
               f"({len(util_hist)} epoch) | 峰值显存 {peak:.2f} GB")
 
     print("\n--- 最终评估:逆动力学(从画面变化反推操作;holdout clip,未进训练)---")
-    e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k)
+    e = evaluate(model, _get_eval_batches(), dev, 4, amp_dev, use_amp, open_k=args.open_k, remap=remap)
     print(f"Δz 预测 {e['pred']:.3f}×copy | 运动样本 {e['pred_move']:.3f} | "
           f"best-of-{args.open_k} {e['pred_bestk']:.3f}(明显 < 运动样本 = ξ 在覆盖新内容)")
     print(f"ξ 通道天花板 post {e['pred_post']:.3f}(≈运动样本 ⇒ 通道关死/不可降;≪ ⇒ 瓶颈在先验)| "

@@ -187,26 +187,37 @@ class MockDINOv2(nn.Module):
         return feat.view(B, d, h*w).transpose(1, 2) # [B, M, d]
 
 
-def _load_backbone(kind, weights=None):
-    """torch.hub 加载冻结视觉骨干。返回 (module, patch_size)。
+# 视觉骨干统一走 HuggingFace transformers(torch.hub 路径已废弃):gated 权重(dinov3)
+# 由 utils.hf_token 解析的 token 自动鉴权,不再手传 URL/.pth。
+_HF_REPOS = {
+    "dinov3": "facebook/dinov3-vits16-pretrain-lvd1689m",  # ViT-S/16,384,patch16,4 register,gated
+    "dinov2": "facebook/dinov2-small",                      # ViT-S/14,384,patch14,0 register,开放
+}
 
-    dinov2: ViT-S/14,embed_dim=384,权重完全开放,直接下载。
-    dinov3: ViT-S/16,embed_dim=384,稠密特征质量显著优于 v2(gram anchoring),
-            且 patch=16 整除 128;但权重 **gated**——需在 Meta/HuggingFace 接受
-            许可证后获得下载 URL/本地路径,经 weights 参数传入。
+
+def _load_backbone(kind, repo_override=None):
+    """HF transformers 加载冻结视觉骨干。返回 (module, patch_size, enc_dim, n_register)。
+
+    dinov3: ViT-S/16,hidden=384,patch=16(整除 128→8×8),4 register token。权重 gated
+            ——HF 接受许可证后,token 经 Colab Secret(HF_TOKEN)或仓库根 .env 注入。
+    dinov2: ViT-S/14,hidden=384,patch=14(128→126 削边),0 register。权重开放,降级备选。
+    repo_override: 非空时覆盖默认 repo id(可换 ViT-B 等更大变体;enc_dim 自动取 hidden_size)。
     """
+    from transformers import AutoModel
+    from utils.hf_token import get_hf_token
+    repo = repo_override or _HF_REPOS.get(kind)
+    if repo is None:
+        raise ValueError(f"未知 encoder: {kind}")
     try:
-        if kind == "dinov2":
-            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14"), 14
-        if kind == "dinov3":
-            kwargs = {"weights": weights} if weights else {}
-            return torch.hub.load("facebookresearch/dinov3", "dinov3_vits16", **kwargs), 16
+        model = AutoModel.from_pretrained(repo, token=get_hf_token())
     except Exception as ex:
-        hint = ("DINOv3 权重是 gated 的:在 https://github.com/facebookresearch/dinov3 "
-                "接受许可证后,把获得的下载 URL 或本地 .pth 路径经 --encoder_weights 传入。"
-                if kind == "dinov3" else "需要网络访问 torch.hub;离线冒烟测试请改用 --encoder mock。")
-        raise RuntimeError(f"{kind} 加载失败({ex})。{hint}") from ex
-    raise ValueError(f"未知 encoder: {kind}")
+        hint = ("DINOv3 权重 gated:在 HF 接受许可证后,把 token 放进 Colab Secret(HF_TOKEN)"
+                "或仓库根 .env(HF_TOKEN=...)——见 utils/hf_token.py;离线冒烟改 --encoder mock。"
+                if kind == "dinov3" else "需要网络访问 HuggingFace Hub;离线冒烟请改 --encoder mock。")
+        raise RuntimeError(f"{kind} 从 HF 加载失败({repo}:{ex})。{hint}") from ex
+    cfg = model.config
+    n_reg = getattr(cfg, "num_register_tokens", 0) or 0
+    return model, cfg.patch_size, cfg.hidden_size, n_reg
 
 
 class MinecraftWorldModel(nn.Module):
@@ -224,23 +235,23 @@ class MinecraftWorldModel(nn.Module):
         self.ema_decay = ema_decay
         self.encoder_kind = encoder
 
-        # 视觉骨干:**冻结**的预训练 DINOv2(ViT-S/14)。prime-leaf-7 实测:从零训练
+        # 视觉骨干:**冻结**的预训练 DINOv3 ViT-S/16(HF,默认;dinov2 ViT-S/14 为开放权重备选)。prime-leaf-7 实测:从零训练
         # 的 mock 卷积在 2 个 clip 上把纹理背熟(train pred 0.19 vs holdout ~1.7×基线,
         # 鼠标读出 holdout ≈ 随机),泛化失败的主因之一是表征没有先验。冻结预训练
         # 骨干给目标编码一个独立于本任务数据的意义来源——这正是 JEPA 的前提。
         # 骨干冻结且在线/目标共享 ⇒ 特征每帧只需提取一次(extract_feats),
         # EMA 只需覆盖可训练部分(proj + binder),省一半视觉计算与 21M 参数副本。
         if encoder in ("dinov2", "dinov3"):
-            self.backbone, self._patch = _load_backbone(encoder, encoder_weights)
-            enc_dim = self.backbone.embed_dim          # ViT-S = 384
+            self.backbone, self._patch, enc_dim, self._n_reg = _load_backbone(encoder, encoder_weights)
         else:
             self.backbone = MockDINOv2(d)
             enc_dim = d
             self._patch = None
+            self._n_reg = 0
         for p in self.backbone.parameters():
             p.requires_grad_(False)
         self.backbone.eval()
-        # DINOv2 期望 ImageNet 归一化输入(我们的帧是 [0,1])
+        # DINOv2/v3 期望 ImageNet 归一化输入(我们的帧是 [0,1];与 HF processor 同款常数)
         self.register_buffer("_in_mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer("_in_std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
@@ -347,8 +358,9 @@ class MinecraftWorldModel(nn.Module):
     def extract_feats(self, img):
         """冻结骨干提取 patch 特征(无梯度,在线/目标共用,每帧只算一次)。
 
-        DINOv2:ImageNet 归一化 + 分辨率自动对齐到 patch=14 的倍数(128→126),
-        输出 x_norm_patchtokens [B, M, 384]。mock:随机冻结卷积(冒烟用)。
+        DINOv2/v3(HF):ImageNet 归一化 + 分辨率对齐到 patch 的倍数(v3 patch16:128→128;
+        v2 patch14:128→126),取 last_hidden_state 切掉 CLS+register → [B, M, enc_dim]。
+        mock:随机冻结卷积(冒烟用)。
         """
         if self.encoder_kind in ("dinov2", "dinov3"):
             H, W = img.shape[-2:]
@@ -357,8 +369,8 @@ class MinecraftWorldModel(nn.Module):
             if (H2, W2) != (H, W):
                 img = F.interpolate(img, size=(H2, W2), mode="bilinear", align_corners=False)
             img = (img - self._in_mean) / self._in_std
-            out = self.backbone.forward_features(img)
-            return out["x_norm_patchtokens"] if isinstance(out, dict) else out
+            lhs = self.backbone(pixel_values=img).last_hidden_state  # [B, 1+n_reg+M, enc_dim]
+            return lhs[:, 1 + self._n_reg:, :]                       # 切 CLS + register → 纯 patch
         return self.backbone(img)
 
     def encode_obs(self, img=None, feats=None):

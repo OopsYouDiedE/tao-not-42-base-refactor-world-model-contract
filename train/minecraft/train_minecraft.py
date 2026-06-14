@@ -803,16 +803,18 @@ def main():
                     help="选 best 的 eval 指标。pred_move/pred/pred_bestk 越小越好;"
                          "kb_bal_acc/kb_onset_recall/mouse_move_acc 越大越好")
     ap.add_argument("--eval_only", default=None,
-                    help="加载 best checkpoint(只含可训练+EMA,骨干从 hub),对 holdout "
+                    help="加载 best checkpoint(只含可训练+EMA,骨干从 HF),对 holdout "
                          "跑一次 evaluate 打印分叉(pred_post / 分桶)后退出——零训练成本读"
                          "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--d/--N/--K/--d_xi 等)")
-    ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov2",
-                    help="视觉骨干(冻结):dinov3=ViT-S/16(默认;稠密特征最强,patch=16 "
-                         "整除 128;hubconf 依赖 torchmetrics,Colab 端 pip 安装即可;"
-                         "权重若 gated 经 --encoder_weights 传入);dinov2=ViT-S/14(权重"
-                         "完全开放,降级备选,img_size 用 126);mock=随机冻结卷积(离线冒烟)")
+    ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov3",
+                    help="视觉骨干(冻结,统一走 HF transformers):dinov3=ViT-S/16(默认;384 维,"
+                         "patch=16 整除 128→8×8,4 register token,稠密特征最强;权重 gated,"
+                         "token 经 Colab Secret(HF_TOKEN)/.env 注入,见 utils/hf_token.py);"
+                         "dinov2=ViT-S/14(384 维,权重开放,降级备选,img_size 削到 126);"
+                         "mock=随机冻结卷积(离线冒烟)")
     ap.add_argument("--encoder_weights", default=None,
-                    help="dinov3 权重 URL 或本地 .pth 路径(权重 gated 时在 Meta/HF 接受许可证后获得)")
+                    help="可选:覆盖骨干 HF repo id(如换更大变体 facebook/dinov3-vitb16-pretrain-lvd1689m;"
+                         "enc_dim 自动取 cfg.hidden_size,proj 吸收到 d,无需改 --d)")
     ap.add_argument("--d", type=int, default=384)
     ap.add_argument("--N", type=int, default=16, help="实体槽数")
     ap.add_argument("--K", type=int, default=5, help="动作查询数")

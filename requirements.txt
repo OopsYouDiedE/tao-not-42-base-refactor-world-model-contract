@@ -6,11 +6,9 @@ torchvision        # utils/visualization.py
 numpy
 opencv-python      # cv2:VPT 数据集解码 + 可视化
 matplotlib         # 训练面板 minecraft_viz / train_probe
-transformers       # 任务文本编码(--text_encoder minilm;缺失时自动回退 mock)
+transformers       # 视觉骨干 DINOv2/v3(统一走 HF,见 net._load_backbone)+ 任务文本编码 minilm
 wandb              # 远程实验记录(--wandb)
 requests           # 数据下载(tools/oracle_idm.py、colab 数据准备)
 
-# 可选:DINOv2 的 SwiGLU 注意力加速 + 消除告警。
-# ⚠ Colab 上勿装——pip 会按 torch 版本拉特定 build,可能把预装的 GPU torch
-#    降级掉(colab_demo.ipynb 已在依赖同步时主动排除 xformers)。
-# xformers
+# DINOv3 权重 gated:需 HF token(Colab Secret HF_TOKEN / 仓库根 .env),见 utils/hf_token.py。
+# 旧 torch.hub 路径已废弃 ⇒ 不再需要 xformers(DINOv2 SwiGLU 加速);transformers 自带 SDPA。

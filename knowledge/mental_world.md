@@ -2,9 +2,15 @@
 
 > **文档定位（SSOT）**：本文只讲**宏观架构、算法意图、训练目标的设计动机与物理直觉**。
 > 易变的实现细节（精确 Shape/Dtype、层数、超参）归代码本身：
-> 架构实现见 [net/tao_not_42.py](../net/tao_not_42.py)，积木见 [blocks/primitives.py](../blocks/primitives.py)，
-> 数据契约归 [world_model_interface.md](world_model_interface.md)。
+> 架构实现见 [net/world_model.py](../net/world_model.py)（部件 [slots.py](../net/slots.py) /
+> [backbone.py](../net/backbone.py) / [heads.py](../net/heads.py)），积木见 [blocks/primitives.py](../blocks/primitives.py)，
+> 数据契约归 [domains/minecraft/vpt_action.py](../domains/minecraft/vpt_action.py)。
 > 本文是这场重构的**设计锚点**，记录"为什么这么搭"，不记录历史活动。
+
+> ⚠️ **愿景 vs 现状**：本文描述**完整设计愿景**（含 fovea/peripheral/gaze/wake 等选择性读取部件）。
+> 当前**活模型** `net/world_model.py`（Minecraft Δz-JEPA）是该愿景的已落地子集——已实现持久潜向量 +
+> JEPA 潜空间预测 + SIGReg 防坍缩 + 逆动力学可控闸 c + EMA 目标;中央凹/注视/唤醒尚未落地。
+> 读"代码现状"以 `net/world_model.py` 为准，读"为什么这么搭"以本文为准。
 
 ---
 
@@ -54,7 +60,7 @@ Mamba 的长序列线性扫描优势也用不上。
 
 ---
 
-## 3. 闭环结构（对齐 [net/tao_not_42.py](../net/tao_not_42.py)）
+## 3. 闭环结构（愿景；活模型对齐见 [net/world_model.py](../net/world_model.py)）
 
 ```
                  ┌──────────────── 每帧 predict（脑内自转，可无输入）─────────────┐

@@ -1,0 +1,12 @@
+Vendored third-party code — OpenAI Video PreTraining (VPT)
+==========================================================
+
+本目录是 OpenAI VPT(https://github.com/openai/Video-Pre-Training)策略网络的
+**原样 vendored 副本**(已去 minerl/gym3/attr 等重依赖,仅保留前向推理所需),
+用于 train/vpt/distill_vpt.py 的 teacher 软 KL 蒸馏。
+
+来源:OpenAI Video-Pre-Training,MIT License。版权归原作者。
+
+约定:本目录是第三方代码,**不受本仓库 knowledge/code_conventions.md 的代码规范约束**。
+请勿在此目录套用本项目的命名/拆分/写作规范;升级时整体替换为上游新版,不做局部改写。
+我们的代码通过 net.vpt_lib.* 绝对路径 import 它(见 tools/vpt_teacher.py、train/vpt/distill_vpt.py)。

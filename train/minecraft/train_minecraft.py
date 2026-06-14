@@ -136,38 +136,51 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
                            prev_action=None, kb_edge_w=1.0, patch_dz=None):
     """逆动力学:从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推混合动作。
 
-    鼠标 = mu-law 分箱**加权** CE:中心 bin(没动鼠标)在区间聚合后占 ~2/3,
-    无权重时基率解(恒猜中心)的 CE 已接近最优——实测 100 epoch 模型先学会抓
-    极端转身、又退化回恒中心(基率解损失更低,把它推了回去)。非中心目标
-    ×move_w 后,基率解不再是不动点,运动帧才有有效梯度。键盘 = 20 键 BCE。
-    delta_z 的 z_obs 端带梯度:本损失是编码器"让 Δ 编码动作"的唯一直接压力,
-    也是可控闸 c 的唯一梯度来源(动作可解释 → c↑;噪声槽稀释池化特征 → c↓)。
-    返回的 move_hit/move_n 用于训练侧 mouse_move_acc(全帧 acc 会被中心基率
-    灌到 0.66 一动不动,运动帧 acc 才是诚实读数)。
+    ⚠ 槽路 / patch 旁路**分开监督**(2026-06-14,见 head.forward):两路 logits 不再相加。
+    加法融合下损失只作用在「和」上,patch 旁路(直读冻结 patch-mean Δz、信号更干净)先把
+    目标解释掉、残差→0,把槽路+c 的梯度掐断(gradient starvation,rollout 时 patch_dz=None
+    只剩从没单独训过的槽路 ⇒ "啥也读不出")。改为各算各的 CE/BCE 再相加:槽路拿全量梯度
+    (也是 c 的唯一梯度来源),patch 旁路参数互斥、纯天花板诊断,不回流稀释槽路。
+    **读数/loss 主项取槽路**(= rollout 实际可用的诚实读出);patch 损失并入总 inv 但只训
+    patch 头自己。注意:slot-only 损失值会高于旧的"槽+patch"合并值,inv 对编码器/c 的压力
+    随之变大——可能要把 alpha_inv 适当下调再看 l_pred 是否被挤。
+
+    鼠标 = mu-law 分箱加权 CE(非中心 ×move_w 堵基率不动点);键盘 = 20 键 BCE
+    (跳变元素 ×kb_edge_w:整段按住的键早学会,按下/松开瞬间样本太稀)。
+    delta_z 的 z_obs 端带梯度——本损失是编码器"让 Δ 编码动作"的唯一直接压力。
     """
-    mouse_logits, kb_prob = inv_dyn_head(delta_z * c, patch_dz=patch_dz)
+    mouse_logits, kb_prob, parts = inv_dyn_head(delta_z * c, patch_dz=patch_dz)
     mouse_bin = camera_to_bin(true_action[:, :N_MOUSE])               # [B,2] long
-    ce = F.cross_entropy(mouse_logits.reshape(-1, mouse_logits.shape[-1]),
-                         mouse_bin.reshape(-1), reduction="none")
-    center = (CAMERA_BINS - 1) // 2
-    w = torch.where(mouse_bin.reshape(-1) == center,
-                    torch.ones_like(ce), torch.full_like(ce, move_w))
-    l_mouse = (ce * w).sum() / w.sum()
-    # 键盘跳变加权:400ep 基线 kb_onset_recall 钉死 ~0.17——整段按住的键(占帧
-    # 绝大多数)早学会了,按下/松开瞬间的样本太稀(对平均 BCE 无感)。与上一区间
-    # 聚合键比对,发生跳变的 (样本,键) 元素 ×kb_edge_w,与 mouse_move_w 同思路。
     kb_t = true_action[:, N_MOUSE:]
-    bce = F.binary_cross_entropy(kb_prob.clamp(EPS, 1 - EPS), kb_t, reduction="none")
-    if prev_action is not None and kb_edge_w > 1.0:
-        edges = (kb_t != prev_action[:, N_MOUSE:]).to(bce.dtype)
-        w_kb = 1.0 + (kb_edge_w - 1.0) * edges
-        l_kb = (bce * w_kb).sum() / w_kb.sum()
+    center = (CAMERA_BINS - 1) // 2
+    prev_kb = prev_action[:, N_MOUSE:] if prev_action is not None else None
+
+    def _mouse_ce(logits):
+        ce = F.cross_entropy(logits.reshape(-1, logits.shape[-1]),
+                             mouse_bin.reshape(-1), reduction="none")
+        w = torch.where(mouse_bin.reshape(-1) == center,
+                        torch.ones_like(ce), torch.full_like(ce, move_w))
+        return (ce * w).sum() / w.sum()
+
+    def _kb_bce(prob):
+        bce = F.binary_cross_entropy(prob.clamp(EPS, 1 - EPS), kb_t, reduction="none")
+        if prev_kb is not None and kb_edge_w > 1.0:
+            w_kb = 1.0 + (kb_edge_w - 1.0) * (kb_t != prev_kb).to(bce.dtype)
+            return (bce * w_kb).sum() / w_kb.sum()
+        return bce.mean()
+
+    l_mouse = _mouse_ce(mouse_logits)                  # 槽路(诚实主项)
+    l_kb = _kb_bce(kb_prob)
+    # patch 旁路:独立损失,参数与槽路互斥 + 不共享 logit 和 ⇒ 梯度不稀释槽路/c。
+    # patch_dz 来自冻结骨干 ⇒ 这项只训 patch 头,不回流编码器。
+    if parts is not None:
+        l_patch = _mouse_ce(parts[0]) + _kb_bce(torch.sigmoid(parts[1]))
     else:
-        l_kb = bce.mean()
-    hit = (mouse_logits.argmax(-1) == mouse_bin)
+        l_patch = mouse_logits.new_zeros(())
+    hit = (mouse_logits.argmax(-1) == mouse_bin)       # 读数取槽路
     moved = (mouse_bin != center)
-    mouse_acc = hit.float().mean()
-    return (l_kb + l_mouse, l_mouse.detach(), l_kb.detach(), mouse_acc.detach(),
+    return (l_kb + l_mouse + l_patch, l_mouse.detach(), l_kb.detach(),
+            hit.float().mean().detach(),
             (hit & moved).float().sum().detach(), moved.float().sum().detach())
 
 
@@ -587,7 +600,7 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4):
                     bkt_n[name] += int(sel.sum().item())
             pred_n += 1
             pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
-            mouse_logits, kb_prob = model.inv_dyn(
+            mouse_logits, kb_prob, _ = model.inv_dyn(    # 槽路诚实读出(patch 旁路丢弃)
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float(), patch_dz=pdz)
             kb_pred = (kb_prob > 0.5)
             kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
@@ -685,9 +698,9 @@ def rollout_probe(model, loader, device, steps, amp_dev, use_amp, horizon=16):
             mu = out["mu"].float()
             zhat_next = zhat + mu
             pdz = (featsBT[:, d + 1].mean(1) - featsBT[:, d].mean(1)).float()
-            cl_logits, _ = model.inv_dyn(
-                (z_tg[:, d + 1] - z_obs[:, d]) * out_cl["c"].float(), patch_dz=pdz)  # 天花板
-            ol_logits, _ = model.inv_dyn(mu * out["c"].float(), patch_dz=None)       # 从滚出 μ 读
+            cl_logits, _, _ = model.inv_dyn(   # 真 Δz + 槽路:逆动力学天花板(同槽路,与 OL 可比)
+                (z_tg[:, d + 1] - z_obs[:, d]) * out_cl["c"].float(), patch_dz=pdz)
+            ol_logits, _, _ = model.inv_dyn(mu * out["c"].float(), patch_dz=None)    # 从滚出 μ 读
             A = _bk(d)
             if A is not None:
                 A["rn"] += ((zhat_next - z_tg[:, d + 1]) ** 2).sum().item()
@@ -1041,14 +1054,20 @@ def main():
         if r.get("gpu_util") is not None:
             util_hist.append(r["gpu_util"])
         if use_wandb:
-            _wb = {k: r[k] for k in ("loss", "pred", "pred_move", "pred_open",
-                                     "pred_rms", "dz_rms",
-                                     "inv", "mouse", "mouse_acc", "mouse_move_acc", "kb",
-                                     "plan", "plan_onset_mae", "kl",
-                                     "sigreg", "div", "c_mean", "c_std")}
-            _wb["open_alpha"] = open_alpha    # 解读 pred_open 必须对照 α(α 小时≈闭环)
+            # 主面板恰 12 个:训练健康(loss/pred_move/pred_rms/dz_rms/sigreg/kl)
+            # + 当前重点(div/c_mean/c_std)+ 诚实任务读数(inv/mouse_move_acc)+ gpu。
+            _wb = {k: r[k] for k in ("loss", "pred_move", "pred_rms", "dz_rms",
+                                     "sigreg", "kl", "div", "c_mean", "c_std",
+                                     "inv", "mouse_move_acc")}
             if r.get("gpu_util") is not None:
-                _wb["gpu_util"] = r["gpu_util"]
+                _wb["gpu_util"] = r["gpu_util"]    # 第 12 个(CPU 跑时缺省)
+            # 次要/冗余/基率项降级到 diag/ 分组,不污染主面板、数据不丢
+            _wb.update({f"diag/{k}": r[k] for k in
+                        ("pred", "mouse", "mouse_acc", "kb", "plan", "plan_onset_mae")})
+            # 开环支路:仅 rho_open>0 真启用时才记(否则 pred_open 恒 0、α 是惰性日程)
+            if args.rho_open > 0:
+                _wb["diag/pred_open"] = r["pred_open"]
+                _wb["diag/open_alpha"] = open_alpha
             wandb.log(_wb, step=ep)
         if ep % args.log_every == 0 or ep == args.epochs - 1:
             gpu = f" | gpu {r['gpu_util']:.0f}%" if r.get("gpu_util") is not None else ""
@@ -1083,7 +1102,13 @@ def main():
                   f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f} | "
                   f"mouse move {ev['mouse_move_acc']:.3f}")
             if use_wandb:
-                wandb.log({f"eval/{k}": v for k, v in ev.items()}, step=ep)
+                # eval 主面板:诚实 holdout 读数(≤12);基率虚高 + 固定集常数项(kb_edges/
+                # mouse_moves/frac_* 在复用 eval 集上恒定)降级 eval_diag/,不污染主面板。
+                EVAL_MAIN = ("pred", "pred_move", "pred_post", "pred_bestk",
+                             "pred_turn", "pred_walk", "pred_still",
+                             "kb_onset_recall", "kb_release_recall", "mouse_move_acc")
+                wandb.log({(f"eval/{k}" if k in EVAL_MAIN else f"eval_diag/{k}"): v
+                           for k, v in ev.items()}, step=ep)
             _update_best(ev, ep)            # 持续跟踪 best(每次 eval)
         # best 上传节流:每 save_best_every 个 epoch 传一次当前 best artifact
         if args.save_best_every > 0 and (ep + 1) % args.save_best_every == 0:

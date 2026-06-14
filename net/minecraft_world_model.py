@@ -117,15 +117,20 @@ class MinecraftInverseDynamicsHead(nn.Module):
 
     def forward(self, residual_z, patch_dz=None):
         # residual_z: [B, N, d](槽-Δz·c);patch_dz: [B, enc_dim](全 patch 平均 Δz)
-        # → mouse_logits [B, 2, n_bins], kb_prob [B, n_keys]
+        # 返回 (槽路 mouse_logits[B,2,bins], 槽路 kb_prob[B,keys], parts)。
+        # ⚠ 两路 logits **不再相加**(2026-06-14):加法融合下损失只看「和」,patch 旁路
+        # (直读冻结 patch-mean Δz、信号更干净)会先把目标解释掉,残差→0 把槽路+c 的梯度
+        # 掐断(gradient starvation)。这里只返回槽路预测(= 喂世界模型/c、rollout 唯一可用
+        # 的诚实读出);patch 旁路 logits 经 parts 单独抛出,由损失侧独立监督(参数互斥 ⇒
+        # 梯度不回流槽路),纯作"patch-mean Δz 可读出多少"的天花板诊断。
         feat = self.net(residual_z.mean(dim=1))
         mouse_logits = self.mouse_out(feat).view(-1, 2, self.n_cam_bins)
         kb_logit = self.kb_out(feat)
+        parts = None
         if self.use_patch and patch_dz is not None:
             pf = self.patch_net(patch_dz)
-            mouse_logits = mouse_logits + self.patch_mouse(pf).view(-1, 2, self.n_cam_bins)
-            kb_logit = kb_logit + self.patch_kb(pf)
-        return mouse_logits, torch.sigmoid(kb_logit)
+            parts = (self.patch_mouse(pf).view(-1, 2, self.n_cam_bins), self.patch_kb(pf))
+        return mouse_logits, torch.sigmoid(kb_logit), parts
 
 
 def sinusoidal_time_encoding(t_vec, d):

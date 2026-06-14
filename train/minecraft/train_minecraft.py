@@ -134,7 +134,7 @@ def slot_diversity_loss(attn):
 
 
 def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
-                           prev_action=None, kb_edge_w=1.0, patch_dz=None):
+                           prev_action=None, kb_edge_w=1.0, patch_dz=None, ctx=None):
     """逆动力学:从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推混合动作。
 
     ⚠ 槽路 / patch 旁路**分开监督**(2026-06-14,见 head.forward):两路 logits 不再相加。
@@ -150,7 +150,7 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
     (跳变元素 ×kb_edge_w:整段按住的键早学会,按下/松开瞬间样本太稀)。
     delta_z 的 z_obs 端带梯度——本损失是编码器"让 Δ 编码动作"的唯一直接压力。
     """
-    mouse_logits, kb_prob, parts = inv_dyn_head(delta_z * c, patch_dz=patch_dz)
+    mouse_logits, kb_prob, parts = inv_dyn_head(delta_z * c, patch_dz=patch_dz, ctx=ctx)
     mouse_bin = camera_to_bin(true_action[:, :N_MOUSE])               # [B,2] long
     kb_t = true_action[:, N_MOUSE:]
     center = (CAMERA_BINS - 1) // 2
@@ -378,10 +378,13 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             l_kl_fb = torch.clamp(l_kl, min=kl_free).mean()
             # 全 patch 平均 Δz(冻结特征,与 oracle pool 口径一致;.float 脱 autocast)
             pdz = (feats[:, t + 1].mean(1) - feats[:, t].mean(1)).float()
+            # ctx = pre-step h(本步 forward 用的同一份,尚未滚入当前动作 ⇒ 不泄漏答案);
+            # inv-dyn 损失梯度经此回流 h ⇒ 逼记忆携带本 episode 的控制映射。
+            ctx_h = h.squeeze(1).float() if model.inv_dyn.use_ctx else None
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
                 model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w,
-                patch_dz=pdz)
+                patch_dz=pdz, ctx=ctx_h)
             step_loss = l_pred + alpha_inv * l_inv + beta_kl * l_kl_fb
             if out_open is not None:
                 l_open, _, r_open_mv = dz_pred_loss(out_open["mu"].float(), dz)
@@ -615,8 +618,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
                     bkt_n[name] += int(sel.sum().item())
             pred_n += 1
             pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
+            ctx_h = h.squeeze(1).float() if model.inv_dyn.use_ctx else None  # pre-step h(无泄漏)
             mouse_logits, kb_prob, _ = model.inv_dyn(    # 槽路诚实读出(patch 旁路丢弃)
-                (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float(), patch_dz=pdz)
+                (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float(), patch_dz=pdz, ctx=ctx_h)
             kb_pred = (kb_prob > 0.5)
             kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
@@ -713,9 +717,12 @@ def rollout_probe(model, loader, device, steps, amp_dev, use_amp, horizon=16):
             mu = out["mu"].float()
             zhat_next = zhat + mu
             pdz = (featsBT[:, d + 1].mean(1) - featsBT[:, d].mean(1)).float()
+            uc = model.inv_dyn.use_ctx
             cl_logits, _, _ = model.inv_dyn(   # 真 Δz + 槽路:逆动力学天花板(同槽路,与 OL 可比)
-                (z_tg[:, d + 1] - z_obs[:, d]) * out_cl["c"].float(), patch_dz=pdz)
-            ol_logits, _, _ = model.inv_dyn(mu * out["c"].float(), patch_dz=None)    # 从滚出 μ 读
+                (z_tg[:, d + 1] - z_obs[:, d]) * out_cl["c"].float(), patch_dz=pdz,
+                ctx=h_cl.squeeze(1).float() if uc else None)
+            ol_logits, _, _ = model.inv_dyn(mu * out["c"].float(), patch_dz=None,    # 从滚出 μ 读
+                                            ctx=h_ol.squeeze(1).float() if uc else None)
             A = _bk(d)
             if A is not None:
                 A["rn"] += ((zhat_next - z_tg[:, d + 1]) ** 2).sum().item()
@@ -878,6 +885,9 @@ def main():
                     help="同时重映射相机(轴 swap + 符号);默认仅键盘(强信号,第一枪更干净)")
     ap.add_argument("--remap_holdout_n", type=int, default=64,
                     help="holdout 键盘置换 bank 大小(eval 从中抽;train 拒采保证 disjoint)")
+    ap.add_argument("--inv_dyn_ctx", action="store_true",
+                    help="逆动力学头吃脑内记忆 h(FiLM 调制)⇒ 能 in-context 应用本局推断的控制"
+                         "映射;control_remap 下「看视频推操作」的信号才能落到 inv-dyn 指标上")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -989,7 +999,7 @@ def main():
                                 n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
                                 max_skip=args.frame_skip, encoder=args.encoder,
                                 encoder_weights=args.encoder_weights,
-                                d_xi=args.d_xi).to(dev)
+                                d_xi=args.d_xi, inv_dyn_ctx=args.inv_dyn_ctx).to(dev)
 
     if args.eval_only:
         ck = torch.load(args.eval_only, map_location=dev)

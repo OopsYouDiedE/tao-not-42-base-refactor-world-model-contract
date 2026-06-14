@@ -93,7 +93,8 @@ class MinecraftInverseDynamicsHead(nn.Module):
     基率解的 CE = 边缘熵,任何真实信号都能压过它。分箱定义在 utils.vpt_action
     (camera_to_bin/bin_to_camera),与 VPT 原版的 mu-law 离散相机一致。
     """
-    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS, enc_dim=None):
+    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS, enc_dim=None,
+                 use_ctx=False):
         super().__init__()
         self.n_cam_bins = n_cam_bins
         self.net = nn.Sequential(
@@ -101,6 +102,17 @@ class MinecraftInverseDynamicsHead(nn.Module):
         )
         self.mouse_out = nn.Linear(64, 2 * n_cam_bins)
         self.kb_out = nn.Linear(64, num_keyboard_keys)
+        # 上下文条件化(in-context「看视频掌握玩法」):用脑内记忆 h(已 attend 过去动作与
+        # 潜变化 ⇒ 携带本 episode 的 (动作→效果) 历史)FiLM 调制 Δz→动作的读出特征。
+        # **乘性**调制(γ⊙feat+β,非仅加偏置)才能表达「按本局 in-context 推断的控制映射 T
+        # 去解读同一个 Δz」;纯偏置只能挪 logits、表达不了「同样的效果在不同控制下对应不同键」。
+        # 零初始化 ⇒ 冷启动恒等(ctx 无效、退化为原 context-blind 头),有利可图才被打开;
+        # inv-dyn 损失的梯度经 FiLM 回流进 h 的生成 ⇒ 逼 h 把「这一局的控制映射」编码进去。
+        self.use_ctx = use_ctx
+        if use_ctx:
+            self.ctx_film = nn.Linear(d, 2 * 64)
+            nn.init.zeros_(self.ctx_film.weight)
+            nn.init.zeros_(self.ctx_film.bias)
         # 全 patch 平均 Δz 支路(oracle 复盘新增):本地 oracle 阶梯实测,从冻结 DINOv2
         # 的**全 patch 平均** Δz 直接读键盘可达 onset 0.34 / bal 0.81,而经 16 槽池化+c
         # 门控后只剩 0.15——信息在槽池化处丢了。这条支路绕开槽瓶颈,直接吃 patch 平均
@@ -115,8 +127,9 @@ class MinecraftInverseDynamicsHead(nn.Module):
             self.patch_mouse = nn.Linear(64, 2 * n_cam_bins)
             self.patch_kb = nn.Linear(64, num_keyboard_keys)
 
-    def forward(self, residual_z, patch_dz=None):
-        # residual_z: [B, N, d](槽-Δz·c);patch_dz: [B, enc_dim](全 patch 平均 Δz)
+    def forward(self, residual_z, patch_dz=None, ctx=None):
+        # residual_z: [B, N, d](槽-Δz·c);patch_dz: [B, enc_dim](全 patch 平均 Δz);
+        # ctx: [B, d] 脑内记忆 h(use_ctx 时由调用方传 pre-step h ⇒ 不含当前动作、无泄漏)。
         # 返回 (槽路 mouse_logits[B,2,bins], 槽路 kb_prob[B,keys], parts)。
         # ⚠ 两路 logits **不再相加**(2026-06-14):加法融合下损失只看「和」,patch 旁路
         # (直读冻结 patch-mean Δz、信号更干净)会先把目标解释掉,残差→0 把槽路+c 的梯度
@@ -124,11 +137,14 @@ class MinecraftInverseDynamicsHead(nn.Module):
         # 的诚实读出);patch 旁路 logits 经 parts 单独抛出,由损失侧独立监督(参数互斥 ⇒
         # 梯度不回流槽路),纯作"patch-mean Δz 可读出多少"的天花板诊断。
         feat = self.net(residual_z.mean(dim=1))
+        if self.use_ctx and ctx is not None:
+            g, b = self.ctx_film(ctx.to(feat.dtype)).chunk(2, dim=-1)
+            feat = feat * (1.0 + g) + b               # 零初始化 ⇒ 起步恒等
         mouse_logits = self.mouse_out(feat).view(-1, 2, self.n_cam_bins)
         kb_logit = self.kb_out(feat)
         parts = None
         if self.use_patch and patch_dz is not None:
-            pf = self.patch_net(patch_dz)
+            pf = self.patch_net(patch_dz)             # patch 旁路不吃 ctx:纯「无-context」诊断基线
             parts = (self.patch_mouse(pf).view(-1, 2, self.n_cam_bins), self.patch_kb(pf))
         return mouse_logits, torch.sigmoid(kb_logit), parts
 
@@ -198,7 +214,7 @@ class MinecraftWorldModel(nn.Module):
 
     def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
                  ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None,
-                 d_xi=32):
+                 d_xi=32, inv_dyn_ctx=False):
         super().__init__()
         self.d = d
         self.N = N # 实体槽数量
@@ -282,7 +298,8 @@ class MinecraftWorldModel(nn.Module):
         self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2,
                                            n_cam_bins=n_cam_bins)
         self.inv_dyn = MinecraftInverseDynamicsHead(d, num_keyboard_keys=act_dim-2,
-                                                    n_cam_bins=n_cam_bins, enc_dim=enc_dim)
+                                                    n_cam_bins=n_cam_bins, enc_dim=enc_dim,
+                                                    use_ctx=inv_dyn_ctx)
 
         # Placeholders
         self.u_placeholder = nn.Parameter(torch.randn(1, K, d))

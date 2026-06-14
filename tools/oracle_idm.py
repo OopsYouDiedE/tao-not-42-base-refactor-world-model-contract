@@ -38,8 +38,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from train.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
-from train.minecraft.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名
+from domains.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
+from domains.minecraft.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名
 
 # ---- 数据契约(与 colab §1/§2 + utils.vpt_action 严格一致)----
 BASE = "https://openaipublic.blob.core.windows.net/minecraft-rl"
@@ -689,7 +689,7 @@ def main():
 
     if args.fetch_to:                      # 数据准备:下载 disjoint 切片,jsonl 转 §2 格式 + 扁平化
         import shutil
-        from train.minecraft.vpt_dataset import _action_vec
+        from domains.minecraft.vpt_dataset import _action_vec
         os.makedirs(args.fetch_to, exist_ok=True)
         clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
         if not clips:

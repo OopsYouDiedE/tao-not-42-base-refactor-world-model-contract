@@ -11,7 +11,7 @@
 import torch
 import torch.nn.functional as F
 
-from train.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE
+from domains.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE
 
 EPS = 1e-4          # I1
 

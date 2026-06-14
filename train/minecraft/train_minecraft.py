@@ -38,7 +38,7 @@
 模型同时接收区间内完整原始动作序列与聚合历史(见 VPTStreamDataset/模型 docstring)。
 可视化与最终评估用 **holdout clip**(按文件名扣末 1 个,不进训练),展示泛化而非记忆。
 
-数据:train.minecraft.vpt_dataset.VPTStreamDataset —— 流式加载(不全量预载),每个 worker 维护
+数据:domains.minecraft.vpt_dataset.VPTStreamDataset —— 流式加载(不全量预载),每个 worker 维护
 <=cache_size 个已解码序列的滚动缓存,多 worker 并行喂数据,每步随机取 batch 个序列。
 吞吐优化:截断 BPTT、AMP 混合精度、损失张量累积(避免逐步 .item() 同步)。
 
@@ -59,11 +59,11 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.world_model import MinecraftWorldModel
-from train.minecraft.vpt_dataset import VPTStreamDataset
-from train.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, ACTION_DIM as ACT_DIM
-from train.minecraft.control_remap import ControlRemap
+from domains.minecraft.vpt_dataset import VPTStreamDataset
+from domains.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, ACTION_DIM as ACT_DIM
+from domains.minecraft.control_remap import ControlRemap
 from train.minecraft.minecraft_viz import visualize_minecraft
-from train.minecraft.task_text import TaskTextEncoder
+from domains.minecraft.task_text import TaskTextEncoder
 from train.minecraft._seq import roll_hist, _to_float_img
 from train.minecraft.losses import (dz_pred_loss, slot_diversity_loss,
                                      minecraft_inv_dyn_loss, plan_bc_loss, kl_diag_gauss)

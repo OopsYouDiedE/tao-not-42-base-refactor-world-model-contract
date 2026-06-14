@@ -5,7 +5,6 @@
     ⚠️ 鼠标在前(索引 0,1)、键在后(索引 2..21)。历史版本曾是键在前/相机在后,
     与 vpt_dataset._action_vec 互相矛盾——任何混用会把鼠标和前两个键静默对调。
   - Colab 端:`encode_vpt_jsonl` 从 VPT `.jsonl` 单帧解析(schema 假设见注释,需按真文件校准)。
-  - 本机端:`rhythm_to_vpt` 把 rhythm 4 键代理动作映射成同形状,用于离线验证训练有效性。
 模型只认 ACTION_DIM 维向量,两端共用 → 本机验证过的模型/编码器在 Colab 原样可用。
 
 相机离散分箱(camera_to_bin/bin_to_camera):**只用于逆动力学的监督目标**,模型的
@@ -79,16 +78,4 @@ def encode_vpt_jsonl(d):
             v[N_MOUSE + _KEY_IDX["key_use"]] = 1.0
     v[0] = float(max(-1.0, min(1.0, (mouse.get("dx", 0.0) or 0.0) / CAMERA_SCALE)))
     v[1] = float(max(-1.0, min(1.0, (mouse.get("dy", 0.0) or 0.0) / CAMERA_SCALE)))
-    return v
-
-
-def rhythm_to_vpt(rhythm_action):
-    """rhythm 4-lane 按键 [B, n] → VPT 形状动作 [B, ACTION_DIM]。布局:[dx, dy, 20 键]。
-
-    把 n 个 lane 键映射到键区(索引 N_MOUSE 起)的前 n 个二值键,相机维=0。
-    仅用于本机代理验证:让代理数据与 VPT 同契约,模型/编码器无需改即可两端通用。
-    """
-    B, n = rhythm_action.shape
-    v = torch.zeros(B, ACTION_DIM, device=rhythm_action.device, dtype=torch.float32)
-    v[:, N_MOUSE:N_MOUSE + n] = rhythm_action
     return v

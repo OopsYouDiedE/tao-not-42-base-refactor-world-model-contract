@@ -23,8 +23,8 @@ import os
 import numpy as np
 import torch
 
-from train.minecraft.vpt_dataset import VPT_KEYS
-from train.minecraft.vpt_action import bin_to_camera
+from domains.minecraft.vpt_dataset import VPT_KEYS
+from domains.minecraft.vpt_action import bin_to_camera
 
 N_MOUSE = 2
 

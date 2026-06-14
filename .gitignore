@@ -22,6 +22,10 @@ wheels/
 # Jupyter
 .ipynb_checkpoints
 
+# Secrets — .env 文件含明文 token,严禁入库
+.env
+.env.*
+
 # Virtual environments
 venv/
 env/

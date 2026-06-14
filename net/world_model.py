@@ -41,112 +41,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from blocks.primitives import ContinuousTimeEncoding
-
-N_CAMERA_BINS = 11   # 与 utils.vpt_action.CAMERA_BINS 一致(net 层不 import utils,训练端校验)
-
-
-class MinecraftDecoderHeads(nn.Module):
-    """Minecraft 复合动作解码器：同时预测鼠标移动和大量键盘按键。"""
-    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS):
-        super().__init__()
-        self.n_cam_bins = n_cam_bins
-        # 鼠标预测 (dx, dy 回归)
-        self.mouse_head = nn.Sequential(
-            nn.Linear(d, 64), nn.SiLU(), nn.Linear(64, 2)
-        )
-        # 键盘预测 (20 个独立二分类)
-        self.keyboard_head = nn.Sequential(
-            nn.Linear(d, 128), nn.SiLU(), nn.Linear(128, num_keyboard_keys)
-        )
-
-        # 动作规划头(DETR 式,**未来动作**输出)。时间契约:onset 的 0 时刻 =
-        # 本次 forward 传入的 t_vec 时刻("现在"),单位 = **帧**(与 dt/t_hist 同)。
-        # 监督 = 行为克隆(train_minecraft.plan_bc_loss):槽 k 对齐未来第 k+1 个
-        # 转移的聚合动作与时长。鼠标用 mu-law 分箱 logits 而非回归——回归 MSE 的
-        # "恒 0"与无权重 CE 的基率不动点都在 inv-dyn 上踩过坑,这里直接用终案。
-        self.plan_mouse = nn.Linear(d, 2 * n_cam_bins)
-        self.plan_keyboard = nn.Linear(d, num_keyboard_keys)
-        self.plan_onset = nn.Linear(d, 1)             # 多久后按下(帧,自"现在"起算)
-        self.plan_dur = nn.Linear(d, 1)               # 按住多久(帧)
-        self.plan_exist = nn.Linear(d, 1)             # 该计划槽是否有效
-
-    def decode_action_plan(self, u_tokens):
-        """预测未来长程动作计划。onset 累积 softplus 参数化 ⇒ 沿查询维单调,
-        消除查询置换对称(与 tao 版 DecoderHeads.decode_action_plan 同理),
-        也使"槽 k ↔ 时间序上第 k 个未来转移"的对齐无需匈牙利匹配。"""
-        B, K = u_tokens.shape[:2]
-        onset_inc = F.softplus(self.plan_onset(u_tokens)).squeeze(-1)   # [B,K] 正增量
-        return {
-            "mouse_logits": self.plan_mouse(u_tokens).view(B, K, 2, self.n_cam_bins),
-            "keyboard": torch.sigmoid(self.plan_keyboard(u_tokens)),
-            "onset": torch.cumsum(onset_inc, dim=1),
-            "duration": F.softplus(self.plan_dur(u_tokens)).squeeze(-1),
-            "exist": torch.sigmoid(self.plan_exist(u_tokens)).squeeze(-1)
-        }
-
-
-class MinecraftInverseDynamicsHead(nn.Module):
-    """从潜变化 ΔZ 反推动作。鼠标 = mu-law 分箱**分类**(logits),键盘 = 20 独立二分类。
-
-    鼠标弃回归改分类的原因:dx/dy 分布是"尖峰在 0 + 重尾大转身",MSE 下恒预测 0
-    即近似最优(上一版实测 mouse loss 钉死在边缘方差处一动不动);分类目标下
-    基率解的 CE = 边缘熵,任何真实信号都能压过它。分箱定义在 utils.vpt_action
-    (camera_to_bin/bin_to_camera),与 VPT 原版的 mu-law 离散相机一致。
-    """
-    def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS, enc_dim=None,
-                 use_ctx=False):
-        super().__init__()
-        self.n_cam_bins = n_cam_bins
-        self.net = nn.Sequential(
-            nn.Linear(d, 128), nn.SiLU(), nn.Linear(128, 64), nn.SiLU()
-        )
-        self.mouse_out = nn.Linear(64, 2 * n_cam_bins)
-        self.kb_out = nn.Linear(64, num_keyboard_keys)
-        # 上下文条件化(in-context「看视频掌握玩法」):用脑内记忆 h(已 attend 过去动作与
-        # 潜变化 ⇒ 携带本 episode 的 (动作→效果) 历史)FiLM 调制 Δz→动作的读出特征。
-        # **乘性**调制(γ⊙feat+β,非仅加偏置)才能表达「按本局 in-context 推断的控制映射 T
-        # 去解读同一个 Δz」;纯偏置只能挪 logits、表达不了「同样的效果在不同控制下对应不同键」。
-        # 零初始化 ⇒ 冷启动恒等(ctx 无效、退化为原 context-blind 头),有利可图才被打开;
-        # inv-dyn 损失的梯度经 FiLM 回流进 h 的生成 ⇒ 逼 h 把「这一局的控制映射」编码进去。
-        self.use_ctx = use_ctx
-        if use_ctx:
-            self.ctx_film = nn.Linear(d, 2 * 64)
-            nn.init.zeros_(self.ctx_film.weight)
-            nn.init.zeros_(self.ctx_film.bias)
-        # 全 patch 平均 Δz 支路(oracle 复盘新增):本地 oracle 阶梯实测,从冻结 DINOv2
-        # 的**全 patch 平均** Δz 直接读键盘可达 onset 0.34 / bal 0.81,而经 16 槽池化+c
-        # 门控后只剩 0.15——信息在槽池化处丢了。这条支路绕开槽瓶颈,直接吃 patch 平均
-        # Δz(就是 oracle 的 pool 口径),与槽路 logits **相加**:槽路仍拿 inv-dyn 梯度
-        # (c 门控的唯一梯度来源不变),patch 路补回被池化丢掉的读出精度。enc_dim=None
-        # 时退化为原行为(无 patch 路),向后兼容。
-        self.use_patch = enc_dim is not None
-        if self.use_patch:
-            self.patch_net = nn.Sequential(
-                nn.Linear(enc_dim, 128), nn.SiLU(), nn.Linear(128, 64), nn.SiLU()
-            )
-            self.patch_mouse = nn.Linear(64, 2 * n_cam_bins)
-            self.patch_kb = nn.Linear(64, num_keyboard_keys)
-
-    def forward(self, residual_z, patch_dz=None, ctx=None):
-        # residual_z: [B, N, d](槽-Δz·c);patch_dz: [B, enc_dim](全 patch 平均 Δz);
-        # ctx: [B, d] 脑内记忆 h(use_ctx 时由调用方传 pre-step h ⇒ 不含当前动作、无泄漏)。
-        # 返回 (槽路 mouse_logits[B,2,bins], 槽路 kb_prob[B,keys], parts)。
-        # ⚠ 两路 logits **不再相加**(2026-06-14):加法融合下损失只看「和」,patch 旁路
-        # (直读冻结 patch-mean Δz、信号更干净)会先把目标解释掉,残差→0 把槽路+c 的梯度
-        # 掐断(gradient starvation)。这里只返回槽路预测(= 喂世界模型/c、rollout 唯一可用
-        # 的诚实读出);patch 旁路 logits 经 parts 单独抛出,由损失侧独立监督(参数互斥 ⇒
-        # 梯度不回流槽路),纯作"patch-mean Δz 可读出多少"的天花板诊断。
-        feat = self.net(residual_z.mean(dim=1))
-        if self.use_ctx and ctx is not None:
-            g, b = self.ctx_film(ctx.to(feat.dtype)).chunk(2, dim=-1)
-            feat = feat * (1.0 + g) + b               # 零初始化 ⇒ 起步恒等
-        mouse_logits = self.mouse_out(feat).view(-1, 2, self.n_cam_bins)
-        kb_logit = self.kb_out(feat)
-        parts = None
-        if self.use_patch and patch_dz is not None:
-            pf = self.patch_net(patch_dz)             # patch 旁路不吃 ctx:纯「无-context」诊断基线
-            parts = (self.patch_mouse(pf).view(-1, 2, self.n_cam_bins), self.patch_kb(pf))
-        return mouse_logits, torch.sigmoid(kb_logit), parts
+from net.slots import SlotBinder
+from net.backbone import load_backbone
+from net.heads import DecoderHeads, InverseDynamicsHead, N_CAMERA_BINS
 
 
 def sinusoidal_time_encoding(t_vec, d):
@@ -167,54 +64,12 @@ def sinusoidal_time_encoding(t_vec, d):
     return pe.unsqueeze(1) # [B, 1, d]
 
 
-class MockDINOv2(nn.Module):
-    """随机冻结卷积,模拟 DINOv2 输出 Patch Tokens——**仅供无网络的管线冒烟测试**。
-
-    注意:本版中视觉骨干统一冻结(见 extract_feats),mock 即随机特征投影;
-    真实训练请用 --encoder dinov2。
-    """
-    def __init__(self, d=384):
-        super().__init__()
-        self.embed_dim = d
-        self.net = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=8, stride=8), nn.ReLU(),
-            nn.Conv2d(64, d, kernel_size=4, stride=4), nn.ReLU()
-        )
-    def forward(self, x):
-        # x: [B, 3, H, W]
-        feat = self.net(x) # [B, d, h, w]
-        B, d, h, w = feat.shape
-        return feat.view(B, d, h*w).transpose(1, 2) # [B, M, d]
-
-
-def _load_backbone(kind, weights=None):
-    """torch.hub 加载冻结视觉骨干。返回 (module, patch_size)。
-
-    dinov2: ViT-S/14,embed_dim=384,权重完全开放,直接下载。
-    dinov3: ViT-S/16,embed_dim=384,稠密特征质量显著优于 v2(gram anchoring),
-            且 patch=16 整除 128;但权重 **gated**——需在 Meta/HuggingFace 接受
-            许可证后获得下载 URL/本地路径,经 weights 参数传入。
-    """
-    try:
-        if kind == "dinov2":
-            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14"), 14
-        if kind == "dinov3":
-            kwargs = {"weights": weights} if weights else {}
-            return torch.hub.load("facebookresearch/dinov3", "dinov3_vits16", **kwargs), 16
-    except Exception as ex:
-        hint = ("DINOv3 权重是 gated 的:在 https://github.com/facebookresearch/dinov3 "
-                "接受许可证后,把获得的下载 URL 或本地 .pth 路径经 --encoder_weights 传入。"
-                if kind == "dinov3" else "需要网络访问 torch.hub;离线冒烟测试请改用 --encoder mock。")
-        raise RuntimeError(f"{kind} 加载失败({ex})。{hint}") from ex
-    raise ValueError(f"未知 encoder: {kind}")
-
-
 class MinecraftWorldModel(nn.Module):
     """Δz-JEPA 世界模型:统一锚坐标系感知 + EMA 目标 + Transformer 动力学推演。"""
 
     def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
                  ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None,
-                 d_xi=32, inv_dyn_ctx=False):
+                 d_xi=32, inv_dyn_ctx=False, backbone=None, enc_dim=None):
         super().__init__()
         self.d = d
         self.N = N # 实体槽数量
@@ -222,25 +77,27 @@ class MinecraftWorldModel(nn.Module):
         self.J = J # 历史动作长度(训练/可视化按此构造 a_hist)
         self.S = max_skip # 区间动作序列最大长度(= 数据集 frame_skip 上限)
         self.ema_decay = ema_decay
-        self.encoder_kind = encoder
 
-        # 视觉骨干:**冻结**的预训练 DINOv2(ViT-S/14)。prime-leaf-7 实测:从零训练
-        # 的 mock 卷积在 2 个 clip 上把纹理背熟(train pred 0.19 vs holdout ~1.7×基线,
-        # 鼠标读出 holdout ≈ 随机),泛化失败的主因之一是表征没有先验。冻结预训练
-        # 骨干给目标编码一个独立于本任务数据的意义来源——这正是 JEPA 的前提。
-        # 骨干冻结且在线/目标共享 ⇒ 特征每帧只需提取一次(extract_feats),
+        # 视觉骨干:**冻结**的预训练 DINOv3 ViT-S/16(HF,默认;dinov2 ViT-S/14 为开放权重备选)。
+        # prime-leaf-7 实测:从零训练的随机卷积骨干(无预训练先验)在 2 个 clip 上把纹理背熟
+        # (train pred 0.19 vs holdout ~1.7×基线,鼠标读出 holdout ≈ 随机),泛化失败的主因
+        # 之一是表征没有先验。冻结预训练骨干给目标编码一个独立于本任务数据的意义来源——
+        # 这正是 JEPA 的前提。骨干冻结且在线/目标共享 ⇒ 特征每帧只需提取一次(extract_feats),
         # EMA 只需覆盖可训练部分(proj + binder),省一半视觉计算与 21M 参数副本。
-        if encoder in ("dinov2", "dinov3"):
-            self.backbone, self._patch = _load_backbone(encoder, encoder_weights)
-            enc_dim = self.backbone.embed_dim          # ViT-S = 384
+        # backbone 非空 = 依赖注入:仅测试用(离线 mock 骨干按 AGENTS §2 只许在 tests/),
+        # 须自带 .embed_dim 或显式给 enc_dim;生产恒走 load_backbone(dinov2/dinov3)。
+        if backbone is not None:
+            self.backbone = backbone
+            self.encoder_kind = "injected"
+            enc_dim = enc_dim if enc_dim is not None else backbone.embed_dim
+            self._patch, self._n_reg = None, 0
         else:
-            self.backbone = MockDINOv2(d)
-            enc_dim = d
-            self._patch = None
+            self.backbone, self._patch, enc_dim, self._n_reg = load_backbone(encoder, encoder_weights)
+            self.encoder_kind = encoder
         for p in self.backbone.parameters():
             p.requires_grad_(False)
         self.backbone.eval()
-        # DINOv2 期望 ImageNet 归一化输入(我们的帧是 [0,1])
+        # DINOv2/v3 期望 ImageNet 归一化输入(我们的帧是 [0,1];与 HF processor 同款常数)
         self.register_buffer("_in_mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer("_in_std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
@@ -249,7 +106,6 @@ class MinecraftWorldModel(nn.Module):
         # compete=True:slot 维竞争注意力(防多个 slot 冗余绑定同一区域,见 SlotBinder)。
         self.proj = nn.Linear(enc_dim, d)
         self.register_buffer("slots", torch.randn(1, N, d))
-        from net.tao_not_42 import SlotBinder
         self.binder = SlotBinder(d, compete=True)
 
         # EMA 目标编码器(JEPA 靶):深拷贝可训练部分、不收梯度、不进 optimizer
@@ -295,11 +151,11 @@ class MinecraftWorldModel(nn.Module):
         # 24 帧前;历史条目的位置必须由"距当前推算时刻的帧数"给出。
         # Δt 条件编码(契约:以帧为单位,见 primitives.ContinuousTimeEncoding)
         self.dt_enc = ContinuousTimeEncoding(d)
-        self.heads = MinecraftDecoderHeads(d, num_keyboard_keys=act_dim-2,
-                                           n_cam_bins=n_cam_bins)
-        self.inv_dyn = MinecraftInverseDynamicsHead(d, num_keyboard_keys=act_dim-2,
-                                                    n_cam_bins=n_cam_bins, enc_dim=enc_dim,
-                                                    use_ctx=inv_dyn_ctx)
+        self.heads = DecoderHeads(d, num_keyboard_keys=act_dim-2,
+                                  n_cam_bins=n_cam_bins)
+        self.inv_dyn = InverseDynamicsHead(d, num_keyboard_keys=act_dim-2,
+                                           n_cam_bins=n_cam_bins, enc_dim=enc_dim,
+                                           use_ctx=inv_dyn_ctx)
 
         # Placeholders
         self.u_placeholder = nn.Parameter(torch.randn(1, K, d))
@@ -347,8 +203,9 @@ class MinecraftWorldModel(nn.Module):
     def extract_feats(self, img):
         """冻结骨干提取 patch 特征(无梯度,在线/目标共用,每帧只算一次)。
 
-        DINOv2:ImageNet 归一化 + 分辨率自动对齐到 patch=14 的倍数(128→126),
-        输出 x_norm_patchtokens [B, M, 384]。mock:随机冻结卷积(冒烟用)。
+        DINOv2/v3(HF):ImageNet 归一化 + 分辨率对齐到 patch 的倍数(v3 patch16:128→128;
+        v2 patch14:128→126),取 last_hidden_state 切掉 CLS+register → [B, M, enc_dim]。
+        mock:随机冻结卷积(冒烟用)。
         """
         if self.encoder_kind in ("dinov2", "dinov3"):
             H, W = img.shape[-2:]
@@ -357,8 +214,8 @@ class MinecraftWorldModel(nn.Module):
             if (H2, W2) != (H, W):
                 img = F.interpolate(img, size=(H2, W2), mode="bilinear", align_corners=False)
             img = (img - self._in_mean) / self._in_std
-            out = self.backbone.forward_features(img)
-            return out["x_norm_patchtokens"] if isinstance(out, dict) else out
+            lhs = self.backbone(pixel_values=img).last_hidden_state  # [B, 1+n_reg+M, enc_dim]
+            return lhs[:, 1 + self._n_reg:, :]                       # 切 CLS + register → 纯 patch
         return self.backbone(img)
 
     def encode_obs(self, img=None, feats=None):

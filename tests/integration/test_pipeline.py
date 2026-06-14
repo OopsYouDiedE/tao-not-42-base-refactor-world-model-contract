@@ -1,84 +1,89 @@
+"""集成冒烟:活的 MinecraftWorldModel(Δz-JEPA)前向 + 反向 + EMA,全程离线 CPU。
+
+骨干用本文件内的 MockDINOv2(随机冻结卷积)经**依赖注入**喂给模型——按 AGENTS §2,
+mock 只许在 tests/。绕开网络/GPU,只验证管线接线(import、token 拼接位置、shape、
+无 NaN 梯度),不验证学习效果(那是训练指标的事)。替代了旧的 TaoNot42 + rhythm 冒烟。
+"""
 import os
 import sys
-import torch
 
-# Ensure we can import from the root project directory
+import torch
+import torch.nn as nn
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from net.tao_not_42 import TaoNot42Model
-from train.rhythm.rhythm_env import ProceduralRhythmEnv
-from utils.losses import gaussian_nll_loss
-def test_full_pipeline():
-    print("Initializing environment and model...")
-    B = 2
-    device = "cpu"
-    
-    env = ProceduralRhythmEnv(batch_size=B, device=device)
-    model = TaoNot42Model(d=128, N=16, M=2, J=2, n_keys=4, t_hist=10, layers=2).to(device)
-    
-    # 1. Generate some initial data
-    env.step(0.5) # Let some notes fall
-    img = env.render() # [B, 3, 256, 256]
-    target_times = env.get_expert_actions() # [B, 4]
-    
-    # 2. Mock state initialization
-    d = model.d
-    Z = torch.randn(B, model.N, d, device=device, requires_grad=True)
-    h = torch.randn(B, 1, d, device=device, requires_grad=True)
-    a_raw = torch.zeros(B, model.action_enc.net[0].in_features // 4, 4, device=device) # n_keys=4
-    dt = torch.tensor([0.1]*B, device=device)
-    g_prev = (
-        torch.zeros(B, device=device), # g_x
-        torch.zeros(B, device=device), # g_y
-        torch.ones(B, device=device) * 0.5 # g_s
-    )
-    
-    print("Running forward pass...")
-    # 3. Forward Pass
-    out = model(img, Z, h, a_raw, dt, g_prev, has_error=False)
-    
-    # 4. Compute Losses
-    print("Computing losses...")
-    # -- Action Loss --
-    from utils.losses import action_plan_loss
-    
-    gt_action_mock = {
-        "onset": target_times,
-        "duration": torch.ones_like(target_times) * 0.1,
-        "track": torch.zeros_like(target_times, dtype=torch.long),
-        "valid": torch.ones_like(target_times)
-    }
-    loss_action, _ = action_plan_loss(out["action_plan"], gt_action_mock)
-    
-    # -- NLL Loss (Mock Target) --
-    # In reality, target comes from Teacher Network. Here we mock it as random tensor.
-    z_target_mock = torch.randn_like(out["mu"])
-    # Mock an active mask where probability of existence > 0.5
-    active_mask = out["exist_p"] > 0.5
-    # If no slots are active (rare but possible at init), force one to be active for test
-    if active_mask.sum() == 0:
-        active_mask[0, 0] = True
-        
-    loss_nll = gaussian_nll_loss(out["mu"], out["sigma"], z_target_mock, active_mask)
-    
-    loss_total = loss_action + loss_nll
-    
-    # 5. Backward Pass
-    print("Running backward pass...")
-    loss_total.backward()
-    
-    # 6. Verify Gradients
-    has_nan = False
-    for name, param in model.named_parameters():
-        if param.grad is not None:
-            if torch.isnan(param.grad).any():
-                print(f"NaN detected in gradients of {name}")
-                has_nan = True
-                
-    if not has_nan:
-        print("Success! Forward and backward pass completed without NaNs.")
-    else:
-        print("Failed. NaNs in gradients.")
+from net.world_model import MinecraftWorldModel
+
+ACT_DIM = 22
+
+
+class MockDINOv2(nn.Module):
+    """随机冻结卷积,模拟 DINOv2 输出 patch token——仅供无网络管线冒烟,经依赖注入传入模型。
+
+    输入 [B,3,H,W] → 输出 [B,M,d];.embed_dim 让模型自动取 enc_dim。
+    """
+    def __init__(self, d=64):
+        super().__init__()
+        self.embed_dim = d
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=8, stride=8), nn.ReLU(),
+            nn.Conv2d(64, d, kernel_size=4, stride=4), nn.ReLU(),
+        )
+
+    def forward(self, x):
+        feat = self.net(x)                                  # [B, d, h, w]
+        B, d, h, w = feat.shape
+        return feat.view(B, d, h * w).transpose(1, 2)       # [B, M, d]
+
+
+def _tiny_model():
+    return MinecraftWorldModel(
+        d=64, N=4, K=2, J=2, act_dim=ACT_DIM, ema_decay=0.99,
+        max_skip=3, backbone=MockDINOv2(64), d_xi=8, inv_dyn_ctx=True)
+
+
+def test_world_model_forward_backward():
+    B, device = 2, "cpu"
+    model = _tiny_model().to(device).train()
+    S = model.S
+
+    img = torch.rand(B, 3, 64, 64, device=device)
+    z_ref = model.encode_obs(img)                       # [B,N,d] 在线感知
+    assert z_ref.shape == (B, model.N, model.d)
+
+    h = torch.randn(B, 1, model.d, device=device)
+    a_hist = torch.zeros(B, model.J, ACT_DIM, device=device)
+    a_cur = torch.zeros(B, S, ACT_DIM, device=device)
+    dt = torch.full((B,), float(S), device=device)
+    t_vec = torch.zeros(B, device=device)
+
+    out = model(z_ref, h, a_hist, a_cur, dt, t_vec)
+    assert out["mu"].shape == (B, model.N, model.d)
+    assert out["c"].shape == (B, model.N, 1)
+    assert out["h_next"].shape == (B, 1, model.d)
+    assert set(out["action_plan"]) >= {"mouse_logits", "keyboard", "onset", "duration", "exist"}
+
+    # 逆动力学头:槽-Δz·c 残差 + patch 平均 Δz + ctx(h),验证三路接线
+    with torch.no_grad():
+        z_tg = model.encode_target(img)
+    residual = (z_tg - z_ref) * out["c"]
+    patch_dz = model.extract_feats(img).mean(dim=1)     # [B, enc_dim]
+    mouse_logits, kb_prob, parts = model.inv_dyn(residual, patch_dz=patch_dz, ctx=h.squeeze(1))
+    assert mouse_logits.shape == (B, 2, model.heads.n_cam_bins)
+    assert kb_prob.shape == (B, ACT_DIM - 2)
+    assert parts is not None                            # enc_dim 给定 ⇒ patch 旁路启用
+
+    loss = out["mu"].pow(2).mean() + out["action_plan"]["onset"].mean() + mouse_logits.mean()
+    loss.backward()
+
+    has_nan = any(p.grad is not None and torch.isnan(p.grad).any()
+                  for p in model.parameters())
+    assert not has_nan, "梯度出现 NaN"
+
+    # EMA 目标编码器跟踪一步,不应抛错
+    model.ema_update()
+
 
 if __name__ == "__main__":
-    test_full_pipeline()
+    test_world_model_forward_backward()
+    print("ok")

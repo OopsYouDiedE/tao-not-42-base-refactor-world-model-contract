@@ -38,8 +38,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from train.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
-from train.minecraft.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名
+from domains.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE  # noqa: E402
+from domains.minecraft.vpt_dataset import VPT_KEYS as DS_KEYS  # 训练真契约的键名
 
 # ---- 数据契约(与 colab §1/§2 + utils.vpt_action 严格一致)----
 BASE = "https://openaipublic.blob.core.windows.net/minecraft-rl"
@@ -172,14 +172,19 @@ def parse_actions(jsonl_path):
 
 # ============================ DINOv2 特征 ============================
 class Backbone:
-    """冻结 DINOv2 ViT-S/14,复刻 net.extract_feats 预处理(128→126 双线性 + ImageNet 归一化)。"""
+    """冻结 DINOv2 ViT-S/14(HF facebook/dinov2-small),复刻 net.extract_feats 预处理
+    (128→126 双线性 + ImageNet 归一化 + 切 CLS/register)。"""
 
     def __init__(self, device):
+        from transformers import AutoModel
+        from utils.hf_token import get_hf_token
         self.device = device
-        self.m = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14").to(device).eval()
+        self.m = AutoModel.from_pretrained(
+            "facebook/dinov2-small", token=get_hf_token()).to(device).eval()
         for p in self.m.parameters():
             p.requires_grad_(False)
-        self.ps = 14
+        self.ps = self.m.config.patch_size
+        self.n_reg = getattr(self.m.config, "num_register_tokens", 0) or 0
         self.mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
         self.std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
 
@@ -191,8 +196,8 @@ class Backbone:
         if (H2, W2) != (H, W):
             img01 = F.interpolate(img01, (H2, W2), mode="bilinear", align_corners=False)
         x = (img01 - self.mean) / self.std
-        out = self.m.forward_features(x)
-        return out["x_norm_patchtokens"] if isinstance(out, dict) else out   # [B,M,384]
+        lhs = self.m(pixel_values=x).last_hidden_state          # [B, 1+n_reg+M, 384]
+        return lhs[:, 1 + self.n_reg:, :]                       # [B,M,384] 切 CLS+register
 
 
 def build_pairs(clips, feat_fn, frame_skip, max_frames, img_size, device, model=None, bsz=256):
@@ -403,8 +408,8 @@ def fmt(m):
 
 
 def load_ckpt_model(ckpt_path, device):
-    """从 best checkpoint 重建训练好的 MinecraftWorldModel(骨干从 hub,trainable+EMA 从 ckpt)。"""
-    from net.minecraft_world_model import MinecraftWorldModel
+    """从 best checkpoint 重建训练好的 MinecraftWorldModel(骨干从 HF,trainable+EMA 从 ckpt)。"""
+    from net.world_model import MinecraftWorldModel
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
     a = ck["args"]
     m = MinecraftWorldModel(
@@ -684,7 +689,7 @@ def main():
 
     if args.fetch_to:                      # 数据准备:下载 disjoint 切片,jsonl 转 §2 格式 + 扁平化
         import shutil
-        from train.minecraft.vpt_dataset import _action_vec
+        from domains.minecraft.vpt_dataset import _action_vec
         os.makedirs(args.fetch_to, exist_ok=True)
         clips = fetch_clips(args.cache_dir, args.clips_per_task, clip_offset=args.clip_offset)
         if not clips:

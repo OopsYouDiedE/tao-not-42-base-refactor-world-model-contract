@@ -1,7 +1,7 @@
 """VPT 动作轨迹蒸馏训练(train/vpt)。
 
 目标:把 VPT 数据里**记录的动作轨迹**(示范者 / VPT-IDM 的逐帧操作)蒸馏进世界模型的
-规划头 [decode_action_plan](net/minecraft_world_model.py)——DETR 式未来 K 步动作通道,
+规划头 [decode_action_plan](net/world_model.py)——DETR 式未来 K 步动作通道,
 即"VPT-mini"行为策略。仓库内**没有**可加载的真 OpenAI VPT 神经网(无 minerl/权重),
 所以"蒸馏 VPT 模型"= 用 VPT 轨迹做序列级行为蒸馏(soft 目标改 hard 轨迹的退化版);
 若日后接入真 VPT 网,把目标换成它的逐帧动作分布(KL)即可,本脚本骨架不变。
@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from net.minecraft_world_model import MinecraftWorldModel
+from net.world_model import MinecraftWorldModel
 from train.minecraft.vpt_dataset import VPTStreamDataset
 from train.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
 from train.minecraft.task_text import TaskTextEncoder

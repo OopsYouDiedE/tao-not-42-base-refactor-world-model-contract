@@ -58,7 +58,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from net.minecraft_world_model import MinecraftWorldModel
+from net.world_model import MinecraftWorldModel
 from train.minecraft.vpt_dataset import VPTStreamDataset
 from train.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
 from train.minecraft.control_remap import ControlRemap

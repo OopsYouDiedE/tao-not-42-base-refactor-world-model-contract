@@ -409,7 +409,7 @@ def fmt(m):
 
 def load_ckpt_model(ckpt_path, device):
     """从 best checkpoint 重建训练好的 MinecraftWorldModel(骨干从 HF,trainable+EMA 从 ckpt)。"""
-    from net.minecraft_world_model import MinecraftWorldModel
+    from net.world_model import MinecraftWorldModel
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
     a = ck["args"]
     m = MinecraftWorldModel(

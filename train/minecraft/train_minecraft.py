@@ -1126,7 +1126,7 @@ def main():
                        else None)
             p = visualize_minecraft(model, viz_batch, dev,
                                     os.path.join(args.viz_dir, f"ep{ep:04d}.png"),
-                                    task_emb=viz_emb)
+                                    task_emb=viz_emb, remap=remap)
             if p:
                 print(f"  [viz] {p}")
                 if use_wandb:

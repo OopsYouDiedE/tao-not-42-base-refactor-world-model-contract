@@ -31,13 +31,18 @@ N_MOUSE = 2
 
 @torch.no_grad()
 def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_from=None,
-                    task_emb=None):
+                    task_emb=None, remap=None):
     """跑一遍序列收集可视化轨迹。img: [B,T,3,H,W] float∈[0,1]。取样本 0。
 
     闭环段:感知输入 = encode_obs(img_t);开环段(t >= open_loop_from):
     感知输入 = 上一步预测 ẑ = z_ref + μ 的累积(训练是 teacher forcing,
     开环漂移速度是"学没学到可推演动力学"的检验,不是训练目标)。
     序列应来自 holdout clip(train_minecraft 已按 split 切分)。
+
+    remap:控制重映射(--control_remap)。**必须与 evaluate 同口径施加**——否则模型
+    在 remapped 坐标系下训练,面板却喂 identity 动作,inv-dyn/plan 读出是在错误坐标系
+    里量的,看着"垮"实为口径错位。用与 eval 相同的固定 holdout 种子(12345)⇒ 面板里
+    的动作方案 = eval 固定集的方案,两边数可直接对照。remap=None 时为恒等(无 remap 跑)。
     """
     was_training = model.training
     model.eval()
@@ -46,6 +51,11 @@ def collect_rollout(model, img, act_seq, act_agg, dt, t_vec, device, open_loop_f
         N, d = model.N, model.d
         if open_loop_from is None:
             open_loop_from = max(2, (T - 1) // 2)
+
+        if remap is not None:
+            spec = remap.sample(B, device, holdout=True,
+                                generator=torch.Generator().manual_seed(12345))
+            act_seq, act_agg = remap.apply(act_seq, spec), remap.apply(act_agg, spec)
 
         # 批量预计算:冻结骨干特征一次提取,在线编码与 EMA 目标编码共用
         feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
@@ -201,10 +211,19 @@ def render_panel(traj, out_path, title=""):
     ax.axvspan(olf, Tm1 - 1, color="gray", alpha=0.18, label="OPEN-LOOP (blind)")
     ax.set_yscale("log")
     ratio = pred_e.mean() / max(pers_e.mean(), 1e-6)
+    # pred_move(运动样本平方比):**与 train/eval 的 pred_move 同定义**,才能跨面板/曲线对照。
+    # 上面的 model/pers 是「全步 RMS 比」——大量静止帧(模型≈persistence≈copy,比值 by
+    # construction ≈1)把它拖向 1.0,看着像"只比复读强 1%",其实是被静止帧稀释。这里复刻
+    # eval 口径:per-step 平方误差/平方 |dz|,只取 |dz|² 高于中位数的"运动"步求均值。
+    pred_sq, dz_sq = pred_e ** 2, pers_e ** 2
+    moved = dz_sq > np.median(dz_sq)
+    sel = moved if moved.any() else np.ones_like(moved, dtype=bool)
+    pred_move = float((pred_sq[sel] / np.maximum(dz_sq[sel], 1e-6)).mean())
     ax.text(0.02, 0.04,
             f"closed {pred_e[:olf].mean():.3g} | open {pred_e[olf:].mean():.3g} | "
-            f"|dz| {pers_e.mean():.3g} | |mu| {mu_n.mean():.3g} | "
-            f"model/pers = {ratio:.2f} (<1 = beats copy)",
+            f"|dz| {pers_e.mean():.3g} | |mu| {mu_n.mean():.3g}\n"
+            f"model/pers(RMS,all) = {ratio:.2f} | "
+            f"pred_move(sq,moved) = {pred_move:.2f}  <- matches train/eval (<1 = beats copy)",
             transform=ax.transAxes, fontsize=7,
             bbox=dict(fc="white", alpha=0.7, ec="none"))
     ax.set_xlabel("step"); ax.set_ylabel("latent RMS error (log)")
@@ -298,13 +317,17 @@ def render_panel(traj, out_path, title=""):
 
 
 @torch.no_grad()
-def visualize_minecraft(model, batch, device, out_path, title="", task_emb=None):
-    """入口:对一个 batch(取样本 0)出一张面板 PNG。返回路径或 None(matplotlib 缺失)。"""
+def visualize_minecraft(model, batch, device, out_path, title="", task_emb=None, remap=None):
+    """入口:对一个 batch(取样本 0)出一张面板 PNG。返回路径或 None(matplotlib 缺失)。
+
+    remap:控制重映射对象,透传给 collect_rollout 与 eval 同口径施加(见其 docstring)。
+    """
     img = batch["img"].to(device)
     img = img.float().div_(255.0) if img.dtype == torch.uint8 else img.float()
     traj = collect_rollout(model, img,
                            batch["act_seq"].to(device), batch["act_agg"].to(device),
                            batch["dt"].to(device), batch["t_vec"].to(device), device,
-                           task_emb=task_emb.to(device) if task_emb is not None else None)
+                           task_emb=task_emb.to(device) if task_emb is not None else None,
+                           remap=remap)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     return render_panel(traj, out_path, title=title)

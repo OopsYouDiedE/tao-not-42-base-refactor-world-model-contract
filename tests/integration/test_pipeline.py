@@ -1,13 +1,14 @@
 """集成冒烟:活的 MinecraftWorldModel(Δz-JEPA)前向 + 反向 + EMA,全程离线 CPU。
 
-用 `--encoder mock`(net.backbone.MockDINOv2 随机冻结卷积)绕开网络/GPU,
-只验证管线接线正确(import、token 拼接位置、shape、无 NaN 梯度)——
-不验证学习效果(那是训练指标的事)。替代了旧的 TaoNot42 + rhythm 冒烟。
+骨干用本文件内的 MockDINOv2(随机冻结卷积)经**依赖注入**喂给模型——按 AGENTS §2,
+mock 只许在 tests/。绕开网络/GPU,只验证管线接线(import、token 拼接位置、shape、
+无 NaN 梯度),不验证学习效果(那是训练指标的事)。替代了旧的 TaoNot42 + rhythm 冒烟。
 """
 import os
 import sys
 
 import torch
+import torch.nn as nn
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
@@ -16,10 +17,29 @@ from net.world_model import MinecraftWorldModel
 ACT_DIM = 22
 
 
+class MockDINOv2(nn.Module):
+    """随机冻结卷积,模拟 DINOv2 输出 patch token——仅供无网络管线冒烟,经依赖注入传入模型。
+
+    输入 [B,3,H,W] → 输出 [B,M,d];.embed_dim 让模型自动取 enc_dim。
+    """
+    def __init__(self, d=64):
+        super().__init__()
+        self.embed_dim = d
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=8, stride=8), nn.ReLU(),
+            nn.Conv2d(64, d, kernel_size=4, stride=4), nn.ReLU(),
+        )
+
+    def forward(self, x):
+        feat = self.net(x)                                  # [B, d, h, w]
+        B, d, h, w = feat.shape
+        return feat.view(B, d, h * w).transpose(1, 2)       # [B, M, d]
+
+
 def _tiny_model():
     return MinecraftWorldModel(
         d=64, N=4, K=2, J=2, act_dim=ACT_DIM, ema_decay=0.99,
-        max_skip=3, encoder="mock", d_xi=8, inv_dyn_ctx=True)
+        max_skip=3, backbone=MockDINOv2(64), d_xi=8, inv_dyn_ctx=True)
 
 
 def test_world_model_forward_backward():

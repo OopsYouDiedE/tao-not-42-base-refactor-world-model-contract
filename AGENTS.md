@@ -20,9 +20,8 @@
 
 - 核心代码(`net/`、`train/`)必须保持纯净,**禁止**掺杂任何本地 Mock、调试数据加载或环境兼容降级逻辑。
 - 所有依赖(`transformers`、`opencv-python`、`datasets` 等)**缺包直接报错**,不写 `try/except` 降级。
-- CPU 兼容、骨干 Mock、离线数据 Mock **必须且仅允许**存在于 `tests/` 目录。
-  - ⚠ 现状例外:`net/backbone.py` 的 `MockDINOv2` 作为 `--encoder mock` 离线冒烟骨干仍在 `net/`
-    (显式 CLI 选择,非静默降级)。是否经依赖注入移入 `tests/` 待定,见 code_conventions §4。
+- CPU 兼容、骨干 Mock、离线数据 Mock **必须且仅允许**存在于 `tests/` 目录。骨干 mock 经
+  **依赖注入**(`MinecraftWorldModel(backbone=...)`)传入,生产 `net/` 不含任何 mock。
 
 ---
 
@@ -31,10 +30,10 @@
 ```
 tests/
   unit/                纯单元测试(无需网络/GPU:几何、损失、SIGReg、位置编码)
-  integration/         集成测试(活 MinecraftWorldModel,--encoder mock 离线 CPU 前向+反向+EMA)
+  integration/         集成测试(活 MinecraftWorldModel,DI 注入 mock 骨干,离线 CPU 前向+反向+EMA)
 ```
 
-所有 mock(骨干 mock、离线数据)按 §2 落在 `tests/` 或经 CLI `--encoder mock` 显式选择。
+所有 mock(骨干 mock、离线数据)按 §2 落在 `tests/`,骨干 mock 经依赖注入传入模型。
 
 ---
 
@@ -43,11 +42,11 @@ tests/
 | 硬件环境 | 可运行内容 |
 | :--- | :--- |
 | **Linux + CUDA(生产)** | 全量:net/ + domains/ + train/ + 真实 DINOv3 骨干训练 |
-| **Windows + CUDA(开发)** | net/ 前向、`tests/`、`--encoder mock` 离线冒烟(Mamba 已弃用,无平台门槛) |
-| **CPU Only** | `tests/unit/` + `tests/integration/`(mock 骨干,小尺寸) |
+| **Windows + CUDA(开发)** | net/ 前向、`tests/`(DI mock 骨干离线冒烟;Mamba 已弃用,无平台门槛) |
+| **CPU Only** | `tests/unit/` + `tests/integration/`(依赖注入 mock 骨干,小尺寸) |
 
 > 视觉骨干统一走 HuggingFace `transformers`(见 `net/backbone.py`)。DINOv3 权重 gated,
-> 需 HF token(`utils/hf_token.py`);无网络改 `--encoder mock`。
+> 需 HF token(`utils/hf_token.py`);无 token 改 `--encoder dinov2`(开放权重),离线管线冒烟见 `tests/`。
 
 ---
 

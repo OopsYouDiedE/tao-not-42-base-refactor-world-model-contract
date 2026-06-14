@@ -336,7 +336,7 @@ def main():
     ap.add_argument("--log_every", type=int, default=5)
     ap.add_argument("--eval_every", type=int, default=5)
     ap.add_argument("--ckpt_dir", default="runs/vpt_distill_ckpt")
-    ap.add_argument("--encoder", choices=["dinov3", "dinov2", "mock"], default="dinov3")
+    ap.add_argument("--encoder", choices=["dinov3", "dinov2"], default="dinov3")
     ap.add_argument("--encoder_weights", default=None, help="覆盖骨干 HF repo id")
     ap.add_argument("--d", type=int, default=384)
     ap.add_argument("--N", type=int, default=16, help="实体槽数")

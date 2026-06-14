@@ -25,7 +25,7 @@ blocks/            L1 算子库(PreLNAttn/GatedResidual/SIGReg/ContinuousTimeEnc
 net/               网络组件
   world_model.py   MinecraftWorldModel —— Δz-JEPA 活模型(顶层装配)
   slots.py         SlotBinder / SlotCompetitiveAttn(实体槽绑定)
-  backbone.py      load_backbone(冻结 DINOv2/v3 HF 加载)+ MockDINOv2(--encoder mock 离线冒烟)
+  backbone.py      load_backbone(冻结 DINOv2/v3 HF 加载;mock 骨干见 tests/,经依赖注入)
   heads.py         DecoderHeads(未来动作规划)/ InverseDynamicsHead(逆动力学)
   world_probe.py   世界探针
   vpt_lib/         vendored OpenAI VPT(第三方,见 NOTICE;不受代码规范约束)
@@ -45,7 +45,7 @@ train/             训练基础设施(只放循环 + 装配)
     distill_vpt.py      VPT teacher 软 KL 蒸馏
 utils/             通用基础设施(data/geometry/losses/matching/nn/probes/visualization/hf_token)
 tools/             离线脚本:oracle_idm(逆动力学上界诊断)/ download_sample_data / vpt_teacher
-tests/             unit/(几何/损失/SIGReg,CPU 可跑)+ integration/(活模型 mock 骨干冒烟)
+tests/             unit/(几何/损失/SIGReg,CPU 可跑)+ integration/(活模型离线冒烟,DI 注入 mock 骨干)
 knowledge/         设计文档:mental_world(愿景)/ code_conventions(代码规范)
 runs/              下载数据 / checkpoints / 日志  [gitignored]
 ```
@@ -60,7 +60,7 @@ runs/              下载数据 / checkpoints / 日志  [gitignored]
   opencv / numpy / wandb 等)。
 - **开发(测试 + net 前向)**:Windows + CUDA 同样可跑——Mamba 已弃用,不再有平台门槛。
 - DINOv3 权重 **gated**:需 HuggingFace token,经 Colab Secret(`HF_TOKEN`)或仓库根 `.env` 注入
-  (`utils/hf_token.py` 双重加载)。无网络时用 `--encoder mock` 离线冒烟。
+  (`utils/hf_token.py` 双重加载)。无 token 用 `--encoder dinov2`(开放权重);离线管线冒烟见 `tests/integration/`。
 
 ```bash
 pip install -r requirements.txt
@@ -76,8 +76,8 @@ python train/minecraft/train_minecraft.py \
     --data_dir runs/vpt_sample --holdout_dir runs/vpt_holdout \
     --encoder dinov3 --img_size 128 --batch 128 --epochs 300 --device cuda
 
-# 无网络冒烟(随机 mock 骨干,验证管线接线)
-python train/minecraft/train_minecraft.py --data_dir runs/vpt_sample --encoder mock --epochs 1
+# 无 HF token 时用开放权重 dinov2(首次下载后本地缓存)
+python train/minecraft/train_minecraft.py --data_dir runs/vpt_sample --encoder dinov2 --epochs 1
 
 # 全部参数
 python train/minecraft/train_minecraft.py --help

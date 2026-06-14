@@ -42,7 +42,7 @@ import torch.nn.functional as F
 
 from blocks.primitives import ContinuousTimeEncoding
 from net.slots import SlotBinder
-from net.backbone import load_backbone, MockDINOv2
+from net.backbone import load_backbone
 from net.heads import DecoderHeads, InverseDynamicsHead, N_CAMERA_BINS
 
 
@@ -69,7 +69,7 @@ class MinecraftWorldModel(nn.Module):
 
     def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
                  ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None,
-                 d_xi=32, inv_dyn_ctx=False):
+                 d_xi=32, inv_dyn_ctx=False, backbone=None, enc_dim=None):
         super().__init__()
         self.d = d
         self.N = N # 实体槽数量
@@ -77,21 +77,23 @@ class MinecraftWorldModel(nn.Module):
         self.J = J # 历史动作长度(训练/可视化按此构造 a_hist)
         self.S = max_skip # 区间动作序列最大长度(= 数据集 frame_skip 上限)
         self.ema_decay = ema_decay
-        self.encoder_kind = encoder
 
-        # 视觉骨干:**冻结**的预训练 DINOv3 ViT-S/16(HF,默认;dinov2 ViT-S/14 为开放权重备选)。prime-leaf-7 实测:从零训练
-        # 的 mock 卷积在 2 个 clip 上把纹理背熟(train pred 0.19 vs holdout ~1.7×基线,
-        # 鼠标读出 holdout ≈ 随机),泛化失败的主因之一是表征没有先验。冻结预训练
-        # 骨干给目标编码一个独立于本任务数据的意义来源——这正是 JEPA 的前提。
-        # 骨干冻结且在线/目标共享 ⇒ 特征每帧只需提取一次(extract_feats),
+        # 视觉骨干:**冻结**的预训练 DINOv3 ViT-S/16(HF,默认;dinov2 ViT-S/14 为开放权重备选)。
+        # prime-leaf-7 实测:从零训练的随机卷积骨干(无预训练先验)在 2 个 clip 上把纹理背熟
+        # (train pred 0.19 vs holdout ~1.7×基线,鼠标读出 holdout ≈ 随机),泛化失败的主因
+        # 之一是表征没有先验。冻结预训练骨干给目标编码一个独立于本任务数据的意义来源——
+        # 这正是 JEPA 的前提。骨干冻结且在线/目标共享 ⇒ 特征每帧只需提取一次(extract_feats),
         # EMA 只需覆盖可训练部分(proj + binder),省一半视觉计算与 21M 参数副本。
-        if encoder in ("dinov2", "dinov3"):
-            self.backbone, self._patch, enc_dim, self._n_reg = load_backbone(encoder, encoder_weights)
+        # backbone 非空 = 依赖注入:仅测试用(离线 mock 骨干按 AGENTS §2 只许在 tests/),
+        # 须自带 .embed_dim 或显式给 enc_dim;生产恒走 load_backbone(dinov2/dinov3)。
+        if backbone is not None:
+            self.backbone = backbone
+            self.encoder_kind = "injected"
+            enc_dim = enc_dim if enc_dim is not None else backbone.embed_dim
+            self._patch, self._n_reg = None, 0
         else:
-            self.backbone = MockDINOv2(d)
-            enc_dim = d
-            self._patch = None
-            self._n_reg = 0
+            self.backbone, self._patch, enc_dim, self._n_reg = load_backbone(encoder, encoder_weights)
+            self.encoder_kind = encoder
         for p in self.backbone.parameters():
             p.requires_grad_(False)
         self.backbone.eval()

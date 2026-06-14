@@ -1,15 +1,16 @@
+# 运行时依赖:只列代码实际 import 的包。
+# 2026-06 瘦身:移除 legacy(rhythm/yolo/procgen/mamba 时代)且全仓无 import 的
+# tensorflow / tensorflow-datasets / h5py / ultralytics / scipy / mamba-ssm。
 torch
-torchvision
+torchvision        # utils/visualization.py
 numpy
-opencv-python
-tensorflow
-tensorflow-datasets
-h5py
-wandb
-ultralytics
-scipy
-# optional but recommended for real Mamba acceleration:
-# mamba-ssm
+opencv-python      # cv2:VPT 数据集解码 + 可视化
+matplotlib         # 训练面板 minecraft_viz / train_probe
+transformers       # 任务文本编码(--text_encoder minilm;缺失时自动回退 mock)
+wandb              # 远程实验记录(--wandb)
+requests           # 数据下载(tools/oracle_idm.py、colab 数据准备)
 
-xformers  # optional, removes DINOv2 SwiGLU warning and speeds up attention
-transformers  # 任务文本编码(--text_encoder minilm;缺失时自动回退 mock)
+# 可选:DINOv2 的 SwiGLU 注意力加速 + 消除告警。
+# ⚠ Colab 上勿装——pip 会按 torch 版本拉特定 build,可能把预装的 GPU torch
+#    降级掉(colab_demo.ipynb 已在依赖同步时主动排除 xformers)。
+# xformers

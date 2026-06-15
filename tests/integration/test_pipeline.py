@@ -13,6 +13,7 @@ import torch.nn as nn
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from net.world_model import MinecraftWorldModel
+from net.config import ModelConfig, XiConfig, HeadsConfig
 
 ACT_DIM = 22
 
@@ -37,9 +38,9 @@ class MockDINOv2(nn.Module):
 
 
 def _tiny_model():
-    return MinecraftWorldModel(
-        d=64, N=4, K=2, J=2, act_dim=ACT_DIM, ema_decay=0.99,
-        max_skip=3, backbone=MockDINOv2(64), d_xi=8, inv_dyn_ctx=True)
+    cfg = ModelConfig(d=64, N=4, K=2, J=2, act_dim=ACT_DIM, ema_decay=0.99, max_skip=3,
+                      xi=XiConfig(d_xi=8), heads=HeadsConfig(inv_dyn_ctx=True))
+    return MinecraftWorldModel(cfg, backbone=MockDINOv2(64))
 
 
 def test_world_model_forward_backward():

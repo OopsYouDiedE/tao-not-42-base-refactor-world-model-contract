@@ -49,6 +49,7 @@ import argparse
 import itertools
 import os
 import sys
+from dataclasses import asdict
 
 import torch
 import torch.nn.functional as F
@@ -69,6 +70,8 @@ from train.minecraft.losses import (dz_pred_loss, slot_diversity_loss,
                                      minecraft_inv_dyn_loss, plan_bc_loss, kl_diag_gauss)
 from train.minecraft.eval import evaluate, rollout_probe
 from blocks.primitives import SIGReg
+from net.config import ModelConfig
+from utils.config_io import load_yaml
 
 
 # =====================================================================
@@ -378,20 +381,11 @@ def main():
     ap.add_argument("--eval_only", default=None,
                     help="加载 best checkpoint(只含可训练+EMA,骨干从 HF),对 holdout "
                          "跑一次 evaluate 打印分叉(pred_post / 分桶)后退出——零训练成本读"
-                         "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--d/--N/--K/--d_xi 等)")
-    ap.add_argument("--encoder", choices=["dinov3", "dinov2"], default="dinov3",
-                    help="视觉骨干(冻结,统一走 HF transformers):dinov3=ViT-S/16(默认;384 维,"
-                         "patch=16 整除 128→8×8,4 register token,稠密特征最强;权重 gated,"
-                         "token 经 Colab Secret(HF_TOKEN)/.env 注入,见 utils/hf_token.py);"
-                         "dinov2=ViT-S/14(384 维,权重开放,无需 token,降级备选,img_size 削到 126)。"
-                         "离线管线冒烟用 tests/integration(依赖注入 mock 骨干,非此 CLI)")
-    ap.add_argument("--encoder_weights", default=None,
-                    help="可选:覆盖骨干 HF repo id(如换更大变体 facebook/dinov3-vitb16-pretrain-lvd1689m;"
-                         "enc_dim 自动取 cfg.hidden_size,proj 吸收到 d,无需改 --d)")
-    ap.add_argument("--d", type=int, default=384)
-    ap.add_argument("--N", type=int, default=16, help="实体槽数")
-    ap.add_argument("--K", type=int, default=5, help="动作查询数")
-    ap.add_argument("--J", type=int, default=8, help="历史动作长度")
+                         "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--config 选对应预设)")
+    ap.add_argument("--config", default="configs/minecraft/base.yaml",
+                    help="模型结构 yaml 预设(骨干/binder/dynamics/heads/ξ 选择 + d/N/K/J 等"
+                         "超参;见 configs/minecraft/)。结构参数全部走此预设,不再用 CLI flag;"
+                         "max_skip 运行时由 --frame_skip 注入")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--alpha_inv", type=float, default=1.0, help="逆动力学损失权重")
     ap.add_argument("--mouse_move_w", type=float, default=4.0,
@@ -418,9 +412,6 @@ def main():
                          "kb_onset_recall 无效——瓶颈是感知信息(onset 后 1-2 帧的视觉"
                          "效果低于 128px 表征分辨能力)而非损失权重,onset 问题转"
                          "fovea/分辨率路线;旋钮保留供复验")
-    ap.add_argument("--d_xi", type=int, default=32,
-                    help="随机隐变量 ξ 维度(Δz 不可预测新内容的有价通道;"
-                         "闭环训练用后验采样,开环/eval 用先验均值)")
     ap.add_argument("--beta_kl", type=float, default=0.1,
                     help="KL(q‖p) 权重 = ξ 通道的价格(kl 曲线暴涨说明在作弊 → 提价;"
                          "kl≈free-bits 地板说明通道闲置 → 降价或检查)")
@@ -442,9 +433,9 @@ def main():
     ap.add_argument("--beta_div", type=float, default=0.05,
                     help="槽间多样性权重:软惩罚竞争注意力图的成对重叠(谁看哪里),逼不同 "
                          "slot 落在不同 patch、修多 slot 盯同一物体的冗余。0=关闭")
-    ap.add_argument("--ema_decay", type=float, default=0.99,
-                    help="目标编码器 EMA 衰减(时间常数 ≈ 1/(1−τ) 个优化步;短跑程用 0.99,"
-                         "长跑程可升 0.996+)")
+    ap.add_argument("--ema_decay", type=float, default=None,
+                    help="目标编码器 EMA 衰减;None=用 --config 预设值(默认 0.99)。"
+                         "短跑程 0.99,长跑程可升 0.996+(时间常数 ≈ 1/(1−τ) 个优化步)")
     ap.add_argument("--k_bptt", type=int, default=4, help="截断 BPTT 窗口")
     ap.add_argument("--no_amp", action="store_true", help="关闭 AMP 混合精度(默认 cuda 上开启)")
     ap.add_argument("--wandb", action="store_true", help="开启 wandb 远程记录(key 从环境变量 WANDB_API_KEY 读)")
@@ -460,9 +451,6 @@ def main():
                     help="同时重映射相机(轴 swap + 符号);默认仅键盘(强信号,第一枪更干净)")
     ap.add_argument("--remap_holdout_n", type=int, default=64,
                     help="holdout 键盘置换 bank 大小(eval 从中抽;train 拒采保证 disjoint)")
-    ap.add_argument("--inv_dyn_ctx", action="store_true",
-                    help="逆动力学头吃脑内记忆 h(FiLM 调制)⇒ 能 in-context 应用本局推断的控制"
-                         "映射;control_remap 下「看视频推操作」的信号才能落到 inv-dyn 指标上")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -570,11 +558,14 @@ def main():
         viz_batch = next(iter(DataLoader(viz_ds, batch_size=1)))
         os.makedirs(args.viz_dir, exist_ok=True)
 
-    model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM,
-                                n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
-                                max_skip=args.frame_skip, encoder=args.encoder,
-                                encoder_weights=args.encoder_weights,
-                                d_xi=args.d_xi, inv_dyn_ctx=args.inv_dyn_ctx).to(dev)
+    cfg = ModelConfig.from_dict(load_yaml(args.config).get("model", {}))
+    cfg.max_skip = args.frame_skip            # 单一来源:区间动作上限 = 数据 frame_skip
+    if args.ema_decay is not None:            # CLI 仅在显式给出时覆盖 yaml 预设
+        cfg.ema_decay = args.ema_decay
+    assert cfg.act_dim == ACT_DIM, f"config act_dim {cfg.act_dim} ≠ 领域 ACTION_DIM {ACT_DIM}"
+    assert cfg.heads.n_cam_bins == CAMERA_BINS, \
+        f"config n_cam_bins {cfg.heads.n_cam_bins} ≠ 领域 CAMERA_BINS {CAMERA_BINS}"
+    model = MinecraftWorldModel(cfg).to(dev)
 
     if args.eval_only:
         ck = torch.load(args.eval_only, map_location=dev)
@@ -605,7 +596,7 @@ def main():
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_frozen = sum(p.numel() for p in model.backbone.parameters())
-    print(f"trainable params: {n_train / 1e6:.1f}M | frozen {args.encoder} backbone: "
+    print(f"trainable params: {n_train / 1e6:.1f}M | frozen {cfg.backbone.kind} backbone: "
           f"{n_frozen / 1e6:.1f}M | batch={args.batch} workers={n_workers} "
           f"steps/epoch={args.steps_per_epoch} frame_skip={args.frame_skip}")
 
@@ -625,8 +616,8 @@ def main():
     def _save_best(ep, score):
         sd = {k: v for k, v in model.state_dict().items() if not k.startswith("backbone.")}
         torch.save({"model": sd, "epoch": ep, "metric": args.best_metric, "score": score,
-                    "encoder": args.encoder, "camera_scale": cam_scale,
-                    "args": vars(args)}, best_path)
+                    "encoder": cfg.backbone.kind, "camera_scale": cam_scale,
+                    "config": asdict(cfg), "args": vars(args)}, best_path)
 
     def _update_best(ev, ep):
         nonlocal best_score, best_ep

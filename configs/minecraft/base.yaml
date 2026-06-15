@@ -1,0 +1,29 @@
+# MinecraftWorldModel 生产基线结构(逐位复现今日模型)。
+# 由 train 装配时读取(utils.config_io.load_yaml → net.config.ModelConfig.from_dict);
+# 缺键取 net.config 默认值。max_skip 运行时由 --frame_skip 注入(数据/模型单一来源)。
+model:
+  d: 384
+  N: 16              # 实体槽数
+  K: 5               # 动作查询数
+  J: 8               # 历史动作长度
+  ema_decay: 0.99
+  max_skip: 8
+  state_dec_mult: 2
+  backbone:
+    kind: dinov3     # dinov3=ViT-S/16(gated)| dinov2=ViT-S/14(开放权重备选)
+    weights: null    # 覆盖 HF repo id(换更大变体);null=用 kind 默认 repo
+  encoder:
+    binder: competitive   # competitive=slot 维竞争 | preln=PreLNAttn cross
+    binder_heads: 4
+  dynamics:
+    kind: transformer
+    num_layers: 4
+    nhead: 8
+    ffn_mult: 4
+    dropout: 0.0
+  heads:
+    n_cam_bins: 11   # 须 == domains.minecraft.vpt_action.CAMERA_BINS(训练端断言)
+    inv_dyn_ctx: false
+  xi:
+    d_xi: 32
+    phi: null        # null=默认 max(8, d//8)

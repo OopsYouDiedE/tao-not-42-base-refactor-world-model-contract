@@ -1,0 +1,22 @@
+# 小尺寸预设:CPU 离线冒烟用(配依赖注入 mock 骨干,见 tests/unit/test_config.py)。
+# nhead/binder_heads 须整除 d。
+model:
+  d: 64
+  N: 4
+  K: 2
+  J: 2
+  max_skip: 3
+  backbone:
+    kind: dinov2          # 仅 DI mock 冒烟时被骨干注入覆盖;真加载用 base.yaml
+  encoder:
+    binder: competitive
+    binder_heads: 4
+  dynamics:
+    kind: transformer
+    num_layers: 2
+    nhead: 4
+    ffn_mult: 2
+  heads:
+    inv_dyn_ctx: true
+  xi:
+    d_xi: 8

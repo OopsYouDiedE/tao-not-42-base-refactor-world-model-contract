@@ -21,7 +21,11 @@
 - 核心代码(`net/`、`train/`)必须保持纯净,**禁止**掺杂任何本地 Mock、调试数据加载或环境兼容降级逻辑。
 - 所有依赖(`transformers`、`opencv-python`、`datasets` 等)**缺包直接报错**,不写 `try/except` 降级。
 - CPU 兼容、骨干 Mock、离线数据 Mock **必须且仅允许**存在于 `tests/` 目录。骨干 mock 经
-  **依赖注入**(`MinecraftWorldModel(backbone=...)`)传入,生产 `net/` 不含任何 mock。
+  **依赖注入**(`MinecraftWorldModel(cfg, backbone=...)`)传入,生产 `net/` 不含任何 mock。
+- 模型结构参数(d/N/K/J、骨干 / binder / dynamics / heads / ξ 的选择与超参)走
+  `configs/<game>/*.yaml` 预设。`net/` 只持有类型化 schema(`net/config.py`,纯 dataclass 无 IO)
+  与 `build_*` 工厂;yaml 读取在 `utils/config_io.py`、领域常量校验在 `train/`
+  ——`net/` 不 import domain、不读文件。
 
 ---
 
@@ -46,7 +50,8 @@ tests/
 | **CPU Only** | `tests/unit/` + `tests/integration/`(依赖注入 mock 骨干,小尺寸) |
 
 > 视觉骨干统一走 HuggingFace `transformers`(见 `net/backbone.py`)。DINOv3 权重 gated,
-> 需 HF token(`utils/hf_token.py`);无 token 改 `--encoder dinov2`(开放权重),离线管线冒烟见 `tests/`。
+> 需 HF token(`utils/hf_token.py`);无 token 用 `--config configs/minecraft/dinov2.yaml`(开放权重),
+> 离线管线冒烟见 `tests/`。
 
 ---
 

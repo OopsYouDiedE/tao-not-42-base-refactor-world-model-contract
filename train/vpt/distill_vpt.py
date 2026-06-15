@@ -32,6 +32,7 @@ import argparse
 import itertools
 import os
 import sys
+from dataclasses import asdict
 
 import torch
 import torch.nn as nn
@@ -47,6 +48,8 @@ from domains.minecraft.vpt_dataset import VPTStreamDataset
 from domains.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bin
 from domains.minecraft.task_text import TaskTextEncoder
 from blocks.primitives import SIGReg
+from net.config import ModelConfig
+from utils.config_io import load_yaml
 
 EPS = 1e-4
 ACT_DIM = 22        # 2 鼠标 + 20 键盘
@@ -336,16 +339,14 @@ def main():
     ap.add_argument("--log_every", type=int, default=5)
     ap.add_argument("--eval_every", type=int, default=5)
     ap.add_argument("--ckpt_dir", default="runs/vpt_distill_ckpt")
-    ap.add_argument("--encoder", choices=["dinov3", "dinov2"], default="dinov3")
-    ap.add_argument("--encoder_weights", default=None, help="覆盖骨干 HF repo id")
-    ap.add_argument("--d", type=int, default=384)
-    ap.add_argument("--N", type=int, default=16, help="实体槽数")
-    ap.add_argument("--K", type=int, default=5, help="动作查询数(= 蒸馏的未来转移步数)")
-    ap.add_argument("--J", type=int, default=8, help="历史动作长度")
+    ap.add_argument("--config", default="configs/minecraft/base.yaml",
+                    help="模型结构 yaml 预设(见 configs/minecraft/;d/N/K/J/骨干/dynamics 等"
+                         "结构参数走预设,不再用 CLI flag;max_skip 由 --frame_skip 注入)")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--mouse_move_w", type=float, default=4.0, help="鼠标非中心 bin 的 CE 权重")
     ap.add_argument("--beta_sigreg", type=float, default=0.1, help="SIGReg 防坍缩权重(施加在 z_obs)")
-    ap.add_argument("--ema_decay", type=float, default=0.99)
+    ap.add_argument("--ema_decay", type=float, default=None,
+                    help="目标编码器 EMA 衰减;None=用 --config 预设值(默认 0.99)")
     ap.add_argument("--k_bptt", type=int, default=4, help="截断 BPTT 窗口")
     ap.add_argument("--no_cosine", action="store_true", help="关闭余弦 lr 衰减")
     ap.add_argument("--ablate_sidecar", action="store_true",
@@ -424,10 +425,14 @@ def main():
             print(f"  [eval] 固定评估集已采集:4×{eval_bs} 序列(此后复用)")
         return eval_batches
 
-    model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM,
-                                n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
-                                max_skip=args.frame_skip, encoder=args.encoder,
-                                encoder_weights=args.encoder_weights).to(dev)
+    cfg = ModelConfig.from_dict(load_yaml(args.config).get("model", {}))
+    cfg.max_skip = args.frame_skip
+    if args.ema_decay is not None:
+        cfg.ema_decay = args.ema_decay
+    assert cfg.act_dim == ACT_DIM, f"config act_dim {cfg.act_dim} ≠ ACTION_DIM {ACT_DIM}"
+    assert cfg.heads.n_cam_bins == CAMERA_BINS, \
+        f"config n_cam_bins {cfg.heads.n_cam_bins} ≠ CAMERA_BINS {CAMERA_BINS}"
+    model = MinecraftWorldModel(cfg).to(dev)
     sidecar = VPTBiasSidecar(n_keys=N_KEYS, n_cam_bins=CAMERA_BINS).to(dev)
 
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
@@ -438,7 +443,7 @@ def main():
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     n_train = sum(p.numel() for p in params)
     print(f"trainable params: {n_train / 1e6:.1f}M(含 sidecar {sum(p.numel() for p in sidecar.parameters())} 个)"
-          f" | batch={args.batch} workers={n_workers} K={args.K} frame_skip={args.frame_skip}")
+          f" | batch={args.batch} workers={n_workers} K={cfg.K} frame_skip={args.frame_skip}")
 
     os.makedirs(args.ckpt_dir, exist_ok=True)
     best_score, best_ep = None, -1
@@ -447,8 +452,9 @@ def main():
     def _save_best(ep, score):
         sd = {k: v for k, v in model.state_dict().items() if not k.startswith("backbone.")}
         torch.save({"model": sd, "sidecar": sidecar.state_dict(), "epoch": ep,
-                    "metric": "eval_distill", "score": score, "encoder": args.encoder,
-                    "camera_scale": cam_scale, "args": vars(args)}, best_path)
+                    "metric": "eval_distill", "score": score, "encoder": cfg.backbone.kind,
+                    "camera_scale": cam_scale, "config": asdict(cfg),
+                    "args": vars(args)}, best_path)
 
     for ep in range(args.epochs):
         r = train_epoch(model, sidecar, sigreg, data_iter, opt, scaler, dev,

@@ -125,9 +125,10 @@ def test_control_remap_train_step():
     pdz = (model.extract_feats(img_t1).mean(1) - model.extract_feats(img_t).mean(1)).float()
     ctx_h = h.squeeze(1).float()                             # pre-step h → FiLM 重绑定通路
     l_pred = dz_pred_loss(out["mu"].float(), dz)[0]
+    # kb_focal + inv_distill_w 走 onset 修复两支路(focal BCE + patch→槽路蒸馏),验证接线/反向
     l_inv = minecraft_inv_dyn_loss((z_tg_t1 - z_obs.float()), out["c"].float(),
                                    act_agg[:, 0], model.inv_dyn, move_w=4.0,
-                                   patch_dz=pdz, ctx=ctx_h)[0]
+                                   patch_dz=pdz, ctx=ctx_h, kb_focal=2.0, distill_w=0.5)[0]
     l_plan = plan_bc_loss(out["action_plan"], act_agg,
                           torch.full((B, T1), float(S)), 0, model.K)[0]
     l_kl = kl_diag_gauss(mu_q.float(), lv_q.float(), mu_p.float(), lv_p.float()).mean()

@@ -200,7 +200,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
                 model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w,
-                patch_dz=pdz, ctx=ctx_h)
+                patch_dz=pdz, ctx=ctx_h, kb_focal=kb_focal, distill_w=distill_w)
             step_loss = l_pred + alpha_inv * l_inv + beta_kl * l_kl_fb
             if out_open is not None:
                 l_open, _, r_open_mv = dz_pred_loss(out_open["mu"].float(), dz)
@@ -249,7 +249,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
                 alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
                 open_alpha, kb_edge_w, beta_kl, kl_free, text_enc, amp_dev, use_amp,
-                remap=None):
+                kb_focal=0.0, distill_w=0.0, remap=None):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
@@ -408,10 +408,17 @@ def main():
                     help="开环 α 课程终点(总 epochs 的分数):start→full 线性爬到 α=1"
                          "(纯 ẑ 输入);两输入分布连续分离,分类器式条件摆烂无处下脚")
     ap.add_argument("--kb_edge_w", type=float, default=1.0,
-                    help="键盘 BCE 跳变元素加权(默认 1=关)。devoted-eon-26 实证 ×4 对"
-                         "kb_onset_recall 无效——瓶颈是感知信息(onset 后 1-2 帧的视觉"
-                         "效果低于 128px 表征分辨能力)而非损失权重,onset 问题转"
-                         "fovea/分辨率路线;旋钮保留供复验")
+                    help="键盘 BCE 跳变元素加权(默认 1=关)。注:devoted-eon-26 ×4 曾'无效',"
+                         "但 2026-06-16 Stage 0 诊断推翻其'感知瓶颈'结论——onset@0.5=0.014 主要是"
+                         "0.5 硬阈假象(降阈 onset 抬到 0.43)+ binder 砍掉 patch 已证可读的置信度"
+                         "(patch onset 中位 0.31 vs 槽路 0.08),非分辨率。配合 --kb_focal/--inv_distill_w 用")
+    ap.add_argument("--kb_focal", type=float, default=0.0,
+                    help="键盘 BCE 的 focal γ(默认 0=普通 BCE)。(1−p_t)^γ 上调被保守压低的 onset"
+                         "难样本(诊断:onset 概率中位仅 0.08、卡在 0.5 阈下)→ 把概率顶过阈值。建议 2.0")
+    ap.add_argument("--inv_distill_w", type=float, default=0.0,
+                    help="patch→槽路 onset 蒸馏权重(默认 0=关)。以 patch 旁路(冻结 patch-mean Δz、"
+                         "诊断证 onset 可读)为 detached teacher 拉高槽路 kb_prob,逼 binder 保住 onset。"
+                         "补 patch(中位 0.31)对槽路(0.08)的 4~6× 落差;梯度只进槽路不污染 teacher。建议 0.5")
     ap.add_argument("--beta_kl", type=float, default=0.1,
                     help="KL(q‖p) 权重 = ξ 通道的价格(kl 曲线暴涨说明在作弊 → 提价;"
                          "kl≈free-bits 地板说明通道闲置 → 降价或检查)")
@@ -683,7 +690,7 @@ def main():
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
                         args.open_every, open_alpha, args.kb_edge_w,
                         args.beta_kl, args.kl_free, text_enc, amp_dev, use_amp,
-                        remap=remap)
+                        kb_focal=args.kb_focal, distill_w=args.inv_distill_w, remap=remap)
         if sched is not None:
             sched.step()
         if r.get("gpu_util") is not None:
@@ -734,7 +741,8 @@ def main():
             print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f} "
                   f"bestK {ev['pred_bestk']:.3f} post {ev['pred_post']:.3f}×copy | "
                   f"turn {ev['pred_turn']:.3f} walk {ev['pred_walk']:.3f} | "
-                  f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f} | "
+                  f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f}"
+                  f"(@.2 槽{ev['onset_slot_r20']:.3f}/patch{ev['onset_patch_r20']:.3f}) | "
                   f"mouse move {ev['mouse_move_acc']:.3f}")
             if remap is not None:
                 print(f"  [eval] 重绑定 onset 子集 {ev['kb_onset_sub']:.3f}/其余 {ev['kb_onset_rest']:.3f}"
@@ -746,6 +754,8 @@ def main():
                 EVAL_MAIN = ("pred", "pred_move", "pred_post", "pred_bestk",
                              "pred_turn", "pred_walk", "pred_still",
                              "kb_onset_recall", "kb_release_recall", "mouse_move_acc",
+                             # onset 诚实读数(@.2 校准阈值)+ patch 天花板:槽路升、向 patch 收敛 = 修对了
+                             "onset_slot_r20", "onset_patch_r20",
                              # 重绑定头号信号:子集 onset/bal + 适应代理
                              "kb_onset_sub", "kb_bal_sub", "kb_sub_early", "kb_sub_late")
                 wandb.log({(f"eval/{k}" if k in EVAL_MAIN else f"eval_diag/{k}"): v

@@ -39,7 +39,8 @@ class DynamicsConfig:
 class HeadsConfig:
     """解码头选项。"""
     n_cam_bins: int = 11           # 必须 == domains.minecraft.vpt_action.CAMERA_BINS(训练端断言)
-    inv_dyn_ctx: bool = False      # 逆动力学头是否吃脑内记忆 h(FiLM 调制)
+    inv_dyn_ctx: bool = True       # 逆动力学头吃脑内记忆 h(FiLM 调制);in-context 重绑定硬前提,
+                                   # 设为默认 ⇒ base/dinov2/空 yaml 一致带此通路(见 mental_world §6)
 
 
 @dataclass

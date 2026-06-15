@@ -47,7 +47,7 @@ def test_defaults_match_legacy():
     assert (c.dynamics.kind, c.dynamics.num_layers, c.dynamics.nhead,
             c.dynamics.ffn_mult, c.dynamics.dropout) == ("transformer", 4, 8, 4, 0.0)
     assert c.encoder.binder == "competitive" and c.encoder.binder_heads == 4
-    assert c.heads.n_cam_bins == 11 and c.heads.inv_dyn_ctx is False
+    assert c.heads.n_cam_bins == 11 and c.heads.inv_dyn_ctx is True   # 重绑定通路设为默认(in-context)
     assert c.xi.d_xi == 32 and c.xi.phi is None
     assert c.backbone.kind == "dinov3" and c.backbone.weights is None
 

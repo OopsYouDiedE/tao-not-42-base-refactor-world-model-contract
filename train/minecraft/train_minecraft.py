@@ -382,6 +382,10 @@ def main():
                     help="加载 best checkpoint(只含可训练+EMA,骨干从 HF),对 holdout "
                          "跑一次 evaluate 打印分叉(pred_post / 分桶)后退出——零训练成本读"
                          "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--config 选对应预设)")
+    ap.add_argument("--init_from", default=None,
+                    help="暖启动:从 URL(http→torch.hub 下载)或本地路径载入 checkpoint 权重"
+                         "(可训练+EMA,骨干从 HF)再开训,而非随机初始化。用于在已有 best 上续训"
+                         "验证改动(如 onset 修复)——几十 epoch 见效,免从零 300。须与 ckpt 同构")
     ap.add_argument("--config", default="configs/minecraft/base.yaml",
                     help="模型结构 yaml 预设(骨干/binder/dynamics/heads/ξ 选择 + d/N/K/J 等"
                          "超参;见 configs/minecraft/)。结构参数全部走此预设,不再用 CLI flag;"
@@ -624,6 +628,19 @@ def main():
                   f"(子集≫chance 且 late>early = 靠 context 学到了重绑定)")
         rollout_probe(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
         return
+
+    if args.init_from:                          # 暖启动:URL/本地 .pt 载入权重(含 EMA)再开训
+        if args.init_from.startswith("http"):
+            ck = torch.hub.load_state_dict_from_url(args.init_from, map_location=dev,
+                                                    check_hash=False)
+        else:
+            ck = torch.load(args.init_from, map_location=dev)
+        sd = ck.get("model", ck) if isinstance(ck, dict) else ck
+        miss, unexp = model.load_state_dict(sd, strict=False)
+        miss = [k for k in miss if not k.startswith("backbone.")]   # 骨干不在 ckpt 里
+        print(f"[init_from] 暖启动加载 {args.init_from} | 缺失(非骨干){len(miss)} 多余{len(unexp)}"
+              + (f" @ep{ck.get('epoch')} {ck.get('metric')}={ck.get('score')}"
+                 if isinstance(ck, dict) else ""))
 
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)

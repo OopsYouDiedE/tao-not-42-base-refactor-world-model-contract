@@ -85,6 +85,63 @@ def test_world_model_forward_backward():
     model.ema_update()
 
 
+def test_control_remap_train_step():
+    """in-context 实验的训练路径端到端冒烟:子集 ControlRemap + inv_dyn_ctx + 四项真实损失。
+
+    验证「可直接训练」——前向(后验 ξ)→ dz_pred + inv_dyn(ctx=h)+ plan_bc + KL → 反向 →
+    无 NaN 梯度。离线 mock 骨干、不触网络/GPU/数据。覆盖上轮新增的 remap 子集机制与
+    base.yaml 默认开启的 inv_dyn_ctx(=true)在真实损失链路里的接线。"""
+    from domains.minecraft.control_remap import ControlRemap, N_MOUSE
+    from train.minecraft.losses import (dz_pred_loss, minecraft_inv_dyn_loss,
+                                         plan_bc_loss, kl_diag_gauss)
+    B, device = 2, "cpu"
+    model = _tiny_model().to(device).train()                 # _tiny_model 已 inv_dyn_ctx=True
+    S, T1, NK = model.S, 4, ACT_DIM - N_MOUSE
+
+    img_t, img_t1 = torch.rand(B, 3, 64, 64), torch.rand(B, 3, 64, 64)
+
+    # 动作:子集置换(高信号 w/a/s/d/space/attack),video(图像)不动。鼠标连续 + 键盘 0/1。
+    def _raw(*lead):
+        return torch.cat([torch.randn(*lead, N_MOUSE) * 2,
+                          (torch.rand(*lead, NK) > 0.5).float()], dim=-1)
+    remap = ControlRemap(remap_keys=True, n_holdout=8, seed=0, key_subset=[0, 1, 2, 3, 4, 7])
+    spec = remap.sample(B)
+    act_cur = remap.apply(_raw(B, S), spec)                  # a_cur [B,S,22]
+    act_agg = remap.apply(_raw(B, T1), spec)                 # 聚合动作序列 [B,T1,22]
+
+    z_obs = model.encode_obs(img_t)                          # [B,N,d] 带梯度
+    with torch.no_grad():
+        dz = model.encode_target(img_t1) - model.encode_target(img_t)
+        z_tg_t1 = model.encode_target(img_t1)
+
+    h = torch.randn(B, 1, model.d)
+    a_hist = torch.zeros(B, model.J, ACT_DIM)
+    dt_b = torch.full((B,), float(S))
+    mu_q, lv_q = model.xi_posterior(z_obs, h, dt_b, dz)
+    mu_p, lv_p = model.xi_prior(z_obs, h, dt_b)
+    out = model(z_obs, h, a_hist, act_cur, dt_b, torch.zeros(B),
+                task_emb=None, xi=model.xi_sample(mu_q, lv_q))
+
+    pdz = (model.extract_feats(img_t1).mean(1) - model.extract_feats(img_t).mean(1)).float()
+    ctx_h = h.squeeze(1).float()                             # pre-step h → FiLM 重绑定通路
+    l_pred = dz_pred_loss(out["mu"].float(), dz)[0]
+    l_inv = minecraft_inv_dyn_loss((z_tg_t1 - z_obs.float()), out["c"].float(),
+                                   act_agg[:, 0], model.inv_dyn, move_w=4.0,
+                                   patch_dz=pdz, ctx=ctx_h)[0]
+    l_plan = plan_bc_loss(out["action_plan"], act_agg,
+                          torch.full((B, T1), float(S)), 0, model.K)[0]
+    l_kl = kl_diag_gauss(mu_q.float(), lv_q.float(), mu_p.float(), lv_p.float()).mean()
+    loss = l_pred + l_inv + l_plan + l_kl
+    loss.backward()
+
+    assert torch.isfinite(loss), "训练步损失非有限"
+    assert model.inv_dyn.use_ctx, "本测试须走 FiLM-on-h 重绑定通路(inv_dyn_ctx=True)"
+    has_nan = any(p.grad is not None and torch.isnan(p.grad).any()
+                  for p in model.parameters())
+    assert not has_nan, "梯度出现 NaN"
+
+
 if __name__ == "__main__":
     test_world_model_forward_backward()
+    test_control_remap_train_step()
     print("ok")

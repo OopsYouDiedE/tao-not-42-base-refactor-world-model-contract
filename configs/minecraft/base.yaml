@@ -23,7 +23,9 @@ model:
     dropout: 0.0
   heads:
     n_cam_bins: 11   # 须 == domains.minecraft.vpt_action.CAMERA_BINS(训练端断言)
-    inv_dyn_ctx: false
+    inv_dyn_ctx: true   # FiLM-on-h 重绑定通路:in-context 从 h 读出本 episode 控制映射 T 去解读 Δz。
+                        # 控制重映射实验的硬前提(关着则 inv-dyn 对 context 全盲、与帧数无关地学不会,
+                        # 见 mental_world §6)。⚠ 改结构:旧 inv_dyn_ctx=false 的 checkpoint 不兼容(多 ctx_film 层)。
   xi:
     d_xi: 32
     phi: null        # null=默认 max(8, d//8)

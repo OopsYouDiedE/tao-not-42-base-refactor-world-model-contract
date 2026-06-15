@@ -60,7 +60,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.world_model import MinecraftWorldModel
-from domains.minecraft.vpt_dataset import VPTStreamDataset
+from domains.minecraft.vpt_dataset import VPTStreamDataset, VPT_KEYS
 from domains.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, ACTION_DIM as ACT_DIM
 from domains.minecraft.control_remap import ControlRemap
 from train.minecraft.minecraft_viz import visualize_minecraft
@@ -451,6 +451,11 @@ def main():
                     help="同时重映射相机(轴 swap + 符号);默认仅键盘(强信号,第一枪更干净)")
     ap.add_argument("--remap_holdout_n", type=int, default=64,
                     help="holdout 键盘置换 bank 大小(eval 从中抽;train 拒采保证 disjoint)")
+    ap.add_argument("--remap_key_subset",
+                    default="key_w,key_a,key_s,key_d,key_space,key_attack",
+                    help="逗号分隔键名:置换只作用在这些「高信号、十几帧可见证」键上、其余恒等"
+                         "(放弃长尾键的不可辨识野心,见 mental_world §6)。默认 6 键"
+                         "(H=log2(6!)≈9.5bit,12 帧预算内最稳);'all'=打全 20 键(旧行为)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -458,12 +463,23 @@ def main():
     is_cuda = str(dev).startswith("cuda")
     amp_dev = "cuda" if is_cuda else "cpu"
     use_amp = is_cuda and not args.no_amp
-    remap = (ControlRemap(remap_keys=True, remap_camera=args.remap_camera,
-                          n_holdout=args.remap_holdout_n, seed=args.seed)
-             if args.control_remap else None)
+    if args.control_remap:
+        if args.remap_key_subset.strip().lower() == "all":
+            key_subset = None
+        else:
+            names = [s.strip() for s in args.remap_key_subset.split(",") if s.strip()]
+            missing = [n for n in names if n not in VPT_KEYS]
+            assert not missing, f"--remap_key_subset 未知键名: {missing}(合法见 vpt_dataset.VPT_KEYS)"
+            key_subset = [VPT_KEYS.index(n) for n in names]
+        remap = ControlRemap(remap_keys=True, remap_camera=args.remap_camera,
+                             n_holdout=args.remap_holdout_n, seed=args.seed,
+                             key_subset=key_subset)
+    else:
+        remap = None
     if remap is not None:
-        print(f"[control_remap] 开启 | 键盘置换{' + 相机' if args.remap_camera else ''} | "
-              f"holdout bank={args.remap_holdout_n}(train/eval disjoint)")
+        ks = "all-20" if key_subset is None else f"{remap.key_idx.numel()}键={args.remap_key_subset}"
+        print(f"[control_remap] 开启 | 键盘置换[{ks}]{' + 相机' if args.remap_camera else ''} | "
+              f"holdout bank={remap.holdout_perms.shape[0]}(train/eval disjoint)")
     print(f"=== MINECRAFT WORLD MODEL (Δz-JEPA + InvDyn + SIGReg) | device={dev} | amp={use_amp} ===")
 
     use_wandb = args.wandb
@@ -586,6 +602,12 @@ def main():
         print(f"逆动力学(本地clip,闭环):mouse_move {e['mouse_move_acc']:.3f} | "
               f"kb_onset {e['kb_onset_recall']:.3f} | kb_bal {e['kb_bal_acc']:.3f}"
               f"  ← 与 rollout 表的 CL 列对齐;若 ≪ Colab(0.48/0.23)则本地 clip 是真 holdout,有泛化差")
+        if remap is not None:
+            print(f"重绑定(子集{remap.key_idx.numel()}键 vs 恒等):"
+                  f"onset 子集 {e['kb_onset_sub']:.3f} / 其余 {e['kb_onset_rest']:.3f} | "
+                  f"bal 子集 {e['kb_bal_sub']:.3f} / 其余 {e['kb_bal_rest']:.3f} | "
+                  f"适应 early {e['kb_sub_early']:.3f}→late {e['kb_sub_late']:.3f}"
+                  f"(子集≫chance 且 late>early = 靠 context 学到了重绑定)")
         rollout_probe(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
         return
 
@@ -707,14 +729,20 @@ def main():
                   f"turn {ev['pred_turn']:.3f} walk {ev['pred_walk']:.3f} | "
                   f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f} | "
                   f"mouse move {ev['mouse_move_acc']:.3f}")
+            if remap is not None:
+                print(f"  [eval] 重绑定 onset 子集 {ev['kb_onset_sub']:.3f}/其余 {ev['kb_onset_rest']:.3f}"
+                      f" | bal 子集 {ev['kb_bal_sub']:.3f}/其余 {ev['kb_bal_rest']:.3f}"
+                      f" | 适应 {ev['kb_sub_early']:.3f}→{ev['kb_sub_late']:.3f}")
             if use_wandb:
                 # eval 主面板:诚实 holdout 读数(≤12);基率虚高 + 固定集常数项(kb_edges/
                 # mouse_moves/frac_* 在复用 eval 集上恒定)降级 eval_diag/,不污染主面板。
                 EVAL_MAIN = ("pred", "pred_move", "pred_post", "pred_bestk",
                              "pred_turn", "pred_walk", "pred_still",
-                             "kb_onset_recall", "kb_release_recall", "mouse_move_acc")
+                             "kb_onset_recall", "kb_release_recall", "mouse_move_acc",
+                             # 重绑定头号信号:子集 onset/bal + 适应代理
+                             "kb_onset_sub", "kb_bal_sub", "kb_sub_early", "kb_sub_late")
                 wandb.log({(f"eval/{k}" if k in EVAL_MAIN else f"eval_diag/{k}"): v
-                           for k, v in ev.items()}, step=ep)
+                           for k, v in ev.items() if v == v}, step=ep)   # v==v 滤掉 nan(remap 关时子集项)
             _update_best(ev, ep)            # 持续跟踪 best(每次 eval)
         # best 上传节流:每 save_best_every 个 epoch 传一次当前 best artifact
         if args.save_best_every > 0 and (ep + 1) % args.save_best_every == 0:

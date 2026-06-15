@@ -117,7 +117,7 @@ def _gpu_util():
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                   alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
                   open_alpha, kb_edge_w, beta_kl, kl_free,
-                  amp_dev, use_amp, scaler, acc):
+                  amp_dev, use_amp, scaler, acc, kb_focal=0.0, distill_w=0.0):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -284,7 +284,8 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan,
                                rho_open, open_every, open_alpha, kb_edge_w,
-                               beta_kl, kl_free, amp_dev, use_amp, scaler, acc)
+                               beta_kl, kl_free, amp_dev, use_amp, scaler, acc,
+                               kb_focal=kb_focal, distill_w=distill_w)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)

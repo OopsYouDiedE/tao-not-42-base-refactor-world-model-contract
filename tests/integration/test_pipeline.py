@@ -177,8 +177,46 @@ def test_evaluate_smoke():
         assert out["onset_patch_r10"] >= out["onset_patch_r50"] - 1e-6
 
 
+def test_train_epoch_smoke():
+    """train_epoch → _run_sequence 一个 batch 端到端冒烟(CPU,mock 骨干)。
+
+    覆盖训练主循环接线——尤其 kb_focal + inv_distill_w 经 train_epoch→_run_sequence 透传到
+    inv-dyn 损失这条链(漏接会 NameError,只在真训练时炸,单测此前无覆盖)。验证前向+反向+
+    opt.step 跑通、返回指标有限。"""
+    from train.minecraft.train_minecraft import train_epoch
+    from domains.minecraft.vpt_action import N_MOUSE, ACTION_DIM
+    from blocks.primitives import SIGReg
+    B, T, device = 2, 5, "cpu"
+    model = _tiny_model().to(device)
+    S, NK = model.S, ACTION_DIM - N_MOUSE
+    g = torch.Generator().manual_seed(0)
+
+    def _agg(*lead):
+        return torch.cat([torch.randn(*lead, N_MOUSE, generator=g),
+                          (torch.rand(*lead, NK, generator=g) > 0.5).float()], dim=-1)
+    batch = {
+        "img": torch.rand(B, T, 3, 64, 64, generator=g),
+        "act_seq": _agg(B, T, S), "act_agg": _agg(B, T),
+        "dt": torch.randint(1, S + 1, (B, T), generator=g).float(),
+        "t_vec": torch.arange(T).float().unsqueeze(0).expand(B, T).clone(),
+    }
+    sigreg = SIGReg(knots=17, num_proj=512).to(device)
+    opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-4)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+
+    # kb_focal/distill_w > 0 ⇒ 走 onset 修复两支路,且强制透传链路被执行
+    r = train_epoch(model, sigreg, iter([batch]), opt, scaler, device, steps=1, k_bptt=2,
+                    alpha_inv=1.0, beta_sigreg=0.03, beta_div=0.05, move_w=4.0,
+                    gamma_plan=0.25, rho_open=0.0, open_every=1, open_alpha=0.0,
+                    kb_edge_w=3.0, beta_kl=0.1, kl_free=1.0, text_enc=None,
+                    amp_dev="cpu", use_amp=False, kb_focal=2.0, distill_w=0.5)
+    for k in ("loss", "inv", "kb", "pred_move"):
+        assert k in r and r[k] == r[k], f"{k} 缺失或 NaN"
+
+
 if __name__ == "__main__":
     test_world_model_forward_backward()
     test_control_remap_train_step()
     test_evaluate_smoke()
+    test_train_epoch_smoke()
     print("ok")

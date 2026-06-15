@@ -141,7 +141,43 @@ def test_control_remap_train_step():
     assert not has_nan, "梯度出现 NaN"
 
 
+def test_evaluate_smoke():
+    """eval.evaluate() 端到端冒烟,含 Stage 0 onset 阈值诊断的直方图读出。
+
+    mock 骨干、CPU、单 batch;验证 evaluate 跑通且新加的 onset_slot_r*/onset_patch_r*
+    诊断键存在、阈值越低 recall 越高(≥ 关系)。不验证数值正确性,只验证接线不崩。"""
+    from train.minecraft.eval import evaluate
+    from domains.minecraft.vpt_action import N_MOUSE, ACTION_DIM
+    B, T, device = 2, 4, "cpu"
+    model = _tiny_model().to(device)
+    S, NK = model.S, ACTION_DIM - N_MOUSE
+    g = torch.Generator().manual_seed(0)
+
+    def _agg(*lead):                                         # 鼠标连续 + 键盘 0/1
+        return torch.cat([torch.randn(*lead, N_MOUSE, generator=g),
+                          (torch.rand(*lead, NK, generator=g) > 0.5).float()], dim=-1)
+    batch = {
+        "img": torch.rand(B, T, 3, 64, 64, generator=g),
+        "act_seq": _agg(B, T, S),                            # [B,T,S,A]
+        "act_agg": _agg(B, T),                               # [B,T,A]
+        "dt": torch.randint(1, S + 1, (B, T), generator=g).float(),
+        "t_vec": torch.arange(T).float().unsqueeze(0).expand(B, T).clone(),
+    }
+    out = evaluate(model, [batch], device, steps=1, amp_dev="cpu", use_amp=False, open_k=2)
+
+    for k in ("onset_slot_r50", "onset_slot_r35", "onset_slot_r20", "onset_slot_r10",
+              "onset_patch_r50", "onset_patch_r10", "onset_slot_med", "onset_patch_med",
+              "kb_onset_recall"):
+        assert k in out, f"缺少诊断键 {k}"
+    # 降阈单调:recall@≥0.1 ≥ recall@≥0.5(直方图上界子集关系),仅在有 onset 帧时校验
+    if out["onset_slot_r50"] == out["onset_slot_r50"]:       # 非 nan
+        assert out["onset_slot_r10"] >= out["onset_slot_r50"] - 1e-6
+    if out["onset_patch_r50"] == out["onset_patch_r50"]:
+        assert out["onset_patch_r10"] >= out["onset_patch_r50"] - 1e-6
+
+
 if __name__ == "__main__":
     test_world_model_forward_backward()
     test_control_remap_train_step()
+    test_evaluate_smoke()
     print("ok")

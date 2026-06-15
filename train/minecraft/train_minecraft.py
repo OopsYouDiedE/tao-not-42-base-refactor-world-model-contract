@@ -602,6 +602,13 @@ def main():
         print(f"逆动力学(本地clip,闭环):mouse_move {e['mouse_move_acc']:.3f} | "
               f"kb_onset {e['kb_onset_recall']:.3f} | kb_bal {e['kb_bal_acc']:.3f}"
               f"  ← 与 rollout 表的 CL 列对齐;若 ≪ Colab(0.48/0.23)则本地 clip 是真 holdout,有泛化差")
+        print(f"[onset诊断] 槽路  recall@≥{{.5/.35/.2/.1}} "
+              f"{e['onset_slot_r50']:.3f}/{e['onset_slot_r35']:.3f}/{e['onset_slot_r20']:.3f}/{e['onset_slot_r10']:.3f}"
+              f"  中位prob {e['onset_slot_med']:.2f}")
+        print(f"            patch recall@≥{{.5/.35/.2/.1}} "
+              f"{e['onset_patch_r50']:.3f}/{e['onset_patch_r35']:.3f}/{e['onset_patch_r20']:.3f}/{e['onset_patch_r10']:.3f}"
+              f"  中位prob {e['onset_patch_med']:.2f}")
+        print(f"  判读:槽路随阈降抬头⇒0.5硬阈假象(走Stage1a);patch≫槽⇒编码器丢onset(走Stage1b);两路皆贴地⇒C-SNR")
         if remap is not None:
             print(f"重绑定(子集{remap.key_idx.numel()}键 vs 恒等):"
                   f"onset 子集 {e['kb_onset_sub']:.3f} / 其余 {e['kb_onset_rest']:.3f} | "
@@ -766,6 +773,10 @@ def main():
           f"({e['kb_edges']} 次跳变;常按键灌不高这两项,是更硬的证据)")
     print(f"鼠标 bin acc {e['mouse_bin_acc']:.3f} | move acc {e['mouse_move_acc']:.3f} "
           f"({e['mouse_moves']} 个运动帧;恒中心 bin 的基率解 move acc = 0)")
+    print(f"onset 阈值诊断 槽路 recall@≥.5/.35/.2/.1 "
+          f"{e['onset_slot_r50']:.3f}/{e['onset_slot_r35']:.3f}/{e['onset_slot_r20']:.3f}/{e['onset_slot_r10']:.3f}"
+          f" | patch {e['onset_patch_r50']:.3f}/{e['onset_patch_r35']:.3f}/{e['onset_patch_r20']:.3f}/{e['onset_patch_r10']:.3f}"
+          f"  (槽路降阈抬头=阈值假象;patch≫槽=编码器丢信号)")
     ok = e["kb_bal_acc"] > 0.6 or e["mouse_move_acc"] > 0.2
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
 

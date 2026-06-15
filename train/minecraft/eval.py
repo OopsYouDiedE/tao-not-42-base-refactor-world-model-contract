@@ -46,6 +46,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
     grp = {k: {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
            for k in ("sub", "rest", "sub_early", "sub_late")}   # bal-acc 组件
     grp_on = {k: {"tp": 0, "n": 0} for k in ("sub", "rest")}    # onset recall
+    # Stage 0 onset 诊断:onset 帧上 kb_prob 的分布(槽路 vs patch 旁路),阈值无关。
+    # 直方图累加(O(1) 内存)→ recall@≥θ = prob 高于 θ 的占比。判 onset 是被 0.5
+    # 硬阈误杀(降阈即抬头 = C-阈值)还是信号真没了;槽路 vs patch 落差 = 编码器丢没丢 onset。
+    N_PB = 100
+    on_pb_slot = torch.zeros(N_PB + 1, device=device)
+    on_pb_patch = torch.zeros(N_PB + 1, device=device)
 
     def _acc(d, pred, true):
         d["tp"] += int((pred & true).sum());  d["fp"] += int((pred & ~true).sum())
@@ -145,8 +151,9 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             pred_n += 1
             pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
             ctx_h = h.squeeze(1).float() if model.inv_dyn.use_ctx else None  # pre-step h(无泄漏)
-            mouse_logits, kb_prob, _ = model.inv_dyn(    # 槽路诚实读出(patch 旁路丢弃)
+            mouse_logits, kb_prob, parts = model.inv_dyn(    # 槽路诚实读出 + 接住 patch 旁路(诊断)
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float(), patch_dz=pdz, ctx=ctx_h)
+            kb_prob_patch = torch.sigmoid(parts[1]) if parts is not None else None
             kb_pred = (kb_prob > 0.5)
             kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
@@ -155,6 +162,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
                 onset = kb_true & ~prev_true; release = ~kb_true & prev_true
                 on_tp += (kb_pred & onset).sum().item();    on_n += onset.sum().item()
                 off_tp += (~kb_pred & release).sum().item(); off_n += release.sum().item()
+                if bool(onset.any()):          # Stage 0:onset 帧 prob 直方图(槽路 + patch 路)
+                    ps = kb_prob[onset].clamp(0, 1)
+                    on_pb_slot.index_add_(0, (ps * N_PB).long(), torch.ones_like(ps))
+                    if kb_prob_patch is not None:
+                        pp = kb_prob_patch[onset].clamp(0, 1)
+                        on_pb_patch.index_add_(0, (pp * N_PB).long(), torch.ones_like(pp))
             # 子集/其余拆分 + 窗口内位置桶(用 prev_true 的旧值算子集 onset,故在更新前)
             if has_sub:
                 sp, st = kb_pred[:, sub_cols], kb_true[:, sub_cols]
@@ -185,6 +198,18 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
         rc = d["tp"] / max(d["tp"] + d["fn"], 1); sp = d["tn"] / max(d["tn"] + d["fp"], 1)
         return 0.5 * (rc + sp)
 
+    def _on_rec(hist, th):       # onset recall@(prob≥th),从直方图读
+        tot = hist.sum()
+        return (hist[int(round(th * N_PB)):].sum() / tot).item() if tot >= 1 else nan
+
+    def _on_med(hist):           # onset 帧 prob 中位数(ramp 落点)
+        tot = hist.sum()
+        if tot < 1:
+            return nan
+        cdf = torch.cumsum(hist, 0) / tot
+        idx = torch.searchsorted(cdf, torch.tensor(0.5, device=hist.device)).clamp(max=N_PB)
+        return idx.item() / N_PB
+
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
     return {"pred": pred_sum / max(pred_n, 1),
             "pred_move": pred_mv_sum / max(pred_n, 1),
@@ -193,6 +218,13 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             "kb_onset_recall": on_tp / max(on_n, 1),
             "kb_release_recall": off_tp / max(off_n, 1),
             "kb_edges": on_n + off_n,
+            # Stage 0 onset 阈值诊断(槽路 vs patch 旁路;recall@≥θ + onset 帧 prob 中位数)
+            "onset_slot_r50": _on_rec(on_pb_slot, 0.5), "onset_slot_r35": _on_rec(on_pb_slot, 0.35),
+            "onset_slot_r20": _on_rec(on_pb_slot, 0.2), "onset_slot_r10": _on_rec(on_pb_slot, 0.1),
+            "onset_slot_med": _on_med(on_pb_slot),
+            "onset_patch_r50": _on_rec(on_pb_patch, 0.5), "onset_patch_r35": _on_rec(on_pb_patch, 0.35),
+            "onset_patch_r20": _on_rec(on_pb_patch, 0.2), "onset_patch_r10": _on_rec(on_pb_patch, 0.1),
+            "onset_patch_med": _on_med(on_pb_patch),
             # 子集拆分(remap 开时才有意义,否则 nan):重绑定的诚实读数
             "kb_onset_sub": grp_on["sub"]["tp"] / max(grp_on["sub"]["n"], 1) if has_sub else nan,
             "kb_onset_rest": (grp_on["rest"]["tp"] / max(grp_on["rest"]["n"], 1)

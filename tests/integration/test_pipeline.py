@@ -168,8 +168,10 @@ def test_evaluate_smoke():
 
     for k in ("onset_slot_r50", "onset_slot_r35", "onset_slot_r20", "onset_slot_r10",
               "onset_patch_r50", "onset_patch_r10", "onset_slot_med", "onset_patch_med",
-              "kb_onset_recall"):
+              "kb_onset_recall", "kb_recall20", "kb_spec20", "kb_bal20"):
         assert k in out, f"缺少诊断键 {k}"
+    # spec/recall ∈ [0,1](θ=0.2 工作点精度检查键)
+    assert 0.0 <= out["kb_spec20"] <= 1.0 and 0.0 <= out["kb_recall20"] <= 1.0
     # 降阈单调:recall@≥0.1 ≥ recall@≥0.5(直方图上界子集关系),仅在有 onset 帧时校验
     if out["onset_slot_r50"] == out["onset_slot_r50"]:       # 非 nan
         assert out["onset_slot_r10"] >= out["onset_slot_r50"] - 1e-6

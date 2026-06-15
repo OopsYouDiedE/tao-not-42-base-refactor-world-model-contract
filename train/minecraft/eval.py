@@ -52,6 +52,10 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
     N_PB = 100
     on_pb_slot = torch.zeros(N_PB + 1, device=device)
     on_pb_patch = torch.zeros(N_PB + 1, device=device)
+    # 全帧 slot kb_prob 按真值分桶 → 任意 θ 的 recall(held)/spec(off):查 onset@.2 那个工作点的
+    # 误报率,确认低阈召回不是靠把 off 帧概率一起抬上去换的(精度侧)。
+    held_pb_slot = torch.zeros(N_PB + 1, device=device)
+    off_pb_slot = torch.zeros(N_PB + 1, device=device)
 
     def _acc(d, pred, true):
         d["tp"] += int((pred & true).sum());  d["fp"] += int((pred & ~true).sum())
@@ -158,6 +162,12 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
             fn += (~kb_pred & kb_true).sum().item();  tn += (~kb_pred & ~kb_true).sum().item()
+            ph = kb_prob[kb_true].clamp(0, 1)        # held / off 帧 prob 直方图(任意 θ 的 recall/spec)
+            if ph.numel():
+                held_pb_slot.index_add_(0, (ph * N_PB).long(), torch.ones_like(ph))
+            po = kb_prob[~kb_true].clamp(0, 1)
+            if po.numel():
+                off_pb_slot.index_add_(0, (po * N_PB).long(), torch.ones_like(po))
             if prev_true is not None:
                 onset = kb_true & ~prev_true; release = ~kb_true & prev_true
                 on_tp += (kb_pred & onset).sum().item();    on_n += onset.sum().item()
@@ -210,6 +220,8 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
         idx = torch.searchsorted(cdf, torch.tensor(0.5, device=hist.device)).clamp(max=N_PB)
         return idx.item() / N_PB
 
+    rec20 = _on_rec(held_pb_slot, 0.2)           # θ=0.2 工作点(= onset@.2 那个点)的整体 recall/spec
+    spec20 = 1.0 - _on_rec(off_pb_slot, 0.2)     # spec@.2 仍高 ⇒ onset@.2 召回非靠误报灌(精度检查)
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
     return {"pred": pred_sum / max(pred_n, 1),
             "pred_move": pred_mv_sum / max(pred_n, 1),
@@ -225,6 +237,8 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             "onset_patch_r50": _on_rec(on_pb_patch, 0.5), "onset_patch_r35": _on_rec(on_pb_patch, 0.35),
             "onset_patch_r20": _on_rec(on_pb_patch, 0.2), "onset_patch_r10": _on_rec(on_pb_patch, 0.1),
             "onset_patch_med": _on_med(on_pb_patch),
+            # θ=0.2 工作点精度检查(spec@.2 仍高 ⇒ onset@.2 召回不是靠误报灌的)
+            "kb_recall20": rec20, "kb_spec20": spec20, "kb_bal20": 0.5 * (rec20 + spec20),
             # 子集拆分(remap 开时才有意义,否则 nan):重绑定的诚实读数
             "kb_onset_sub": grp_on["sub"]["tp"] / max(grp_on["sub"]["n"], 1) if has_sub else nan,
             "kb_onset_rest": (grp_on["rest"]["tp"] / max(grp_on["rest"]["n"], 1)

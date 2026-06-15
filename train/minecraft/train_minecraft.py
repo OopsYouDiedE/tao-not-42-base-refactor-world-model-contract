@@ -621,6 +621,8 @@ def main():
               f"{e['onset_patch_r50']:.3f}/{e['onset_patch_r35']:.3f}/{e['onset_patch_r20']:.3f}/{e['onset_patch_r10']:.3f}"
               f"  中位prob {e['onset_patch_med']:.2f}")
         print(f"  判读:槽路随阈降抬头⇒0.5硬阈假象(走Stage1a);patch≫槽⇒编码器丢onset(走Stage1b);两路皆贴地⇒C-SNR")
+        print(f"[onset@.2 工作点] kb_bal {e['kb_bal20']:.3f} / spec {e['kb_spec20']:.3f} / held-recall {e['kb_recall20']:.3f}"
+              f"  (spec 仍高 ⇒ onset@.2 召回非误报灌;对比 θ=.5 bal {e['kb_bal_acc']:.3f})")
         if remap is not None:
             print(f"重绑定(子集{remap.key_idx.numel()}键 vs 恒等):"
                   f"onset 子集 {e['kb_onset_sub']:.3f} / 其余 {e['kb_onset_rest']:.3f} | "
@@ -774,6 +776,8 @@ def main():
                              "kb_onset_recall", "kb_release_recall", "mouse_move_acc",
                              # onset 诚实读数(@.2 校准阈值)+ patch 天花板:槽路升、向 patch 收敛 = 修对了
                              "onset_slot_r20", "onset_patch_r20",
+                             # θ=0.2 工作点精度:bal/spec 不塌 ⇒ onset@.2 召回非误报灌
+                             "kb_bal20", "kb_spec20",
                              # 重绑定头号信号:子集 onset/bal + 适应代理
                              "kb_onset_sub", "kb_bal_sub", "kb_sub_early", "kb_sub_late")
                 wandb.log({(f"eval/{k}" if k in EVAL_MAIN else f"eval_diag/{k}"): v
@@ -805,6 +809,8 @@ def main():
           f"{e['onset_slot_r50']:.3f}/{e['onset_slot_r35']:.3f}/{e['onset_slot_r20']:.3f}/{e['onset_slot_r10']:.3f}"
           f" | patch {e['onset_patch_r50']:.3f}/{e['onset_patch_r35']:.3f}/{e['onset_patch_r20']:.3f}/{e['onset_patch_r10']:.3f}"
           f"  (槽路降阈抬头=阈值假象;patch≫槽=编码器丢信号)")
+    print(f"onset@.2 工作点 kb_bal {e['kb_bal20']:.3f} / spec {e['kb_spec20']:.3f} / held-recall {e['kb_recall20']:.3f}"
+          f"  (spec 仍高 ⇒ onset@.2 召回非误报灌;对比 θ=.5 bal {e['kb_bal_acc']:.3f})")
     ok = e["kb_bal_acc"] > 0.6 or e["mouse_move_acc"] > 0.2
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
 

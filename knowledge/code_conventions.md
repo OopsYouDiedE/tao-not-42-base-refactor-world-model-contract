@@ -16,6 +16,7 @@
 | L1 积木 | `blocks/` | 与任务无关的可复用算子(注意力 / 门控残差 / 时间编码 / SIGReg) | 任何领域字眼(Minecraft/VPT)、训练逻辑 |
 | L2 网络 | `net/` | 模型与部件:`world_model.py` 主模型、`slots.py`、`backbone.py`、`heads.py`、`dynamics.py`;结构 schema `config.py`(纯 dataclass)与各部件 `build_*` 工厂 | 训练循环、loss、mock、数据加载、yaml/文件 IO |
 | L2.5 第三方 | `net/vpt_lib/` | 原样 vendored 的 OpenAI VPT(见其 `NOTICE`) | 我们改写的代码;**本规范不约束 vendored 目录** |
+| L2.5 第三方 | `net/dreamer/` | 原样 vendored 的 DreamerV3(NM512/dreamerv3-torch,MIT;见其 `NOTICE`/`LICENSE`)。配套底层算子按分层拆到 `blocks/{distributions,sequence,conv,dynamics(GRUCell)}` 与 `utils/nn`(init/训练胶水),均标"原样照抄"。**类体逐字 1:1,勿为贴 house style 改 vendored 文件体**;升级=重拉上游覆盖(见 knowledge/dreamer.md) | 我们改写的逻辑 |
 | L3 领域契约 | `domains/<game>/` | 数据契约与领域逻辑:动作编解码、数据集、控制重映射、任务文本 | 训练循环、模型定义 |
 | L4 训练 | `train/<game>/` | 只放"循环 + 装配":`train_*.py`(CLI/main)、`losses.py`、`eval.py`、`viz`、`_seq.py` | 模型定义、数据契约 |
 | 配置 | `configs/<game>/` | 模型结构 yaml 预设(部件选择 + 超参;如 `base`/`tiny`/`dinov2`,缺键取 `net.config` 默认) | 模型定义、训练逻辑、数据契约 |

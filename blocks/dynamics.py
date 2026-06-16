@@ -91,3 +91,36 @@ class DiscreteRouter(nn.Module):
             idx = logits.argmax(-1)
             y = F.one_hot(idx, logits.shape[-1]).to(logits.dtype)
         return y, logits.argmax(-1)
+
+
+# DreamerV3 的向量 GRU 单元(LayerNorm + 凸更新):与 ConvGRUCell 同属 I5/I7 安全递归算子
+# ——LayerNorm(I7)+ 凸组合 update*cand+(1-update)*state(I5 非扩张),RSSM 的确定性状态 deter
+# 由它递推;update_bias=-1 让初始更新门偏向"保持旧状态",state 以单元素列表传入(承袭 Keras 接口)。
+# 原样照抄 NM512/dreamerv3-torch 的 networks.py(类体逐字 1:1,见 net/dreamer/NOTICE)。
+class GRUCell(nn.Module):
+    def __init__(self, inp_size, size, norm=True, act=torch.tanh, update_bias=-1):
+        super(GRUCell, self).__init__()
+        self._inp_size = inp_size
+        self._size = size
+        self._act = act
+        self._update_bias = update_bias
+        self.layers = nn.Sequential()
+        self.layers.add_module(
+            "GRU_linear", nn.Linear(inp_size + size, 3 * size, bias=False)
+        )
+        if norm:
+            self.layers.add_module("GRU_norm", nn.LayerNorm(3 * size, eps=1e-03))
+
+    @property
+    def state_size(self):
+        return self._size
+
+    def forward(self, inputs, state):
+        state = state[0]  # Keras wraps the state in a list.
+        parts = self.layers(torch.cat([inputs, state], -1))
+        reset, cand, update = torch.split(parts, [self._size] * 3, -1)
+        reset = torch.sigmoid(reset)
+        cand = self._act(reset * cand)
+        update = torch.sigmoid(update + self._update_bias)
+        output = update * cand + (1 - update) * state
+        return output, [output]

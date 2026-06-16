@@ -1,0 +1,37 @@
+DreamerV3 (PyTorch) — vendored code attribution
+================================================
+
+本目录及其在 blocks/ 与 utils/ 中的配套文件,原样照抄(verbatim)自第三方开源实现:
+
+  项目: dreamerv3-torch
+  作者: NM512
+  地址: https://github.com/NM512/dreamerv3-torch
+  许可: MIT License(全文见同目录 LICENSE,Copyright (c) 2023 NM512)
+  算法: Hafner et al., "Mastering Diverse Domains through World Models"
+        (DreamerV3, https://arxiv.org/abs/2301.04104)
+
+目的:让本仓不再依赖外部 DreamerV3 源码(无 git submodule / 无 pip 包),实现代码物理
+内置、可离线完整加载与运行。函数体保持 1:1 原样,仅做了"物理拆分到本仓分层"所必需的
+import 调整;未改动任何数值逻辑。
+
+文件级映射(原仓 → 本仓):
+  networks.py  RSSM / MultiEncoder / MultiDecoder / ConvEncoder / ConvDecoder / MLP
+                                                     → net/dreamer/networks.py
+  networks.py  GRUCell                               → blocks/dynamics.py
+  networks.py  Conv2dSamePad / ImgChLayerNorm        → blocks/conv.py
+  models.py    RewardEMA / WorldModel / ImagBehavior → net/dreamer/models.py
+  tools.py     symlog/symexp + 各 Dist 包装类         → blocks/distributions.py
+  tools.py     static_scan / lambda_return            → blocks/sequence.py
+  tools.py     weight_init / uniform_weight_init /
+               to_np / tensorstats / RequiresGrad /
+               Optimizer                              → utils/nn.py
+
+适配层(本仓新增,非照抄):
+  net/dreamer/_compat.py   把上述被拆走的名字重聚合成原 `tools` 命名空间,使 networks.py /
+                           models.py 仍以 `tools.X` 调用、函数体保持原样。
+  net/dreamer/config.py    以纯 Python dict 复刻原仓 configs.yaml 的 `defaults` 段数值,
+                           并提供 gym-free 的 obs-space 垫片与 build_dreamer 装配入口
+                           (替代原仓的 argparse/yaml/gym 外围装配)。
+
+未照抄进来的原仓部分(与"加载模型"无关):dreamer.py 主训练循环、envs/ 环境封装、
+parallel.py、exploration.py、Logger / 数据集读写 / simulate 等运行时与数据管线。

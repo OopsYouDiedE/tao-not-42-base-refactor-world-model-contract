@@ -408,14 +408,26 @@ def fmt(m):
 
 
 def load_ckpt_model(ckpt_path, device):
-    """从 best checkpoint 重建训练好的 MinecraftWorldModel(骨干从 HF,trainable+EMA 从 ckpt)。"""
+    """从 best checkpoint 重建训练好的 MinecraftWorldModel(骨干从 HF,trainable+EMA 从 ckpt)。
+
+    优先用 ckpt 内的 config(asdict(ModelConfig));老 checkpoint 无 config 时从 args 回退拼装。
+    """
     from net.world_model import MinecraftWorldModel
+    from net.config import ModelConfig
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
-    a = ck["args"]
-    m = MinecraftWorldModel(
-        d=a["d"], N=a["N"], K=a["K"], J=a["J"], act_dim=ACT_DIM, n_cam_bins=CAMERA_BINS,
-        ema_decay=a["ema_decay"], max_skip=a["frame_skip"],
-        encoder=ck.get("encoder", a.get("encoder", "dinov2")), d_xi=a["d_xi"]).to(device).eval()
+    if "config" in ck:
+        cfg = ModelConfig.from_dict(ck["config"])
+    else:
+        a = ck["args"]                                  # 老 ckpt 回退:从 args 拼 ModelConfig
+        cfg = ModelConfig.from_dict({
+            "d": a["d"], "N": a["N"], "K": a["K"], "J": a["J"],
+            "ema_decay": a["ema_decay"], "max_skip": a["frame_skip"],
+            "xi": {"d_xi": a["d_xi"]},
+            "heads": {"inv_dyn_ctx": a.get("inv_dyn_ctx", False)},
+            "backbone": {"kind": ck.get("encoder", a.get("encoder", "dinov2")),
+                         "weights": a.get("encoder_weights")},
+        })
+    m = MinecraftWorldModel(cfg).to(device).eval()
     missing, unexpected = m.load_state_dict(ck["model"], strict=False)
     nb_missing = [k for k in missing if not k.startswith("backbone.")]
     print(f"  [ckpt] ep{ck['epoch']} {ck['metric']}={ck['score']:.4f} | "

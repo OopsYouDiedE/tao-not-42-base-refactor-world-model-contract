@@ -49,6 +49,7 @@ import argparse
 import itertools
 import os
 import sys
+from dataclasses import asdict
 
 import torch
 import torch.nn.functional as F
@@ -59,7 +60,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from net.world_model import MinecraftWorldModel
-from domains.minecraft.vpt_dataset import VPTStreamDataset
+from domains.minecraft.vpt_dataset import VPTStreamDataset, VPT_KEYS
 from domains.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, ACTION_DIM as ACT_DIM
 from domains.minecraft.control_remap import ControlRemap
 from train.minecraft.minecraft_viz import visualize_minecraft
@@ -69,6 +70,8 @@ from train.minecraft.losses import (dz_pred_loss, slot_diversity_loss,
                                      minecraft_inv_dyn_loss, plan_bc_loss, kl_diag_gauss)
 from train.minecraft.eval import evaluate, rollout_probe
 from blocks.primitives import SIGReg
+from net.config import ModelConfig
+from utils.config_io import load_yaml
 
 
 # =====================================================================
@@ -114,7 +117,7 @@ def _gpu_util():
 def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                   alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
                   open_alpha, kb_edge_w, beta_kl, kl_free,
-                  amp_dev, use_amp, scaler, acc):
+                  amp_dev, use_amp, scaler, acc, kb_focal=0.0, distill_w=0.0):
     """对一个 batch 的完整序列做截断 BPTT 前向+反向;损失以张量形式累加进 acc。
 
     时序 = teacher forcing:每步感知输入 z_obs(t) 都来自真实画面(批量编码),
@@ -197,7 +200,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
             l_inv, l_mouse, l_kb, m_acc, mv_hit, mv_n = minecraft_inv_dyn_loss(
                 z_tg[:, t + 1] - z_obs[:, i].float(), c, act_agg[:, t],
                 model.inv_dyn, move_w, prev_action=prev_act, kb_edge_w=kb_edge_w,
-                patch_dz=pdz, ctx=ctx_h)
+                patch_dz=pdz, ctx=ctx_h, kb_focal=kb_focal, distill_w=distill_w)
             step_loss = l_pred + alpha_inv * l_inv + beta_kl * l_kl_fb
             if out_open is not None:
                 l_open, _, r_open_mv = dz_pred_loss(out_open["mu"].float(), dz)
@@ -246,7 +249,7 @@ def _run_sequence(model, sigreg, batch_dev, device, k_bptt,
 def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
                 alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan, rho_open, open_every,
                 open_alpha, kb_edge_w, beta_kl, kl_free, text_enc, amp_dev, use_amp,
-                remap=None):
+                kb_focal=0.0, distill_w=0.0, remap=None):
     """data_iter:**全程唯一**的 DataLoader 迭代器(islice 消费,不重建)。
     每 epoch 重建迭代器会丢弃预取队列里的在途 batch 并重置 worker 状态——
     无限流数据集下表现为 GPU 功率按 epoch 周期(~25s)锯齿振荡。"""
@@ -281,7 +284,8 @@ def train_epoch(model, sigreg, data_iter, opt, scaler, device, steps, k_bptt,
         c_last = _run_sequence(model, sigreg, batch_dev, device, k_bptt,
                                alpha_inv, beta_sigreg, beta_div, move_w, gamma_plan,
                                rho_open, open_every, open_alpha, kb_edge_w,
-                               beta_kl, kl_free, amp_dev, use_amp, scaler, acc)
+                               beta_kl, kl_free, amp_dev, use_amp, scaler, acc,
+                               kb_focal=kb_focal, distill_w=distill_w)
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
@@ -378,20 +382,15 @@ def main():
     ap.add_argument("--eval_only", default=None,
                     help="加载 best checkpoint(只含可训练+EMA,骨干从 HF),对 holdout "
                          "跑一次 evaluate 打印分叉(pred_post / 分桶)后退出——零训练成本读"
-                         "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--d/--N/--K/--d_xi 等)")
-    ap.add_argument("--encoder", choices=["dinov3", "dinov2"], default="dinov3",
-                    help="视觉骨干(冻结,统一走 HF transformers):dinov3=ViT-S/16(默认;384 维,"
-                         "patch=16 整除 128→8×8,4 register token,稠密特征最强;权重 gated,"
-                         "token 经 Colab Secret(HF_TOKEN)/.env 注入,见 utils/hf_token.py);"
-                         "dinov2=ViT-S/14(384 维,权重开放,无需 token,降级备选,img_size 削到 126)。"
-                         "离线管线冒烟用 tests/integration(依赖注入 mock 骨干,非此 CLI)")
-    ap.add_argument("--encoder_weights", default=None,
-                    help="可选:覆盖骨干 HF repo id(如换更大变体 facebook/dinov3-vitb16-pretrain-lvd1689m;"
-                         "enc_dim 自动取 cfg.hidden_size,proj 吸收到 d,无需改 --d)")
-    ap.add_argument("--d", type=int, default=384)
-    ap.add_argument("--N", type=int, default=16, help="实体槽数")
-    ap.add_argument("--K", type=int, default=5, help="动作查询数")
-    ap.add_argument("--J", type=int, default=8, help="历史动作长度")
+                         "前向预测瓶颈分叉,不必重训。须与 ckpt 同构(--config 选对应预设)")
+    ap.add_argument("--init_from", default=None,
+                    help="暖启动:从 URL(http→torch.hub 下载)或本地路径载入 checkpoint 权重"
+                         "(可训练+EMA,骨干从 HF)再开训,而非随机初始化。用于在已有 best 上续训"
+                         "验证改动(如 onset 修复)——几十 epoch 见效,免从零 300。须与 ckpt 同构")
+    ap.add_argument("--config", default="configs/minecraft/base.yaml",
+                    help="模型结构 yaml 预设(骨干/binder/dynamics/heads/ξ 选择 + d/N/K/J 等"
+                         "超参;见 configs/minecraft/)。结构参数全部走此预设,不再用 CLI flag;"
+                         "max_skip 运行时由 --frame_skip 注入")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--alpha_inv", type=float, default=1.0, help="逆动力学损失权重")
     ap.add_argument("--mouse_move_w", type=float, default=4.0,
@@ -414,13 +413,17 @@ def main():
                     help="开环 α 课程终点(总 epochs 的分数):start→full 线性爬到 α=1"
                          "(纯 ẑ 输入);两输入分布连续分离,分类器式条件摆烂无处下脚")
     ap.add_argument("--kb_edge_w", type=float, default=1.0,
-                    help="键盘 BCE 跳变元素加权(默认 1=关)。devoted-eon-26 实证 ×4 对"
-                         "kb_onset_recall 无效——瓶颈是感知信息(onset 后 1-2 帧的视觉"
-                         "效果低于 128px 表征分辨能力)而非损失权重,onset 问题转"
-                         "fovea/分辨率路线;旋钮保留供复验")
-    ap.add_argument("--d_xi", type=int, default=32,
-                    help="随机隐变量 ξ 维度(Δz 不可预测新内容的有价通道;"
-                         "闭环训练用后验采样,开环/eval 用先验均值)")
+                    help="键盘 BCE 跳变元素加权(默认 1=关)。注:devoted-eon-26 ×4 曾'无效',"
+                         "但 2026-06-16 Stage 0 诊断推翻其'感知瓶颈'结论——onset@0.5=0.014 主要是"
+                         "0.5 硬阈假象(降阈 onset 抬到 0.43)+ binder 砍掉 patch 已证可读的置信度"
+                         "(patch onset 中位 0.31 vs 槽路 0.08),非分辨率。配合 --kb_focal/--inv_distill_w 用")
+    ap.add_argument("--kb_focal", type=float, default=0.0,
+                    help="键盘 BCE 的 focal γ(默认 0=普通 BCE)。(1−p_t)^γ 上调被保守压低的 onset"
+                         "难样本(诊断:onset 概率中位仅 0.08、卡在 0.5 阈下)→ 把概率顶过阈值。建议 2.0")
+    ap.add_argument("--inv_distill_w", type=float, default=0.0,
+                    help="patch→槽路 onset 蒸馏权重(默认 0=关)。以 patch 旁路(冻结 patch-mean Δz、"
+                         "诊断证 onset 可读)为 detached teacher 拉高槽路 kb_prob,逼 binder 保住 onset。"
+                         "补 patch(中位 0.31)对槽路(0.08)的 4~6× 落差;梯度只进槽路不污染 teacher。建议 0.5")
     ap.add_argument("--beta_kl", type=float, default=0.1,
                     help="KL(q‖p) 权重 = ξ 通道的价格(kl 曲线暴涨说明在作弊 → 提价;"
                          "kl≈free-bits 地板说明通道闲置 → 降价或检查)")
@@ -442,9 +445,9 @@ def main():
     ap.add_argument("--beta_div", type=float, default=0.05,
                     help="槽间多样性权重:软惩罚竞争注意力图的成对重叠(谁看哪里),逼不同 "
                          "slot 落在不同 patch、修多 slot 盯同一物体的冗余。0=关闭")
-    ap.add_argument("--ema_decay", type=float, default=0.99,
-                    help="目标编码器 EMA 衰减(时间常数 ≈ 1/(1−τ) 个优化步;短跑程用 0.99,"
-                         "长跑程可升 0.996+)")
+    ap.add_argument("--ema_decay", type=float, default=None,
+                    help="目标编码器 EMA 衰减;None=用 --config 预设值(默认 0.99)。"
+                         "短跑程 0.99,长跑程可升 0.996+(时间常数 ≈ 1/(1−τ) 个优化步)")
     ap.add_argument("--k_bptt", type=int, default=4, help="截断 BPTT 窗口")
     ap.add_argument("--no_amp", action="store_true", help="关闭 AMP 混合精度(默认 cuda 上开启)")
     ap.add_argument("--wandb", action="store_true", help="开启 wandb 远程记录(key 从环境变量 WANDB_API_KEY 读)")
@@ -460,9 +463,11 @@ def main():
                     help="同时重映射相机(轴 swap + 符号);默认仅键盘(强信号,第一枪更干净)")
     ap.add_argument("--remap_holdout_n", type=int, default=64,
                     help="holdout 键盘置换 bank 大小(eval 从中抽;train 拒采保证 disjoint)")
-    ap.add_argument("--inv_dyn_ctx", action="store_true",
-                    help="逆动力学头吃脑内记忆 h(FiLM 调制)⇒ 能 in-context 应用本局推断的控制"
-                         "映射;control_remap 下「看视频推操作」的信号才能落到 inv-dyn 指标上")
+    ap.add_argument("--remap_key_subset",
+                    default="key_w,key_a,key_s,key_d,key_space,key_attack",
+                    help="逗号分隔键名:置换只作用在这些「高信号、十几帧可见证」键上、其余恒等"
+                         "(放弃长尾键的不可辨识野心,见 mental_world §6)。默认 6 键"
+                         "(H=log2(6!)≈9.5bit,12 帧预算内最稳);'all'=打全 20 键(旧行为)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -470,12 +475,23 @@ def main():
     is_cuda = str(dev).startswith("cuda")
     amp_dev = "cuda" if is_cuda else "cpu"
     use_amp = is_cuda and not args.no_amp
-    remap = (ControlRemap(remap_keys=True, remap_camera=args.remap_camera,
-                          n_holdout=args.remap_holdout_n, seed=args.seed)
-             if args.control_remap else None)
+    if args.control_remap:
+        if args.remap_key_subset.strip().lower() == "all":
+            key_subset = None
+        else:
+            names = [s.strip() for s in args.remap_key_subset.split(",") if s.strip()]
+            missing = [n for n in names if n not in VPT_KEYS]
+            assert not missing, f"--remap_key_subset 未知键名: {missing}(合法见 vpt_dataset.VPT_KEYS)"
+            key_subset = [VPT_KEYS.index(n) for n in names]
+        remap = ControlRemap(remap_keys=True, remap_camera=args.remap_camera,
+                             n_holdout=args.remap_holdout_n, seed=args.seed,
+                             key_subset=key_subset)
+    else:
+        remap = None
     if remap is not None:
-        print(f"[control_remap] 开启 | 键盘置换{' + 相机' if args.remap_camera else ''} | "
-              f"holdout bank={args.remap_holdout_n}(train/eval disjoint)")
+        ks = "all-20" if key_subset is None else f"{remap.key_idx.numel()}键={args.remap_key_subset}"
+        print(f"[control_remap] 开启 | 键盘置换[{ks}]{' + 相机' if args.remap_camera else ''} | "
+              f"holdout bank={remap.holdout_perms.shape[0]}(train/eval disjoint)")
     print(f"=== MINECRAFT WORLD MODEL (Δz-JEPA + InvDyn + SIGReg) | device={dev} | amp={use_amp} ===")
 
     use_wandb = args.wandb
@@ -570,11 +586,14 @@ def main():
         viz_batch = next(iter(DataLoader(viz_ds, batch_size=1)))
         os.makedirs(args.viz_dir, exist_ok=True)
 
-    model = MinecraftWorldModel(d=args.d, N=args.N, K=args.K, J=args.J, act_dim=ACT_DIM,
-                                n_cam_bins=CAMERA_BINS, ema_decay=args.ema_decay,
-                                max_skip=args.frame_skip, encoder=args.encoder,
-                                encoder_weights=args.encoder_weights,
-                                d_xi=args.d_xi, inv_dyn_ctx=args.inv_dyn_ctx).to(dev)
+    cfg = ModelConfig.from_dict(load_yaml(args.config).get("model", {}))
+    cfg.max_skip = args.frame_skip            # 单一来源:区间动作上限 = 数据 frame_skip
+    if args.ema_decay is not None:            # CLI 仅在显式给出时覆盖 yaml 预设
+        cfg.ema_decay = args.ema_decay
+    assert cfg.act_dim == ACT_DIM, f"config act_dim {cfg.act_dim} ≠ 领域 ACTION_DIM {ACT_DIM}"
+    assert cfg.heads.n_cam_bins == CAMERA_BINS, \
+        f"config n_cam_bins {cfg.heads.n_cam_bins} ≠ 领域 CAMERA_BINS {CAMERA_BINS}"
+    model = MinecraftWorldModel(cfg).to(dev)
 
     if args.eval_only:
         ck = torch.load(args.eval_only, map_location=dev)
@@ -595,8 +614,36 @@ def main():
         print(f"逆动力学(本地clip,闭环):mouse_move {e['mouse_move_acc']:.3f} | "
               f"kb_onset {e['kb_onset_recall']:.3f} | kb_bal {e['kb_bal_acc']:.3f}"
               f"  ← 与 rollout 表的 CL 列对齐;若 ≪ Colab(0.48/0.23)则本地 clip 是真 holdout,有泛化差")
+        print(f"[onset诊断] 槽路  recall@≥{{.5/.35/.2/.1}} "
+              f"{e['onset_slot_r50']:.3f}/{e['onset_slot_r35']:.3f}/{e['onset_slot_r20']:.3f}/{e['onset_slot_r10']:.3f}"
+              f"  中位prob {e['onset_slot_med']:.2f}")
+        print(f"            patch recall@≥{{.5/.35/.2/.1}} "
+              f"{e['onset_patch_r50']:.3f}/{e['onset_patch_r35']:.3f}/{e['onset_patch_r20']:.3f}/{e['onset_patch_r10']:.3f}"
+              f"  中位prob {e['onset_patch_med']:.2f}")
+        print(f"  判读:槽路随阈降抬头⇒0.5硬阈假象(走Stage1a);patch≫槽⇒编码器丢onset(走Stage1b);两路皆贴地⇒C-SNR")
+        print(f"[onset@.2 工作点] kb_bal {e['kb_bal20']:.3f} / spec {e['kb_spec20']:.3f} / held-recall {e['kb_recall20']:.3f}"
+              f"  (spec 仍高 ⇒ onset@.2 召回非误报灌;对比 θ=.5 bal {e['kb_bal_acc']:.3f})")
+        if remap is not None:
+            print(f"重绑定(子集{remap.key_idx.numel()}键 vs 恒等):"
+                  f"onset 子集 {e['kb_onset_sub']:.3f} / 其余 {e['kb_onset_rest']:.3f} | "
+                  f"bal 子集 {e['kb_bal_sub']:.3f} / 其余 {e['kb_bal_rest']:.3f} | "
+                  f"适应 early {e['kb_sub_early']:.3f}→late {e['kb_sub_late']:.3f}"
+                  f"(子集≫chance 且 late>early = 靠 context 学到了重绑定)")
         rollout_probe(model, _get_eval_batches(), dev, 4, amp_dev, use_amp)
         return
+
+    if args.init_from:                          # 暖启动:URL/本地 .pt 载入权重(含 EMA)再开训
+        if args.init_from.startswith("http"):
+            ck = torch.hub.load_state_dict_from_url(args.init_from, map_location=dev,
+                                                    check_hash=False)
+        else:
+            ck = torch.load(args.init_from, map_location=dev)
+        sd = ck.get("model", ck) if isinstance(ck, dict) else ck
+        miss, unexp = model.load_state_dict(sd, strict=False)
+        miss = [k for k in miss if not k.startswith("backbone.")]   # 骨干不在 ckpt 里
+        print(f"[init_from] 暖启动加载 {args.init_from} | 缺失(非骨干){len(miss)} 多余{len(unexp)}"
+              + (f" @ep{ck.get('epoch')} {ck.get('metric')}={ck.get('score')}"
+                 if isinstance(ck, dict) else ""))
 
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=args.lr)
@@ -605,7 +652,7 @@ def main():
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_frozen = sum(p.numel() for p in model.backbone.parameters())
-    print(f"trainable params: {n_train / 1e6:.1f}M | frozen {args.encoder} backbone: "
+    print(f"trainable params: {n_train / 1e6:.1f}M | frozen {cfg.backbone.kind} backbone: "
           f"{n_frozen / 1e6:.1f}M | batch={args.batch} workers={n_workers} "
           f"steps/epoch={args.steps_per_epoch} frame_skip={args.frame_skip}")
 
@@ -625,8 +672,8 @@ def main():
     def _save_best(ep, score):
         sd = {k: v for k, v in model.state_dict().items() if not k.startswith("backbone.")}
         torch.save({"model": sd, "epoch": ep, "metric": args.best_metric, "score": score,
-                    "encoder": args.encoder, "camera_scale": cam_scale,
-                    "args": vars(args)}, best_path)
+                    "encoder": cfg.backbone.kind, "camera_scale": cam_scale,
+                    "config": asdict(cfg), "args": vars(args)}, best_path)
 
     def _update_best(ev, ep):
         nonlocal best_score, best_ep
@@ -663,7 +710,7 @@ def main():
                         args.mouse_move_w, args.gamma_plan, args.rho_open,
                         args.open_every, open_alpha, args.kb_edge_w,
                         args.beta_kl, args.kl_free, text_enc, amp_dev, use_amp,
-                        remap=remap)
+                        kb_focal=args.kb_focal, distill_w=args.inv_distill_w, remap=remap)
         if sched is not None:
             sched.step()
         if r.get("gpu_util") is not None:
@@ -714,16 +761,27 @@ def main():
             print(f"  [eval] pred {ev['pred']:.3f} mv {ev['pred_move']:.3f} "
                   f"bestK {ev['pred_bestk']:.3f} post {ev['pred_post']:.3f}×copy | "
                   f"turn {ev['pred_turn']:.3f} walk {ev['pred_walk']:.3f} | "
-                  f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f} | "
+                  f"kb bal {ev['kb_bal_acc']:.3f} onset {ev['kb_onset_recall']:.3f}"
+                  f"(@.2 槽{ev['onset_slot_r20']:.3f}/patch{ev['onset_patch_r20']:.3f}) | "
                   f"mouse move {ev['mouse_move_acc']:.3f}")
+            if remap is not None:
+                print(f"  [eval] 重绑定 onset 子集 {ev['kb_onset_sub']:.3f}/其余 {ev['kb_onset_rest']:.3f}"
+                      f" | bal 子集 {ev['kb_bal_sub']:.3f}/其余 {ev['kb_bal_rest']:.3f}"
+                      f" | 适应 {ev['kb_sub_early']:.3f}→{ev['kb_sub_late']:.3f}")
             if use_wandb:
                 # eval 主面板:诚实 holdout 读数(≤12);基率虚高 + 固定集常数项(kb_edges/
                 # mouse_moves/frac_* 在复用 eval 集上恒定)降级 eval_diag/,不污染主面板。
                 EVAL_MAIN = ("pred", "pred_move", "pred_post", "pred_bestk",
                              "pred_turn", "pred_walk", "pred_still",
-                             "kb_onset_recall", "kb_release_recall", "mouse_move_acc")
+                             "kb_onset_recall", "kb_release_recall", "mouse_move_acc",
+                             # onset 诚实读数(@.2 校准阈值)+ patch 天花板:槽路升、向 patch 收敛 = 修对了
+                             "onset_slot_r20", "onset_patch_r20",
+                             # θ=0.2 工作点精度:bal/spec 不塌 ⇒ onset@.2 召回非误报灌
+                             "kb_bal20", "kb_spec20",
+                             # 重绑定头号信号:子集 onset/bal + 适应代理
+                             "kb_onset_sub", "kb_bal_sub", "kb_sub_early", "kb_sub_late")
                 wandb.log({(f"eval/{k}" if k in EVAL_MAIN else f"eval_diag/{k}"): v
-                           for k, v in ev.items()}, step=ep)
+                           for k, v in ev.items() if v == v}, step=ep)   # v==v 滤掉 nan(remap 关时子集项)
             _update_best(ev, ep)            # 持续跟踪 best(每次 eval)
         # best 上传节流:每 save_best_every 个 epoch 传一次当前 best artifact
         if args.save_best_every > 0 and (ep + 1) % args.save_best_every == 0:
@@ -747,6 +805,12 @@ def main():
           f"({e['kb_edges']} 次跳变;常按键灌不高这两项,是更硬的证据)")
     print(f"鼠标 bin acc {e['mouse_bin_acc']:.3f} | move acc {e['mouse_move_acc']:.3f} "
           f"({e['mouse_moves']} 个运动帧;恒中心 bin 的基率解 move acc = 0)")
+    print(f"onset 阈值诊断 槽路 recall@≥.5/.35/.2/.1 "
+          f"{e['onset_slot_r50']:.3f}/{e['onset_slot_r35']:.3f}/{e['onset_slot_r20']:.3f}/{e['onset_slot_r10']:.3f}"
+          f" | patch {e['onset_patch_r50']:.3f}/{e['onset_patch_r35']:.3f}/{e['onset_patch_r20']:.3f}/{e['onset_patch_r10']:.3f}"
+          f"  (槽路降阈抬头=阈值假象;patch≫槽=编码器丢信号)")
+    print(f"onset@.2 工作点 kb_bal {e['kb_bal20']:.3f} / spec {e['kb_spec20']:.3f} / held-recall {e['kb_recall20']:.3f}"
+          f"  (spec 仍高 ⇒ onset@.2 召回非误报灌;对比 θ=.5 bal {e['kb_bal_acc']:.3f})")
     ok = e["kb_bal_acc"] > 0.6 or e["mouse_move_acc"] > 0.2
     print(f"=> {'✅ 世界模型从画面里读出了动作信息' if ok else '⚠ 动作信息尚不显著(欠训练/调 α/数据太少)'}")
 

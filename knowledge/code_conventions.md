@@ -14,10 +14,11 @@
 | 层 | 目录 | 放什么 | 禁止放 |
 |---|---|---|---|
 | L1 积木 | `blocks/` | 与任务无关的可复用算子(注意力 / 门控残差 / 时间编码 / SIGReg) | 任何领域字眼(Minecraft/VPT)、训练逻辑 |
-| L2 网络 | `net/` | 模型与部件:`world_model.py` 主模型、`slots.py`、`backbone.py`、`heads.py` | 训练循环、loss、mock、数据加载 |
+| L2 网络 | `net/` | 模型与部件:`world_model.py` 主模型、`slots.py`、`backbone.py`、`heads.py`、`dynamics.py`;结构 schema `config.py`(纯 dataclass)与各部件 `build_*` 工厂 | 训练循环、loss、mock、数据加载、yaml/文件 IO |
 | L2.5 第三方 | `net/vpt_lib/` | 原样 vendored 的 OpenAI VPT(见其 `NOTICE`) | 我们改写的代码;**本规范不约束 vendored 目录** |
 | L3 领域契约 | `domains/<game>/` | 数据契约与领域逻辑:动作编解码、数据集、控制重映射、任务文本 | 训练循环、模型定义 |
 | L4 训练 | `train/<game>/` | 只放"循环 + 装配":`train_*.py`(CLI/main)、`losses.py`、`eval.py`、`viz`、`_seq.py` | 模型定义、数据契约 |
+| 配置 | `configs/<game>/` | 模型结构 yaml 预设(部件选择 + 超参;如 `base`/`tiny`/`dinov2`,缺键取 `net.config` 默认) | 模型定义、训练逻辑、数据契约 |
 | 工具 | `tools/` | 一次性脚本 / 离线诊断(oracle、数据下载) | 大体积产物(→ `runs/`)、生产依赖 |
 | 测试 | `tests/` | **所有** mock、CPU 兼容、离线降级;`unit/` 与 `integration/` | — |
 | 文档 | `knowledge/` | 宏观设计意图与"为什么"(中文,SSOT) | 历史活动流水账(→ git log) |
@@ -30,7 +31,9 @@ blocks ← net ← domains ← train ← tools
 utils 横向供给各层;tests 依赖一切但不被依赖。
 ```
 - `net/` **不得** import `domains/` 或 `train/`(契约数值如 `N_CAMERA_BINS` 在 net 内独立声明,
-  由训练端断言一致;见 `net/heads.py`)。
+  由训练端断言一致;见 `net/heads.py`)。**亦不读 yaml/文件**:结构 schema 是纯 dataclass
+  (`net/config.py`),`configs/<game>/*.yaml` 由 `train` 装配时经 `utils.config_io` 解析成
+  `ModelConfig` 再传入模型;领域常量(act_dim / n_cam_bins)由 `train` 端断言 == `domains` 常量。
 - `train/` 内禁止出现 `train_X ← eval ← train_X` 这类回边;共享的无状态 helper 下沉到
   独立模块(如 `train/minecraft/_seq.py`)打断循环。
 

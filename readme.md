@@ -60,7 +60,8 @@ runs/              下载数据 / checkpoints / 日志  [gitignored]
   opencv / numpy / wandb 等)。
 - **开发(测试 + net 前向)**:Windows + CUDA 同样可跑——Mamba 已弃用,不再有平台门槛。
 - DINOv3 权重 **gated**:需 HuggingFace token,经 Colab Secret(`HF_TOKEN`)或仓库根 `.env` 注入
-  (`utils/hf_token.py` 双重加载)。无 token 用 `--encoder dinov2`(开放权重);离线管线冒烟见 `tests/integration/`。
+  (`utils/hf_token.py` 双重加载)。无 token 用 `--config configs/minecraft/dinov2.yaml`(开放权重);
+  离线管线冒烟见 `tests/integration/`。
 
 ```bash
 pip install -r requirements.txt
@@ -71,15 +72,16 @@ pip install -r requirements.txt
 ## 训练
 
 ```bash
-# 真实训练(DINOv3 骨干,需 HF token + VPT 数据)
+# 真实训练(DINOv3 骨干 = 默认 base 预设,需 HF token + VPT 数据)
 python train/minecraft/train_minecraft.py \
     --data_dir runs/vpt_sample --holdout_dir runs/vpt_holdout \
-    --encoder dinov3 --img_size 128 --batch 128 --epochs 300 --device cuda
+    --config configs/minecraft/base.yaml --img_size 128 --batch 128 --epochs 300 --device cuda
 
 # 无 HF token 时用开放权重 dinov2(首次下载后本地缓存)
-python train/minecraft/train_minecraft.py --data_dir runs/vpt_sample --encoder dinov2 --epochs 1
+python train/minecraft/train_minecraft.py --data_dir runs/vpt_sample \
+    --config configs/minecraft/dinov2.yaml --epochs 1
 
-# 全部参数
+# 模型结构(d/N/K/J、骨干、binder、dynamics、heads、ξ)全在 yaml 预设里改;CLI 只剩训练/数据旋钮
 python train/minecraft/train_minecraft.py --help
 ```
 
@@ -112,3 +114,5 @@ python tools/oracle_idm.py --checkpoint runs/mc_ckpt/best.pt
 | [AGENTS.md](AGENTS.md) | 助手约束:数值不变量 I1–I8、生产纯净、SSOT、写作纪律 |
 | [knowledge/code_conventions.md](knowledge/code_conventions.md) | 代码组织规范:放置 / 写作 / 拆分合并 |
 | [knowledge/mental_world.md](knowledge/mental_world.md) | 脑内世界设计愿景(宏观架构与算法意图) |
+| [knowledge/claims_and_scope.md](knowledge/claims_and_scope.md) | 期望与现实校准:当前能诚实主张的命题、主张边界、哪条线朝元愿望走 |
+| [knowledge/world_model_landscape.md](knowledge/world_model_landscape.md) | 世界模型外部版图调研与设计对照 |

@@ -13,6 +13,7 @@ import torch.nn as nn
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from net.world_model import MinecraftWorldModel
+from net.config import ModelConfig, XiConfig, HeadsConfig
 
 ACT_DIM = 22
 
@@ -37,9 +38,9 @@ class MockDINOv2(nn.Module):
 
 
 def _tiny_model():
-    return MinecraftWorldModel(
-        d=64, N=4, K=2, J=2, act_dim=ACT_DIM, ema_decay=0.99,
-        max_skip=3, backbone=MockDINOv2(64), d_xi=8, inv_dyn_ctx=True)
+    cfg = ModelConfig(d=64, N=4, K=2, J=2, act_dim=ACT_DIM, ema_decay=0.99, max_skip=3,
+                      xi=XiConfig(d_xi=8), heads=HeadsConfig(inv_dyn_ctx=True))
+    return MinecraftWorldModel(cfg, backbone=MockDINOv2(64))
 
 
 def test_world_model_forward_backward():
@@ -84,6 +85,140 @@ def test_world_model_forward_backward():
     model.ema_update()
 
 
+def test_control_remap_train_step():
+    """in-context 实验的训练路径端到端冒烟:子集 ControlRemap + inv_dyn_ctx + 四项真实损失。
+
+    验证「可直接训练」——前向(后验 ξ)→ dz_pred + inv_dyn(ctx=h)+ plan_bc + KL → 反向 →
+    无 NaN 梯度。离线 mock 骨干、不触网络/GPU/数据。覆盖上轮新增的 remap 子集机制与
+    base.yaml 默认开启的 inv_dyn_ctx(=true)在真实损失链路里的接线。"""
+    from domains.minecraft.control_remap import ControlRemap, N_MOUSE
+    from train.minecraft.losses import (dz_pred_loss, minecraft_inv_dyn_loss,
+                                         plan_bc_loss, kl_diag_gauss)
+    B, device = 2, "cpu"
+    model = _tiny_model().to(device).train()                 # _tiny_model 已 inv_dyn_ctx=True
+    S, T1, NK = model.S, 4, ACT_DIM - N_MOUSE
+
+    img_t, img_t1 = torch.rand(B, 3, 64, 64), torch.rand(B, 3, 64, 64)
+
+    # 动作:子集置换(高信号 w/a/s/d/space/attack),video(图像)不动。鼠标连续 + 键盘 0/1。
+    def _raw(*lead):
+        return torch.cat([torch.randn(*lead, N_MOUSE) * 2,
+                          (torch.rand(*lead, NK) > 0.5).float()], dim=-1)
+    remap = ControlRemap(remap_keys=True, n_holdout=8, seed=0, key_subset=[0, 1, 2, 3, 4, 7])
+    spec = remap.sample(B)
+    act_cur = remap.apply(_raw(B, S), spec)                  # a_cur [B,S,22]
+    act_agg = remap.apply(_raw(B, T1), spec)                 # 聚合动作序列 [B,T1,22]
+
+    z_obs = model.encode_obs(img_t)                          # [B,N,d] 带梯度
+    with torch.no_grad():
+        dz = model.encode_target(img_t1) - model.encode_target(img_t)
+        z_tg_t1 = model.encode_target(img_t1)
+
+    h = torch.randn(B, 1, model.d)
+    a_hist = torch.zeros(B, model.J, ACT_DIM)
+    dt_b = torch.full((B,), float(S))
+    mu_q, lv_q = model.xi_posterior(z_obs, h, dt_b, dz)
+    mu_p, lv_p = model.xi_prior(z_obs, h, dt_b)
+    out = model(z_obs, h, a_hist, act_cur, dt_b, torch.zeros(B),
+                task_emb=None, xi=model.xi_sample(mu_q, lv_q))
+
+    pdz = (model.extract_feats(img_t1).mean(1) - model.extract_feats(img_t).mean(1)).float()
+    ctx_h = h.squeeze(1).float()                             # pre-step h → FiLM 重绑定通路
+    l_pred = dz_pred_loss(out["mu"].float(), dz)[0]
+    # kb_focal + inv_distill_w 走 onset 修复两支路(focal BCE + patch→槽路蒸馏),验证接线/反向
+    l_inv = minecraft_inv_dyn_loss((z_tg_t1 - z_obs.float()), out["c"].float(),
+                                   act_agg[:, 0], model.inv_dyn, move_w=4.0,
+                                   patch_dz=pdz, ctx=ctx_h, kb_focal=2.0, distill_w=0.5)[0]
+    l_plan = plan_bc_loss(out["action_plan"], act_agg,
+                          torch.full((B, T1), float(S)), 0, model.K)[0]
+    l_kl = kl_diag_gauss(mu_q.float(), lv_q.float(), mu_p.float(), lv_p.float()).mean()
+    loss = l_pred + l_inv + l_plan + l_kl
+    loss.backward()
+
+    assert torch.isfinite(loss), "训练步损失非有限"
+    assert model.inv_dyn.use_ctx, "本测试须走 FiLM-on-h 重绑定通路(inv_dyn_ctx=True)"
+    has_nan = any(p.grad is not None and torch.isnan(p.grad).any()
+                  for p in model.parameters())
+    assert not has_nan, "梯度出现 NaN"
+
+
+def test_evaluate_smoke():
+    """eval.evaluate() 端到端冒烟,含 Stage 0 onset 阈值诊断的直方图读出。
+
+    mock 骨干、CPU、单 batch;验证 evaluate 跑通且新加的 onset_slot_r*/onset_patch_r*
+    诊断键存在、阈值越低 recall 越高(≥ 关系)。不验证数值正确性,只验证接线不崩。"""
+    from train.minecraft.eval import evaluate
+    from domains.minecraft.vpt_action import N_MOUSE, ACTION_DIM
+    B, T, device = 2, 4, "cpu"
+    model = _tiny_model().to(device)
+    S, NK = model.S, ACTION_DIM - N_MOUSE
+    g = torch.Generator().manual_seed(0)
+
+    def _agg(*lead):                                         # 鼠标连续 + 键盘 0/1
+        return torch.cat([torch.randn(*lead, N_MOUSE, generator=g),
+                          (torch.rand(*lead, NK, generator=g) > 0.5).float()], dim=-1)
+    batch = {
+        "img": torch.rand(B, T, 3, 64, 64, generator=g),
+        "act_seq": _agg(B, T, S),                            # [B,T,S,A]
+        "act_agg": _agg(B, T),                               # [B,T,A]
+        "dt": torch.randint(1, S + 1, (B, T), generator=g).float(),
+        "t_vec": torch.arange(T).float().unsqueeze(0).expand(B, T).clone(),
+    }
+    out = evaluate(model, [batch], device, steps=1, amp_dev="cpu", use_amp=False, open_k=2)
+
+    for k in ("onset_slot_r50", "onset_slot_r35", "onset_slot_r20", "onset_slot_r10",
+              "onset_patch_r50", "onset_patch_r10", "onset_slot_med", "onset_patch_med",
+              "kb_onset_recall", "kb_recall20", "kb_spec20", "kb_bal20"):
+        assert k in out, f"缺少诊断键 {k}"
+    # spec/recall ∈ [0,1](θ=0.2 工作点精度检查键)
+    assert 0.0 <= out["kb_spec20"] <= 1.0 and 0.0 <= out["kb_recall20"] <= 1.0
+    # 降阈单调:recall@≥0.1 ≥ recall@≥0.5(直方图上界子集关系),仅在有 onset 帧时校验
+    if out["onset_slot_r50"] == out["onset_slot_r50"]:       # 非 nan
+        assert out["onset_slot_r10"] >= out["onset_slot_r50"] - 1e-6
+    if out["onset_patch_r50"] == out["onset_patch_r50"]:
+        assert out["onset_patch_r10"] >= out["onset_patch_r50"] - 1e-6
+
+
+def test_train_epoch_smoke():
+    """train_epoch → _run_sequence 一个 batch 端到端冒烟(CPU,mock 骨干)。
+
+    覆盖训练主循环接线——尤其 kb_focal + inv_distill_w 经 train_epoch→_run_sequence 透传到
+    inv-dyn 损失这条链(漏接会 NameError,只在真训练时炸,单测此前无覆盖)。验证前向+反向+
+    opt.step 跑通、返回指标有限。"""
+    from train.minecraft.train_minecraft import train_epoch
+    from domains.minecraft.vpt_action import N_MOUSE, ACTION_DIM
+    from blocks.primitives import SIGReg
+    B, T, device = 2, 5, "cpu"
+    model = _tiny_model().to(device)
+    S, NK = model.S, ACTION_DIM - N_MOUSE
+    g = torch.Generator().manual_seed(0)
+
+    def _agg(*lead):
+        return torch.cat([torch.randn(*lead, N_MOUSE, generator=g),
+                          (torch.rand(*lead, NK, generator=g) > 0.5).float()], dim=-1)
+    batch = {
+        "img": torch.rand(B, T, 3, 64, 64, generator=g),
+        "act_seq": _agg(B, T, S), "act_agg": _agg(B, T),
+        "dt": torch.randint(1, S + 1, (B, T), generator=g).float(),
+        "t_vec": torch.arange(T).float().unsqueeze(0).expand(B, T).clone(),
+    }
+    sigreg = SIGReg(knots=17, num_proj=512).to(device)
+    opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-4)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+
+    # kb_focal/distill_w > 0 ⇒ 走 onset 修复两支路,且强制透传链路被执行
+    r = train_epoch(model, sigreg, iter([batch]), opt, scaler, device, steps=1, k_bptt=2,
+                    alpha_inv=1.0, beta_sigreg=0.03, beta_div=0.05, move_w=4.0,
+                    gamma_plan=0.25, rho_open=0.0, open_every=1, open_alpha=0.0,
+                    kb_edge_w=3.0, beta_kl=0.1, kl_free=1.0, text_enc=None,
+                    amp_dev="cpu", use_amp=False, kb_focal=2.0, distill_w=0.5)
+    for k in ("loss", "inv", "kb", "pred_move"):
+        assert k in r and r[k] == r[k], f"{k} 缺失或 NaN"
+
+
 if __name__ == "__main__":
     test_world_model_forward_backward()
+    test_control_remap_train_step()
+    test_evaluate_smoke()
+    test_train_epoch_smoke()
     print("ok")

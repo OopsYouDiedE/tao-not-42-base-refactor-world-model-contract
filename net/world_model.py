@@ -41,9 +41,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from blocks.primitives import ContinuousTimeEncoding
-from net.slots import SlotBinder
-from net.backbone import load_backbone
-from net.heads import DecoderHeads, InverseDynamicsHead, N_CAMERA_BINS
+from net.config import ModelConfig
+from net.slots import build_binder
+from net.backbone import build_backbone
+from net.dynamics import build_dynamics
+from net.heads import DecoderHeads, InverseDynamicsHead
 
 
 def sinusoidal_time_encoding(t_vec, d):
@@ -67,33 +69,32 @@ def sinusoidal_time_encoding(t_vec, d):
 class MinecraftWorldModel(nn.Module):
     """Δz-JEPA 世界模型:统一锚坐标系感知 + EMA 目标 + Transformer 动力学推演。"""
 
-    def __init__(self, d=384, N=16, K=5, J=8, act_dim=22, n_cam_bins=N_CAMERA_BINS,
-                 ema_decay=0.99, max_skip=8, encoder="dinov2", encoder_weights=None,
-                 d_xi=32, inv_dyn_ctx=False, backbone=None, enc_dim=None):
+    def __init__(self, config, backbone=None):
+        """config: ModelConfig(结构超参,默认值 = 今日写死值,见 net.config)。
+        backbone: 非空 = 依赖注入的冻结骨干(仅测试 mock,AGENTS §2 只许在 tests/;须自带
+                  .embed_dim);为空则按 config.backbone 经 build_backbone 加载。
+        """
         super().__init__()
-        self.d = d
-        self.N = N # 实体槽数量
-        self.K = K # 动作查询数量
-        self.J = J # 历史动作长度(训练/可视化按此构造 a_hist)
-        self.S = max_skip # 区间动作序列最大长度(= 数据集 frame_skip 上限)
-        self.ema_decay = ema_decay
+        self.config = config
+        self.d = config.d
+        self.N = config.N          # 实体槽数量
+        self.K = config.K          # 动作查询数量
+        self.J = config.J          # 历史动作长度(训练/可视化按此构造 a_hist)
+        self.S = config.max_skip   # 区间动作序列最大长度(= 数据集 frame_skip 上限)
+        self.ema_decay = config.ema_decay
+        act_dim = config.act_dim
+        # 局部别名:下文沿用裸名,装配逻辑一字不改;各部件超参来自 config。
+        d, N, K, max_skip = self.d, self.N, self.K, self.S
+        n_cam_bins = config.heads.n_cam_bins
+        inv_dyn_ctx = config.heads.inv_dyn_ctx
+        d_xi = config.xi.d_xi
 
-        # 视觉骨干:**冻结**的预训练 DINOv3 ViT-S/16(HF,默认;dinov2 ViT-S/14 为开放权重备选)。
-        # prime-leaf-7 实测:从零训练的随机卷积骨干(无预训练先验)在 2 个 clip 上把纹理背熟
-        # (train pred 0.19 vs holdout ~1.7×基线,鼠标读出 holdout ≈ 随机),泛化失败的主因
-        # 之一是表征没有先验。冻结预训练骨干给目标编码一个独立于本任务数据的意义来源——
-        # 这正是 JEPA 的前提。骨干冻结且在线/目标共享 ⇒ 特征每帧只需提取一次(extract_feats),
-        # EMA 只需覆盖可训练部分(proj + binder),省一半视觉计算与 21M 参数副本。
-        # backbone 非空 = 依赖注入:仅测试用(离线 mock 骨干按 AGENTS §2 只许在 tests/),
-        # 须自带 .embed_dim 或显式给 enc_dim;生产恒走 load_backbone(dinov2/dinov3)。
-        if backbone is not None:
-            self.backbone = backbone
-            self.encoder_kind = "injected"
-            enc_dim = enc_dim if enc_dim is not None else backbone.embed_dim
-            self._patch, self._n_reg = None, 0
-        else:
-            self.backbone, self._patch, enc_dim, self._n_reg = load_backbone(encoder, encoder_weights)
-            self.encoder_kind = encoder
+        # 视觉骨干:**冻结**的预训练 ViT(默认 DINOv3 ViT-S/16,见 net.backbone)。冻结预训练
+        # 骨干给目标编码一个独立于本任务数据的意义来源(JEPA 前提);在线/目标共享 ⇒ 特征每帧
+        # 只提取一次(extract_feats),EMA 只覆盖可训练部分(proj + binder)。
+        # backbone 非空 = 依赖注入(测试 mock,kind="injected" → extract_feats 走 mock 分支)。
+        self.backbone, self._patch, enc_dim, self._n_reg, self.encoder_kind = \
+            build_backbone(config.backbone, injected=backbone)
         for p in self.backbone.parameters():
             p.requires_grad_(False)
         self.backbone.eval()
@@ -103,10 +104,10 @@ class MinecraftWorldModel(nn.Module):
 
         # 在线感知:冻结特征 → 可训练投影 → binder(固定锚) − 锚。锚是 buffer 不训练,
         # 在线/目标共用 ⇒ 两条路径编码同一帧得到同一坐标系下的同一向量(至 EMA 滞后)。
-        # compete=True:slot 维竞争注意力(防多个 slot 冗余绑定同一区域,见 SlotBinder)。
+        # binder 见 config.encoder(默认 competitive:slot 维竞争注意力,防多 slot 冗余绑定同区)。
         self.proj = nn.Linear(enc_dim, d)
         self.register_buffer("slots", torch.randn(1, N, d))
-        self.binder = SlotBinder(d, compete=True)
+        self.binder = build_binder(config.encoder, d)
 
         # EMA 目标编码器(JEPA 靶):深拷贝可训练部分、不收梯度、不进 optimizer
         # (requires_grad=False ⇒ 优化器过滤,仍随 state_dict 保存/加载)。
@@ -119,23 +120,21 @@ class MinecraftWorldModel(nn.Module):
         # σ 已撤(异方差 NLL 的"σ 标定残差"泄压阀让 loss 下降与误差脱钩);
         # c 回到逐 slot 标量(逐维 6144 闸门 × 池化标量损失 = 梯度过度弥散)。
         out_dim = d + 2
+        hidden = d * config.state_dec_mult
         self.state_dec = nn.Sequential(
             nn.LayerNorm(d),
-            nn.Linear(d, d*2),
+            nn.Linear(d, hidden),
             nn.SiLU(),
-            nn.Linear(d*2, out_dim)
+            nn.Linear(hidden, out_dim)
         )
         # 末层零初始化:冷启动 μ=0(恰为 persistence 基线 ⇒ 归一化 pred 损失从 1.0
         # 起步,而非 |随机μ|²/|Δz|² ~ 1e4)、c=σ(0)=0.5(闸门居中,等待 inv-dyn 极化)。
         nn.init.zeros_(self.state_dec[-1].weight)
         nn.init.zeros_(self.state_dec[-1].bias)
 
-        # Transformer。dropout=0(PyTorch 默认 0.1):本模型的 mu 直接喂回归损失,
-        # train 模式下 dropout 的随机置零+1/(1-p) 重缩放会让 train/eval 前向输出
-        # 系统性不一致。正则交给 SIGReg(训练端施加在 z_obs 上),不用 dropout。
-        layer = nn.TransformerEncoderLayer(d_model=d, nhead=8, dim_feedforward=d*4,
-                                           batch_first=True, activation="gelu", dropout=0.0)
-        self.blocks = nn.TransformerEncoder(layer, num_layers=4)
+        # 动力学核(默认 Transformer,层数/头数/ffn/dropout 见 config.dynamics)。
+        # dropout=0:mu 直喂回归损失,train/eval 前向须一致;正则交 SIGReg,见 net.dynamics。
+        self.blocks = build_dynamics(config.dynamics, d)
 
         # 复合动作。act_dim+1:末位是**有效位**——区分零填充/空槽与真·无操作
         # (全零动作是合法输入"什么都没按",不能用全零判别 padding)。
@@ -177,7 +176,7 @@ class MinecraftWorldModel(nn.Module):
         # 闲置)。改为逐槽 φ 投影(d→phi)后 mean+max 双池化:保留槽级新奇,
         # 作弊带宽仍由 phi/d_xi/KL 把守(max 池化专门保住"某个槽突现的意外")。
         self.d_xi = d_xi
-        phi = max(8, d // 8)
+        phi = config.xi.phi if config.xi.phi is not None else max(8, d // 8)
         self.xi_dz_phi = nn.Linear(d, phi)            # 逐槽 Δz → phi(降维限带宽)
         self.xi_prior_net = nn.Sequential(
             nn.Linear(3 * d, d), nn.SiLU(), nn.Linear(d, 2 * d_xi))

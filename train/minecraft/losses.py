@@ -75,7 +75,8 @@ def slot_diversity_loss(attn):
 
 
 def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
-                           prev_action=None, kb_edge_w=1.0, patch_dz=None, ctx=None):
+                           prev_action=None, kb_edge_w=1.0, patch_dz=None, ctx=None,
+                           kb_focal=0.0, distill_w=0.0):
     """逆动力学:从 (z_tg(t+1) − z_obs(t)) ⊙ c 反推混合动作。
 
     ⚠ 槽路 / patch 旁路**分开监督**(2026-06-14,见 head.forward):两路 logits 不再相加。
@@ -90,6 +91,12 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
     鼠标 = mu-law 分箱加权 CE(非中心 ×move_w 堵基率不动点);键盘 = 20 键 BCE
     (跳变元素 ×kb_edge_w:整段按住的键早学会,按下/松开瞬间样本太稀)。
     delta_z 的 z_obs 端带梯度——本损失是编码器"让 Δ 编码动作"的唯一直接压力。
+
+    onset 修复两旋钮(默认 0=关,向后兼容;Stage 0 诊断定位:onset 既被 0.5 硬阈
+    误杀、又被 binder 砍掉 patch 已证可读的置信度):
+      kb_focal(γ>0)— focal BCE,(1−p_t)^γ 上调被保守压低的 onset 难样本概率(C-阈值);
+      distill_w(>0)— patch→槽路软标签蒸馏权重,把槽路 kb_prob 拉向 detached patch teacher,
+        逼编码器保住 onset(编码器落差)。两者可叠加,与 kb_edge_w 同走边沿加权。
     """
     mouse_logits, kb_prob, parts = inv_dyn_head(delta_z * c, patch_dz=patch_dz, ctx=ctx)
     mouse_bin = camera_to_bin(true_action[:, :N_MOUSE])               # [B,2] long
@@ -106,6 +113,9 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
 
     def _kb_bce(prob):
         bce = F.binary_cross_entropy(prob.clamp(EPS, 1 - EPS), kb_t, reduction="none")
+        if kb_focal > 0.0:                         # focal:(1−p_t)^γ 上调难样本——onset 概率被
+            p_t = prob * kb_t + (1 - prob) * (1 - kb_t)   # 保守压低(诊断实测中位 0.08),正是难样本
+            bce = (1 - p_t).clamp(min=EPS).pow(kb_focal) * bce
         if prev_kb is not None and kb_edge_w > 1.0:
             w_kb = 1.0 + (kb_edge_w - 1.0) * (kb_t != prev_kb).to(bce.dtype)
             return (bce * w_kb).sum() / w_kb.sum()
@@ -116,12 +126,27 @@ def minecraft_inv_dyn_loss(delta_z, c, true_action, inv_dyn_head, move_w=4.0,
     # patch 旁路:独立损失,参数与槽路互斥 + 不共享 logit 和 ⇒ 梯度不稀释槽路/c。
     # patch_dz 来自冻结骨干 ⇒ 这项只训 patch 头,不回流编码器。
     if parts is not None:
-        l_patch = _mouse_ce(parts[0]) + _kb_bce(torch.sigmoid(parts[1]))
+        patch_kb_prob = torch.sigmoid(parts[1])
+        l_patch = _mouse_ce(parts[0]) + _kb_bce(patch_kb_prob)
     else:
-        l_patch = mouse_logits.new_zeros(())
+        patch_kb_prob, l_patch = None, mouse_logits.new_zeros(())
+    # Stage 1b:patch→槽路蒸馏。诊断实测 patch 的 onset 概率(中位 0.31)≫ 槽路(0.08)——
+    # binder 把 patch 留住的 onset 置信度砍掉 4~6×。以 patch 旁路为 **detached teacher** 把槽路
+    # kb_prob 拉向它:梯度只进槽路读出→read_attn→Δz→z_obs→binder,逼编码器保住 onset;
+    # teacher 截断梯度不被污染,沿用两路参数互斥、不共享 logit 和的防饿死设计。边沿加权聚焦跳变帧。
+    l_distill = mouse_logits.new_zeros(())
+    if distill_w > 0.0 and patch_kb_prob is not None:
+        d_bce = F.binary_cross_entropy(kb_prob.clamp(EPS, 1 - EPS),
+                                       patch_kb_prob.detach(), reduction="none")
+        if prev_kb is not None and kb_edge_w > 1.0:
+            w_kb = 1.0 + (kb_edge_w - 1.0) * (kb_t != prev_kb).to(d_bce.dtype)
+            l_distill = (d_bce * w_kb).sum() / w_kb.sum()
+        else:
+            l_distill = d_bce.mean()
     hit = (mouse_logits.argmax(-1) == mouse_bin)       # 读数取槽路
     moved = (mouse_bin != center)
-    return (l_kb + l_mouse + l_patch, l_mouse.detach(), l_kb.detach(),
+    return (l_kb + l_mouse + l_patch + distill_w * l_distill,
+            l_mouse.detach(), l_kb.detach(),
             hit.float().mean().detach(),
             (hit & moved).float().sum().detach(), moved.float().sum().detach())
 

@@ -12,6 +12,7 @@ import torch
 
 from domains.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE, ACTION_DIM as ACT_DIM
 from train.minecraft._seq import roll_hist, _to_float_img
+from train.minecraft.losses import kl_diag_gauss
 
 
 @torch.no_grad()
@@ -36,6 +37,31 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
     tp = fp = fn = tn = 0
     on_tp = on_n = off_tp = off_n = 0
     m_hit = m_n = mv_hit = mv_n = 0
+    # 子集拆分(in-context 重绑定的诚实读出,见 mental_world §6):被 remap 的子集键(remap.key_idx,
+    # 已是 0..19 键空间列索引)语义须靠 context 推断 = 真信号;其余键恒等(白送)。混算会把真信号
+    # 虚高稀释 ⇒ 分两套计数器。再把子集键 bal-acc 按窗口内步位置(早/晚半窗)分桶——晚步 h 累积更多
+    # context,late>early 即「在用 context 适应」的近乎免费 dose-response 代理。
+    sub_cols = remap.key_idx.tolist() if remap is not None else []
+    rest_cols = [c for c in range(ACT_DIM - N_MOUSE) if c not in set(sub_cols)]
+    has_sub = len(sub_cols) > 0
+    grp = {k: {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+           for k in ("sub", "rest", "sub_early", "sub_late")}   # bal-acc 组件
+    grp_on = {k: {"tp": 0, "n": 0} for k in ("sub", "rest")}    # onset recall
+    # Stage 0 onset 诊断:onset 帧上 kb_prob 的分布(槽路 vs patch 旁路),阈值无关。
+    # 直方图累加(O(1) 内存)→ recall@≥θ = prob 高于 θ 的占比。判 onset 是被 0.5
+    # 硬阈误杀(降阈即抬头 = C-阈值)还是信号真没了;槽路 vs patch 落差 = 编码器丢没丢 onset。
+    N_PB = 100
+    on_pb_slot = torch.zeros(N_PB + 1, device=device)
+    on_pb_patch = torch.zeros(N_PB + 1, device=device)
+    # 全帧 slot kb_prob 按真值分桶 → 任意 θ 的 recall(held)/spec(off):查 onset@.2 那个工作点的
+    # 误报率,确认低阈召回不是靠把 off 帧概率一起抬上去换的(精度侧)。
+    held_pb_slot = torch.zeros(N_PB + 1, device=device)
+    off_pb_slot = torch.zeros(N_PB + 1, device=device)
+
+    def _acc(d, pred, true):
+        d["tp"] += int((pred & true).sum());  d["fp"] += int((pred & ~true).sum())
+        d["fn"] += int((~pred & true).sum()); d["tn"] += int((~pred & ~true).sum())
+
     pred_sum, pred_mv_sum, pred_bk_sum, pred_n = 0.0, 0.0, 0.0, 0
     pred_post_sum = 0.0          # 后验条件 pred(偷看真值 ξ)= ξ 通道信息天花板
     # 按转移类型分桶 pred 比值(动作维度,与 Δz 幅度正交)——诊断 0.58 是
@@ -130,16 +156,45 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             pred_n += 1
             pdz = (featsBT[:, t + 1].mean(1) - featsBT[:, t].mean(1)).float()
             ctx_h = h.squeeze(1).float() if model.inv_dyn.use_ctx else None  # pre-step h(无泄漏)
-            mouse_logits, kb_prob, _ = model.inv_dyn(    # 槽路诚实读出(patch 旁路丢弃)
+            mouse_logits, kb_prob, parts = model.inv_dyn(    # 槽路诚实读出 + 接住 patch 旁路(诊断)
                 (z_tg[:, t + 1] - z_obs[:, t]) * out["c"].float(), patch_dz=pdz, ctx=ctx_h)
+            kb_prob_patch = torch.sigmoid(parts[1]) if parts is not None else None
             kb_pred = (kb_prob > 0.5)
             kb_true = (act_agg[:, t, N_MOUSE:] > 0.5)
             tp += (kb_pred & kb_true).sum().item();  fp += (kb_pred & ~kb_true).sum().item()
             fn += (~kb_pred & kb_true).sum().item();  tn += (~kb_pred & ~kb_true).sum().item()
+            ph = kb_prob[kb_true].clamp(0, 1)        # held / off 帧 prob 直方图(任意 θ 的 recall/spec)
+            if ph.numel():
+                held_pb_slot.index_add_(0, (ph * N_PB).long(), torch.ones_like(ph))
+            po = kb_prob[~kb_true].clamp(0, 1)
+            if po.numel():
+                off_pb_slot.index_add_(0, (po * N_PB).long(), torch.ones_like(po))
             if prev_true is not None:
                 onset = kb_true & ~prev_true; release = ~kb_true & prev_true
                 on_tp += (kb_pred & onset).sum().item();    on_n += onset.sum().item()
                 off_tp += (~kb_pred & release).sum().item(); off_n += release.sum().item()
+                if bool(onset.any()):          # Stage 0:onset 帧 prob 直方图(槽路 + patch 路)
+                    ps = kb_prob[onset].clamp(0, 1)
+                    on_pb_slot.index_add_(0, (ps * N_PB).long(), torch.ones_like(ps))
+                    if kb_prob_patch is not None:
+                        pp = kb_prob_patch[onset].clamp(0, 1)
+                        on_pb_patch.index_add_(0, (pp * N_PB).long(), torch.ones_like(pp))
+            # 子集/其余拆分 + 窗口内位置桶(用 prev_true 的旧值算子集 onset,故在更新前)
+            if has_sub:
+                sp, st = kb_pred[:, sub_cols], kb_true[:, sub_cols]
+                _acc(grp["sub"], sp, st)
+                _acc(grp["sub_late" if t >= (T - 1) // 2 else "sub_early"], sp, st)
+                if rest_cols:
+                    _acc(grp["rest"], kb_pred[:, rest_cols], kb_true[:, rest_cols])
+                if prev_true is not None:
+                    s_on = st & ~prev_true[:, sub_cols]
+                    grp_on["sub"]["tp"] += int((sp & s_on).sum())
+                    grp_on["sub"]["n"] += int(s_on.sum())
+                    if rest_cols:
+                        rp, rt = kb_pred[:, rest_cols], kb_true[:, rest_cols]
+                        r_on = rt & ~prev_true[:, rest_cols]
+                        grp_on["rest"]["tp"] += int((rp & r_on).sum())
+                        grp_on["rest"]["n"] += int(r_on.sum())
             prev_true = kb_true
             mb_pred = mouse_logits.argmax(-1)
             mb_true = camera_to_bin(act_agg[:, t, :N_MOUSE])
@@ -148,6 +203,26 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             moved = (mb_true != center)
             mv_hit += (hit & moved).sum().item(); mv_n += moved.sum().item()
             h = out["h_next"]
+    nan = float("nan")
+
+    def _bal(d):
+        rc = d["tp"] / max(d["tp"] + d["fn"], 1); sp = d["tn"] / max(d["tn"] + d["fp"], 1)
+        return 0.5 * (rc + sp)
+
+    def _on_rec(hist, th):       # onset recall@(prob≥th),从直方图读
+        tot = hist.sum()
+        return (hist[int(round(th * N_PB)):].sum() / tot).item() if tot >= 1 else nan
+
+    def _on_med(hist):           # onset 帧 prob 中位数(ramp 落点)
+        tot = hist.sum()
+        if tot < 1:
+            return nan
+        cdf = torch.cumsum(hist, 0) / tot
+        idx = torch.searchsorted(cdf, torch.tensor(0.5, device=hist.device)).clamp(max=N_PB)
+        return idx.item() / N_PB
+
+    rec20 = _on_rec(held_pb_slot, 0.2)           # θ=0.2 工作点(= onset@.2 那个点)的整体 recall/spec
+    spec20 = 1.0 - _on_rec(off_pb_slot, 0.2)     # spec@.2 仍高 ⇒ onset@.2 召回非靠误报灌(精度检查)
     recall = tp / max(tp + fn, 1); spec = tn / max(tn + fp, 1)
     return {"pred": pred_sum / max(pred_n, 1),
             "pred_move": pred_mv_sum / max(pred_n, 1),
@@ -156,6 +231,23 @@ def evaluate(model, loader, device, steps, amp_dev, use_amp, open_k=4, remap=Non
             "kb_onset_recall": on_tp / max(on_n, 1),
             "kb_release_recall": off_tp / max(off_n, 1),
             "kb_edges": on_n + off_n,
+            # Stage 0 onset 阈值诊断(槽路 vs patch 旁路;recall@≥θ + onset 帧 prob 中位数)
+            "onset_slot_r50": _on_rec(on_pb_slot, 0.5), "onset_slot_r35": _on_rec(on_pb_slot, 0.35),
+            "onset_slot_r20": _on_rec(on_pb_slot, 0.2), "onset_slot_r10": _on_rec(on_pb_slot, 0.1),
+            "onset_slot_med": _on_med(on_pb_slot),
+            "onset_patch_r50": _on_rec(on_pb_patch, 0.5), "onset_patch_r35": _on_rec(on_pb_patch, 0.35),
+            "onset_patch_r20": _on_rec(on_pb_patch, 0.2), "onset_patch_r10": _on_rec(on_pb_patch, 0.1),
+            "onset_patch_med": _on_med(on_pb_patch),
+            # θ=0.2 工作点精度检查(spec@.2 仍高 ⇒ onset@.2 召回不是靠误报灌的)
+            "kb_recall20": rec20, "kb_spec20": spec20, "kb_bal20": 0.5 * (rec20 + spec20),
+            # 子集拆分(remap 开时才有意义,否则 nan):重绑定的诚实读数
+            "kb_onset_sub": grp_on["sub"]["tp"] / max(grp_on["sub"]["n"], 1) if has_sub else nan,
+            "kb_onset_rest": (grp_on["rest"]["tp"] / max(grp_on["rest"]["n"], 1)
+                              if has_sub and rest_cols else nan),
+            "kb_bal_sub": _bal(grp["sub"]) if has_sub else nan,
+            "kb_bal_rest": _bal(grp["rest"]) if has_sub and rest_cols else nan,
+            "kb_sub_early": _bal(grp["sub_early"]) if has_sub else nan,   # context 少
+            "kb_sub_late": _bal(grp["sub_late"]) if has_sub else nan,     # context 多;>early=在适应
             "pred_post": pred_post_sum / max(pred_n, 1),       # ξ 通道天花板:≈pred_move=通道关死
             "pred_turn": bkt_sum["turn"] / max(bkt_n["turn"], 1),    # 转头(疑不可降)
             "pred_walk": bkt_sum["walk"] / max(bkt_n["walk"], 1),    # 平移(应可预测,高=预测器漏失)

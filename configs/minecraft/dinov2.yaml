@@ -1,0 +1,5 @@
+# 开放权重变体:base 之上仅换骨干为 dinov2(无需 HF token)。
+# 演示「相似网络间可替换」——其余结构超参全部沿用 net.config 默认(= base.yaml)。
+model:
+  backbone:
+    kind: dinov2

@@ -61,8 +61,7 @@ runs/
 htmlcov/
 cov.xml
 colab_quickstart.ipynb
-# colab_demo.ipynb 含明文 PAT,严禁入库
-colab_demo.ipynb
+# colab_demo.ipynb 已脱敏(密钥从 Colab Secrets 注入)⇒ 入库;勿再硬编码任何 token
 
 # Claude Code local settings (personal, do not commit)
 .claude/settings.local.json

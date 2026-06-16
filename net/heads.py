@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from blocks.primitives import PreLNAttn
+
 N_CAMERA_BINS = 11   # 与 domains.minecraft.vpt_action.CAMERA_BINS 一致(net 层不 import domain,训练端校验)
 
 
@@ -62,11 +64,18 @@ class InverseDynamicsHead(nn.Module):
     (camera_to_bin/bin_to_camera),与 VPT 原版的 mu-law 离散相机一致。
     """
     def __init__(self, d, num_keyboard_keys=20, n_cam_bins=N_CAMERA_BINS, enc_dim=None,
-                 use_ctx=False):
+                 use_ctx=False, n_query=8):
         super().__init__()
         self.n_cam_bins = n_cam_bins
+        # 槽路读出:learned query 对 N 个 slot-Δz 做 cross-attention,**取代 mean(slot) 池化**。
+        # mean(slot) 把单键(局部稀疏)的 Δz 稀释进 1/N、且丢掉「是哪个 slot 在动」⇒ 键间不可分
+        # (mental_world §5 戒律:多实体读出必须结构化 query、不能池化)。patch 旁路 bal 0.81 vs
+        # 槽路 0.15 的落差证明信息就丢在这一步池化。query 让读出**选出**承载动作的 slot 而非平均:
+        # 鼠标(全局位移、信号在多数 slot)与键盘(局部、集中在少数 slot)各取所需。
+        self.read_q = nn.Parameter(torch.randn(n_query, d) * 0.02)
+        self.read_attn = PreLNAttn(d, heads=4, mode="cross")
         self.net = nn.Sequential(
-            nn.Linear(d, 128), nn.SiLU(), nn.Linear(128, 64), nn.SiLU()
+            nn.Linear(n_query * d, 128), nn.SiLU(), nn.Linear(128, 64), nn.SiLU()
         )
         self.mouse_out = nn.Linear(64, 2 * n_cam_bins)
         self.kb_out = nn.Linear(64, num_keyboard_keys)
@@ -104,7 +113,9 @@ class InverseDynamicsHead(nn.Module):
         # 掐断(gradient starvation)。这里只返回槽路预测(= 喂世界模型/c、rollout 唯一可用
         # 的诚实读出);patch 旁路 logits 经 parts 单独抛出,由损失侧独立监督(参数互斥 ⇒
         # 梯度不回流槽路),纯作"patch-mean Δz 可读出多少"的天花板诊断。
-        feat = self.net(residual_z.mean(dim=1))
+        q = self.read_q.unsqueeze(0).expand(residual_z.shape[0], -1, -1)   # [B, n_q, d]
+        pooled = self.read_attn(q, residual_z)                            # [B, n_q, d] cross-attn+残差
+        feat = self.net(pooled.flatten(1))                                # [B, 64](槽选择,非池化稀释)
         if self.use_ctx and ctx is not None:
             g, b = self.ctx_film(ctx.to(feat.dtype)).chunk(2, dim=-1)
             feat = feat * (1.0 + g) + b               # 零初始化 ⇒ 起步恒等

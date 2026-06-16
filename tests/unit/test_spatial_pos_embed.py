@@ -13,7 +13,7 @@ import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from blocks.primitives import SpatialPosEmbed
+from blocks.encodings import SpatialPosEmbed
 
 
 def _emb(mod, x, y, s):

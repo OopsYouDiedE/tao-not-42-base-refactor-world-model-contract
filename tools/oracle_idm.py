@@ -270,37 +270,39 @@ def build_pairs(clips, feat_fn, frame_skip, max_frames, img_size, device, model=
 
 
 # ============================ oracle 模型 ============================
-class PoolHead(nn.Module):
-    def __init__(self, din=384):
-        super().__init__()
-        self.trunk = nn.Sequential(nn.Linear(din, 512), nn.GELU(), nn.Dropout(0.3),
-                                   nn.Linear(512, 256), nn.GELU())
-        self.dx = nn.Linear(256, CAMERA_BINS)
-        self.dy = nn.Linear(256, CAMERA_BINS)
-        self.kb = nn.Linear(256, 20)
+from net.oracle_heads import PoolHead, GridHead
 
-    def forward(self, x):                  # [B,384]
-        h = self.trunk(x)
-        return self.dx(h), self.dy(h), self.kb(h)
-
-
-class GridHead(nn.Module):
-    """over patch 网格的浅 CNN——保留空间结构以读"全局位移"(光流方向)。"""
-
-    def __init__(self, din=384, gh=9, gw=9):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(din, 256, 3, padding=1), nn.GELU(),
-            nn.Conv2d(256, 128, 3, padding=1), nn.GELU())
-        flat = 128 * gh * gw
-        self.drop = nn.Dropout(0.3)
-        self.dx = nn.Linear(flat, CAMERA_BINS)
-        self.dy = nn.Linear(flat, CAMERA_BINS)
-        self.kb = nn.Linear(flat, 20)
-
-    def forward(self, x):                  # [B,384,gh,gw]
-        h = self.drop(self.conv(x).flatten(1))
-        return self.dx(h), self.dy(h), self.kb(h)
+# class PoolHead(nn.Module):
+#     def __init__(self, din=384):
+#         super().__init__()
+#         self.trunk = nn.Sequential(nn.Linear(din, 512), nn.GELU(), nn.Dropout(0.3),
+#                                    nn.Linear(512, 256), nn.GELU())
+#         self.dx = nn.Linear(256, CAMERA_BINS)
+#         self.dy = nn.Linear(256, CAMERA_BINS)
+#         self.kb = nn.Linear(256, 20)
+# 
+#     def forward(self, x):                  # [B,384]
+#         h = self.trunk(x)
+#         return self.dx(h), self.dy(h), self.kb(h)
+# 
+# 
+# class GridHead(nn.Module):
+#     """over patch 网格的浅 CNN——保留空间结构以读"全局位移"(光流方向)。"""
+# 
+#     def __init__(self, din=384, gh=9, gw=9):
+#         super().__init__()
+#         self.conv = nn.Sequential(
+#             nn.Conv2d(din, 256, 3, padding=1), nn.GELU(),
+#             nn.Conv2d(256, 128, 3, padding=1), nn.GELU())
+#         flat = 128 * gh * gw
+#         self.drop = nn.Dropout(0.3)
+#         self.dx = nn.Linear(flat, CAMERA_BINS)
+#         self.dy = nn.Linear(flat, CAMERA_BINS)
+#         self.kb = nn.Linear(flat, 20)
+# 
+#     def forward(self, x):                  # [B,384,gh,gw]
+#         h = self.drop(self.conv(x).flatten(1))
+#         return self.dx(h), self.dy(h), self.kb(h)
 
 
 def _wce(logits, target, move_w=4.0):
@@ -518,24 +520,26 @@ def _knn_regress(Xtr, Ytr, Xte, device, k=20, pca=64):
     return torch.cat(out, 0).numpy()
 
 
-class PredOracle(nn.Module):
-    """隔离的 Δz-预测 transformer:槽 token + 逐帧动作 token 注意力 → 逐槽 Δz。
-    与模型同归纳偏置(跨槽注意+动作序列),但脱离 JEPA/SIGReg/ξ/inv-dyn 多任务、
-    可自由放大——MLP/kNN 太弱时用它当公平上界,逼近该 z 空间的 1-step Bayes 底。"""
-    def __init__(self, d, A, S, width=384, layers=4, heads=8):
-        super().__init__()
-        self.slot_in = nn.Linear(d, width)
-        self.act_in = nn.Linear(A, width)
-        self.act_pos = nn.Parameter(torch.randn(1, S, width) * 0.02)
-        layer = nn.TransformerEncoderLayer(width, heads, width * 4, batch_first=True,
-                                           activation="gelu", dropout=0.0)
-        self.blocks = nn.TransformerEncoder(layer, layers)
-        self.out = nn.Linear(width, d)
+from net.oracle_heads import PredOracle
 
-    def forward(self, z, a):                   # z[B,N,d], a[B,S,A]
-        N = z.shape[1]
-        x = torch.cat([self.slot_in(z), self.act_in(a) + self.act_pos], 1)
-        return self.out(self.blocks(x)[:, :N])
+# class PredOracle(nn.Module):
+#     """隔离的 Δz-预测 transformer:槽 token + 逐帧动作 token 注意力 → 逐槽 Δz。
+#     与模型同归纳偏置(跨槽注意+动作序列),但脱离 JEPA/SIGReg/ξ/inv-dyn 多任务、
+#     可自由放大——MLP/kNN 太弱时用它当公平上界,逼近该 z 空间的 1-step Bayes 底。"""
+#     def __init__(self, d, A, S, width=384, layers=4, heads=8):
+#         super().__init__()
+#         self.slot_in = nn.Linear(d, width)
+#         self.act_in = nn.Linear(A, width)
+#         self.act_pos = nn.Parameter(torch.randn(1, S, width) * 0.02)
+#         layer = nn.TransformerEncoderLayer(width, heads, width * 4, batch_first=True,
+#                                            activation="gelu", dropout=0.0)
+#         self.blocks = nn.TransformerEncoder(layer, layers)
+#         self.out = nn.Linear(width, d)
+# 
+#     def forward(self, z, a):                   # z[B,N,d], a[B,S,A]
+#         N = z.shape[1]
+#         x = torch.cat([self.slot_in(z), self.act_in(a) + self.act_pos], 1)
+#         return self.out(self.blocks(x)[:, :N])
 
 
 def fwd_oracle(data, model, device, epochs=120):

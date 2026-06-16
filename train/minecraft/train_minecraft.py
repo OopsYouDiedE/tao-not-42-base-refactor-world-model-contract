@@ -69,7 +69,7 @@ from train.minecraft._seq import roll_hist, _to_float_img
 from train.minecraft.losses import (dz_pred_loss, slot_diversity_loss,
                                      minecraft_inv_dyn_loss, plan_bc_loss, kl_diag_gauss)
 from train.minecraft.eval import evaluate, rollout_probe
-from blocks.primitives import SIGReg
+from blocks.regularization import SIGReg
 from net.config import ModelConfig
 from utils.config_io import load_yaml
 

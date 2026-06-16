@@ -40,7 +40,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from blocks.primitives import ContinuousTimeEncoding
+from blocks.encodings import ContinuousTimeEncoding
 from net.config import ModelConfig
 from net.slots import build_binder
 from net.backbone import build_backbone

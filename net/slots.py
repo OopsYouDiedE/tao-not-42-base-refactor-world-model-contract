@@ -11,7 +11,7 @@
 import torch
 import torch.nn as nn
 
-from blocks.primitives import PreLNAttn
+from blocks.attention import PreLNAttn
 from net.config import EncoderConfig
 
 

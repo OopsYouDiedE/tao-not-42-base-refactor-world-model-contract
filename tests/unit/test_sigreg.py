@@ -12,7 +12,7 @@ import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from blocks.primitives import SIGReg
+from blocks.regularization import SIGReg
 
 
 def _loss(x):

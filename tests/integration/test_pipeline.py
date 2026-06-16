@@ -187,7 +187,7 @@ def test_train_epoch_smoke():
     opt.step 跑通、返回指标有限。"""
     from train.minecraft.train_minecraft import train_epoch
     from domains.minecraft.vpt_action import N_MOUSE, ACTION_DIM
-    from blocks.primitives import SIGReg
+    from blocks.regularization import SIGReg
     B, T, device = 2, 5, "cpu"
     model = _tiny_model().to(device)
     S, NK = model.S, ACTION_DIM - N_MOUSE

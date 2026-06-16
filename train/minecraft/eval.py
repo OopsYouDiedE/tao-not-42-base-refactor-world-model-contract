@@ -12,6 +12,7 @@ import torch
 
 from domains.minecraft.vpt_action import camera_to_bin, CAMERA_BINS, N_MOUSE, ACTION_DIM as ACT_DIM
 from train.minecraft._seq import roll_hist, _to_float_img
+from train.minecraft.losses import kl_diag_gauss
 
 
 @torch.no_grad()

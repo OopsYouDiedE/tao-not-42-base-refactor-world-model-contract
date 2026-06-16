@@ -114,3 +114,5 @@ python tools/oracle_idm.py --checkpoint runs/mc_ckpt/best.pt
 | [AGENTS.md](AGENTS.md) | 助手约束:数值不变量 I1–I8、生产纯净、SSOT、写作纪律 |
 | [knowledge/code_conventions.md](knowledge/code_conventions.md) | 代码组织规范:放置 / 写作 / 拆分合并 |
 | [knowledge/mental_world.md](knowledge/mental_world.md) | 脑内世界设计愿景(宏观架构与算法意图) |
+| [knowledge/claims_and_scope.md](knowledge/claims_and_scope.md) | 期望与现实校准:当前能诚实主张的命题、主张边界、哪条线朝元愿望走 |
+| [knowledge/world_model_landscape.md](knowledge/world_model_landscape.md) | 世界模型外部版图调研与设计对照 |

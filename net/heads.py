@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from blocks.primitives import PreLNAttn
+from blocks.attention import PreLNAttn
 
 N_CAMERA_BINS = 11   # 与 domains.minecraft.vpt_action.CAMERA_BINS 一致(net 层不 import domain,训练端校验)
 

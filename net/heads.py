@@ -126,3 +126,27 @@ class InverseDynamicsHead(nn.Module):
             pf = self.patch_net(patch_dz)             # patch 旁路不吃 ctx:纯「无-context」诊断基线
             parts = (self.patch_mouse(pf).view(-1, 2, self.n_cam_bins), self.patch_kb(pf))
         return mouse_logits, torch.sigmoid(kb_logit), parts
+
+
+class VPTBiasSidecar(nn.Module):
+    """VPT-影响汇:低容量全局可学偏置,吸收 VPT 的系统性基率/风格偏置,
+    使内容路(规划头)保持 VPT-无关、可消融。
+
+    容量 = 2·n_cam_bins(鼠标分箱)+ n_keys(键盘) 个标量,**全局常数、非输入函数**:
+    它能移动边际动作分布,但表达不了"某状态下该按什么"——状态相关结构只能由内容路承担。
+    这把"加法旁路饿死主路"反过来用:旁路弱到只够装基率,主路被逼学真东西。
+
+    零初始化 ⇒ 起步是恒等(σ(logit)=原概率、logits+0),VPT 偏置有利可图才被打开;
+    bias 的范数即"VPT 系统性影响有多大"的用量计(panel 上看 sidecar_norm)。
+    """
+    def __init__(self, n_keys=20, n_cam_bins=N_CAMERA_BINS):
+        super().__init__()
+        self.mouse_bias = nn.Parameter(torch.zeros(2, n_cam_bins))
+        self.kb_bias = nn.Parameter(torch.zeros(n_keys))
+
+    def forward(self):
+        return self.mouse_bias, self.kb_bias
+
+    def norm(self):
+        return (self.mouse_bias.detach().norm() + self.kb_bias.detach().norm()).item()
+

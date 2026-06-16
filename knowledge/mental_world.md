@@ -3,7 +3,7 @@
 > **文档定位（SSOT）**：本文只讲**宏观架构、算法意图、训练目标的设计动机与物理直觉**。
 > 易变的实现细节（精确 Shape/Dtype、层数、超参）归代码本身：
 > 活模型实现见 [net/world_model.py](../net/world_model.py)（部件 [slots.py](../net/slots.py) /
-> [backbone.py](../net/backbone.py) / [heads.py](../net/heads.py)），积木见 [blocks/primitives.py](../blocks/primitives.py)，
+> [backbone.py](../net/backbone.py) / [heads.py](../net/heads.py)），积木见 [blocks/](../blocks/)，
 > 数据契约归 [domains/minecraft/vpt_action.py](../domains/minecraft/vpt_action.py)，
 > 训练循环与损失见 [train/minecraft/](../train/minecraft/)。
 > 本文是设计锚点，记录"为什么这么搭"，不记录历史活动（历史活动归 git log 与项目记忆）。
@@ -114,7 +114,7 @@ L = L_pred(Δz) + λ·L_sigreg + β·L_inv + β_div·L_slotdiv + L_plan_bc + β_
 ```
 
 - **L_pred**（`dz_pred_loss`）：`μ` 逼近 **stop-grad** 的 `Δz_tg`（EMA 目标差），潜空间算（JEPA，不回像素），按 persistence=0 归一化（基线 1.0）。
-- **L_sigreg**：把在线 `z_obs` 钉到各向同性高斯（Epps-Pulley sliced 检验），方向/幅度拆开接（§1）。见 [blocks/primitives.py](../blocks/primitives.py) 的 `SIGReg`、[tests/unit/test_sigreg.py](../tests/unit/test_sigreg.py)。
+- **L_sigreg**：把在线 `z_obs` 钉到各向同性高斯（Epps-Pulley sliced 检验），方向/幅度拆开接（§1）。见 [blocks/regularization.py](../blocks/regularization.py) 的 `SIGReg`、[tests/unit/test_sigreg.py](../tests/unit/test_sigreg.py)。
 - **L_inv**（`minecraft_inv_dyn_loss`）：逆动力学，给可控闸 c 接地（§4）。
 - **L_slotdiv**（`slot_diversity_loss`）：竞争注意力成对重叠软惩罚（§1）。
 - **L_plan_bc**（`plan_bc_loss`）：动作规划头对录像真动作做行为克隆（定时序列监督）。
@@ -151,7 +151,7 @@ L = L_pred(Δz) + λ·L_sigreg + β·L_inv + β_div·L_slotdiv + L_plan_bc + β_
 ⚠️ 本节描述**尚未落地**的设计愿景，**当前仓库无对应代码**（原 `tao_not_42.py` 的 fovea/gaze 实现已删）。保留它是因为：当"读取成本"成为瓶颈时，这是既定演进方向。
 
 - **双通道感知 = 余光 + 中央凹**：余光廉价常开、给全局显著性；中央凹只对注视点的局部裁剪做高清 ViT。这是"偶尔扫一眼"的物理实现——不把整帧高清灌进脑子。
-- **主动感知出口 = gaze**：决定下一眼看哪 `(g_x, g_y, g_s)`，经可导的 STN（affine_grid + grid_sample，fp32 满足 I4）裁剪——**"看哪里"可被梯度直接学**，不必退回高方差硬注意力 RL。空间标签用 `SpatialPosEmbed`（已在 [blocks/primitives.py](../blocks/primitives.py)，待接入）。
+- **主动感知出口 = gaze**：决定下一眼看哪 `(g_x, g_y, g_s)`，经可导的 STN（affine_grid + grid_sample，fp32 满足 I4）裁剪——**"看哪里"可被梯度直接学**，不必退回高方差硬注意力 RL。空间标签用 `SpatialPosEmbed`（已在 [blocks/encodings.py](../blocks/encodings.py)，待接入）。
 - **异步节律 = wake**：输出"多久后再睁眼"，配合连续时间编码兜底稀疏/不规则观测。
 - **训练靠两阶段自监督蒸馏（绕开 RL）**：阶段一全观测训出动力学与表征（无鸡生蛋）；阶段二冻成老师，gaze/wake 用**从自身预测误差算出的 oracle 当自监督标签**（误差热图监督看哪里、想象 rollout 首次发散时刻监督何时看）。**观测必须有代价** `cost(obs)`——否则"最大降低预测误差"的最优解是全看，退回稠密感知；这一项才逼出稀疏读取。
 

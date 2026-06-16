@@ -13,7 +13,7 @@
 ### 1.1 核心网络架构层 (`net/` 目录)
 * **`MinecraftWorldModel`** (`net/world_model.py:L67`)
   * **职责**：整个世界模型的主干，将冻结的 DINO 视觉特征、slots 嵌入、任务文本、时间编码与动作序列拼接为 tokens，送入 4 层 Transformer 块进行全局注意力时序前向推演。
-* **`SlotCompetitiveAttn`** (`net/slots.py:L16`)
+* **`SlotCompetitiveAttn`** (已迁至 `blocks/attention.py`，由 `net/slots.py` 导入和 re-export)
   * **职责**：槽竞争交叉注意力网络层。在计算 attention 时，首先沿 **slot 维度**进行 `softmax` 归一化以确保槽间零和竞争，然后再沿 **token 维度**归一化做加权平均，以此消除 slots 重合冗余。
 * **`SlotBinder`** (`net/slots.py:L66`)
   * **职责**：滤波式实体槽绑定器。结合 Z 和 Z 变动量，通过单层线性映射与 Sigmoid 有界门控，实现贝叶斯卡尔曼滤波式的 Convex 残差更新。
@@ -75,7 +75,7 @@
   * **特征**：加载 MiniLM 文本编码器网络（`AutoModel`），执行句文本的分词（tokenization）与网络前向计算，并做 Mean Pooling 及特征归一化，扮演文本特征网络层。
 
 ### 2.2 正弦/位置编码特征函数
-* **`sinusoidal_time_encoding(t_vec, d)`** (`net/world_model.py:L49`)
+* **`sinusoidal_time_encoding(t_vec, d)`** (已迁至 `blocks/encodings.py`，由 `net/world_model.py` 导入)
   * **特征**：神经网络经典的位置编码（PE）层。接收绝对时间戳向量，生成多频段的 `sin` / `cos` 高维连续空间位置向量，用于在 Transformer 动力学推演中对记忆进行时间自定位。
 
 ### 2.3 权重与状态流控制

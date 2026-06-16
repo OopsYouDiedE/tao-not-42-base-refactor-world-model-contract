@@ -8,7 +8,7 @@
 
 ### 1. `blocks/` (积木组件库)
 
-#### [blocks/primitives.py](file:///c:/Users/iii/Desktop/tao-not-42-base-refactor-world-model-contract/blocks/primitives.py)
+#### [blocks/](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/blocks/) (各积木组件已重构并细分至 spatial.py, similarity.py, encodings.py, dynamics.py, regularization.py, attention.py 中)
 * **`_base_grid(h, w, device, dtype)`**: 辅助函数。创建大小为 `[2, H, W]` 的 2D 坐标采样网格，坐标顺序为 `(x, y)`。
 * **`class Warp(nn.Module)`**: 局部光流重采样模块。输入特征图与光流位移，通过 `grid_sample` 进行双线性凸插值采样，坐标计算使用双精度/fp32以确保数值稳定性。
 * **`class GlobalTransformApply(nn.Module)`**: 全局仿射屏幕空间变换模块。使用给定的 `theta` 矩阵对输入特征图进行仿射变换采样。
@@ -192,7 +192,7 @@ graph TD
     train_minecraft.py -->|实例化| VPTStreamDataset["domains/vpt_dataset.py: VPTStreamDataset"]
     train_minecraft.py -->|实例化| ControlRemap["domains/control_remap.py: ControlRemap"]
     train_minecraft.py -->|实例化| TaskTextEncoder["domains/task_text.py: TaskTextEncoder"]
-    train_minecraft.py -->|实例化| SIGReg["blocks/primitives.py: SIGReg"]
+    train_minecraft.py -->|实例化| SIGReg["blocks/regularization.py: SIGReg"]
     
     train_minecraft.py -->|循环调用| train_epoch["train_minecraft.py: train_epoch"]
     train_epoch -->|动作重映射| ControlRemap_apply["control_remap.py: ControlRemap.apply"]
@@ -204,14 +204,14 @@ graph TD
     _run_sequence -->|1. 提取 patch 特征| extract_feats["world_model.py: MinecraftWorldModel.extract_feats"]
     _run_sequence -->|2. 在线编码| encode_obs["world_model.py: MinecraftWorldModel.encode_obs"]
     encode_obs -->|Slot 绑定| SlotBinder_forward["slots.py: SlotBinder.forward"]
-    SlotBinder_forward -->|非竞争/竞争 CrossAttn| SlotCompetitiveAttn_forward["slots.py: SlotCompetitiveAttn.forward"]
+    SlotBinder_forward -->|非竞争/竞争 CrossAttn| SlotCompetitiveAttn_forward["attention.py: SlotCompetitiveAttn.forward"]
     
     _run_sequence -->|3. EMA 目标编码| encode_target["world_model.py: MinecraftWorldModel.encode_target"]
     
     _run_sequence -->|4. 计算后验/先验隐变量| xi_posterior["world_model.py: MinecraftWorldModel.xi_posterior"]
     _run_sequence -->|5. 前向动力学推演| world_model_forward["world_model.py: MinecraftWorldModel.forward"]
-    world_model_forward -->|绝对时间正弦编码| sinusoidal_time_encoding["world_model.py: sinusoidal_time_encoding"]
-    world_model_forward -->|连续步长时间编码| ContinuousTimeEncoding_forward["primitives.py: ContinuousTimeEncoding.forward"]
+    world_model_forward -->|绝对时间正弦编码| sinusoidal_time_encoding["encodings.py: sinusoidal_time_encoding"]
+    world_model_forward -->|连续步长时间编码| ContinuousTimeEncoding_forward["encodings.py: ContinuousTimeEncoding.forward"]
     world_model_forward -->|解码动作计划| DecoderHeads_decode["heads.py: DecoderHeads.decode_action_plan"]
     
     %% 损失计算
@@ -221,7 +221,7 @@ graph TD
     minecraft_inv_dyn_loss -->|逆动力学解码| InverseDynamicsHead_forward["heads.py: InverseDynamicsHead.forward"]
     _run_sequence -->|9. 计算动作计划损失| plan_bc_loss["losses.py: plan_bc_loss"]
     _run_sequence -->|10. 随机隐变量散度| kl_diag_gauss["losses.py: kl_diag_gauss"]
-    _run_sequence -->|11. 表征防坍缩正则| SIGReg_forward["primitives.py: SIGReg.forward"]
+    _run_sequence -->|11. 表征防坍缩正则| SIGReg_forward["regularization.py: SIGReg.forward"]
     
     _run_sequence -->|12. 滚动动作历史| roll_hist["_seq.py: roll_hist"]
     
@@ -247,10 +247,10 @@ graph TD
 
 ### 1. 已被使用的核心代码 (Active)
 * **`net/world_model.py`**：核心动力学模型，所有前向推理、在线/EMA目标编码全部使用。
-* **`net/slots.py`**：`SlotCompetitiveAttn`（槽竞争注意力）和 `SlotBinder`（滤波式绑定）在特征空间中均被调用。
+* **`net/slots.py`**：`SlotCompetitiveAttn`（槽竞争注意力，已迁至 `blocks/attention.py`）和 `SlotBinder`（滤波式绑定）在特征空间中均被调用。
 * **`net/heads.py`**：`InverseDynamicsHead`（逆动力学读出）和 `DecoderHeads`（未来计划读出）在训练/评估和可视化中被全程调用。
 * **`net/backbone.py`**：`load_backbone` 用于在训练/评估和测试中加载预训练视觉特征提取器。
-* **`blocks/primitives.py`**：中的 `ContinuousTimeEncoding`（时间段条件）、`PreLNAttn`（Transformer 内部使用）以及 `SIGReg`（Sliced各向同性高斯正则，防坍缩核心）被全程调用。
+* **`blocks/`**：各细分文件中的 `ContinuousTimeEncoding`（时间段条件）、`PreLNAttn`（Transformer 内部使用）、`SlotCompetitiveAttn`（竞争绑定）以及 `SIGReg`（Sliced各向同性高斯正则，防坍缩核心）被全程调用。
 * **`domains/minecraft/vpt_dataset.py`**：中的 `VPTStreamDataset` 作为数据引擎，负责流式 uint8 加码、可变帧跨度 jumpy 采样以及动作区间合并计算。
 * **`domains/minecraft/vpt_action.py`**：`camera_to_bin`、`bin_to_camera` 和 `encode_vpt_jsonl` 作为动作契约转换器，连接模型端与数据端。
 * **`domains/minecraft/control_remap.py`**：`ControlRemap` 键盘与动作重置模块。
@@ -269,7 +269,7 @@ graph TD
 
 * **整个 `blocks/yolo.py`**
   * **未被使用原因**：重构后弃用了 CNN/YOLO 等从头训练的局部感知视觉骨干，转为全部使用冻结的 DINO 视觉特征，因此 YOLO 相关的基础网络组件（`Conv`, `C3`, `C2f`, `SPPF` 等）全被闲置。
-* **`blocks/primitives.py` 中的大量空间/流几何组件**
+* **`blocks/` 各细分文件中的大量空间/流几何组件**
   * **未被使用类**：`Warp` (光流采样)、`GlobalTransformApply` (仿射网格)、`LocalCorr` (余弦互相关)、`SoftArgmaxFlow` (期望流估计)、`ConvGRUCell` (ConvGRU)、`GatedResidual` (参数化残差)、`FiLM` (仿射调制类，模型中直接手写逻辑而未使用本类)、`PositionalEmbed` (正弦空间 PE)、`ProtoDecode` (原型解码)、`StochLatent` (随机采样类，模型手写了后验/先验采样而未使用本类)、`rot6d_to_matrix` (6D旋转)、`make_4x4` (齐次矩阵)、`box_iou` (IOU)、`BoundedActivation` (有界激活)、`Accumulator` (精确计数)、`DiscreteRouter` (Gumbel分支)、`BEVSplat` (3D投影网格)、`SpatialPosEmbed` (傅里叶 fovea PE)。
   * **未被使用原因**：这些原为 MOVi 等其他任务的几何重建/流体估计和“中央凹（fovea）稀疏注视读取”设计的底层组件。由于中央凹/视觉选择性读取目前属于更远期的愿景（未接入主循环），故这些原 Tao 框架的几何组件暂未使用。
 * **`net/world_probe.py` 中的 `WorldProbeDecoder`**

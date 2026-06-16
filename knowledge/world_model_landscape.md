@@ -97,7 +97,7 @@
 | 5 | 潜动作码可从无标注视频推断(IDM + FDM + VQ) | Genie / LAPO | `control_remap` → 每 episode 可学潜动作码 |
 | 6 | free-bits KL 防后验坍塌;离散 latent 在视觉游戏更稳 | DreamerV3 | `kl_diag_gauss` 加 free-bits;评估 ξ 离散化 |
 | 7 | 像素模型漂移 / 长程记忆丢失 → 潜 + 持久槽是结构性答案 | Oasis / MineWorld | 坚持潜空间评测口径;持久槽对照像素漂移论证 |
-| 8 | anti-collapse 是潜世界模型硬约束(EMA + stop-grad + 方差正则) | V-JEPA 2 / LeWorldModel | 维持 `SIGReg`(`blocks/primitives.py`) + `slot_diversity_loss`;对照检查 EMA 目标稳定性 |
+| 8 | anti-collapse 是潜世界模型硬约束(EMA + stop-grad + 方差正则) | V-JEPA 2 / LeWorldModel | 维持 `SIGReg`(`blocks/regularization.py`) + `slot_diversity_loss`;对照检查 EMA 目标稳定性 |
 
 ---
 

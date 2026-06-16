@@ -40,30 +40,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from blocks.encodings import ContinuousTimeEncoding
+from blocks.encodings import ContinuousTimeEncoding, sinusoidal_time_encoding
 from net.config import ModelConfig
 from net.slots import build_binder
 from net.backbone import build_backbone
 from net.dynamics import build_dynamics
 from net.heads import DecoderHeads, InverseDynamicsHead
-
-
-def sinusoidal_time_encoding(t_vec, d):
-    """
-    连续绝对时间戳编码。
-    t_vec: [B] 时间戳(秒)
-    返回: [B, 1, d]
-    """
-    B = t_vec.shape[0]
-    pe = torch.zeros(B, d, device=t_vec.device)
-    position = t_vec.unsqueeze(1)
-    div_term = torch.exp(torch.arange(0, d, 2, device=t_vec.device).float() * (-math.log(10000.0) / d))
-    pe[:, 0::2] = torch.sin(position * div_term)
-    if d % 2 != 0:
-        pe[:, 1::2] = torch.cos(position * div_term[:-1])
-    else:
-        pe[:, 1::2] = torch.cos(position * div_term)
-    return pe.unsqueeze(1) # [B, 1, d]
 
 
 class MinecraftWorldModel(nn.Module):

@@ -89,3 +89,31 @@ class SpatialPosEmbed(nn.Module):
         ang = coords.unsqueeze(-1) * self.freqs           # [B,3,num_bands]
         feat = torch.cat([ang.sin(), ang.cos()], dim=-1).flatten(1)  # [B, 3·2·num_bands]
         return self.proj(feat).to(x.dtype if torch.is_floating_point(x) else torch.float32)
+
+
+def sinusoidal_time_encoding(t_vec: torch.Tensor, d: int) -> torch.Tensor:
+    """连续绝对时间戳的正弦/余弦高维位置嵌入。
+
+    Parameters
+    ----------
+    t_vec : torch.Tensor
+        时间戳(秒)，Shape: [B]，Dtype: float32
+    d : int
+        嵌入维度，必须为偶数，通常与模型特征维数一致
+
+    Returns
+    -------
+    torch.Tensor
+        高维位置嵌入向量，Shape: [B, 1, d]，Dtype: float32
+    """
+    B = t_vec.shape[0]
+    pe = torch.zeros(B, d, device=t_vec.device, dtype=torch.float32)
+    position = t_vec.unsqueeze(1)
+    div_term = torch.exp(torch.arange(0, d, 2, device=t_vec.device).float() * (-math.log(10000.0) / d))
+    pe[:, 0::2] = torch.sin(position * div_term)
+    if d % 2 != 0:
+        pe[:, 1::2] = torch.cos(position * div_term[:-1])
+    else:
+        pe[:, 1::2] = torch.cos(position * div_term)
+    return pe.unsqueeze(1)
+

@@ -71,7 +71,7 @@ from train.minecraft.losses import (dz_pred_loss, slot_diversity_loss,
 from train.minecraft.eval import evaluate, rollout_probe
 from blocks.regularization import SIGReg
 from net.config import ModelConfig
-from utils.config_io import load_yaml
+from utils.io import load_yaml
 
 
 # =====================================================================

@@ -1,24 +1,20 @@
-"""HuggingFace token 双重解析:Colab Secret(云) / .env(本地).
+"""合并后的基础 IO 配置与环境助手。
 
-设计动机:DINOv3 等 gated 模型下载需要 token,但 token 的来源随环境而异——
-  - Colab notebook:用 Google 的 Secret(左侧🔑面板,名为 HF_TOKEN),`google.colab.userdata`
-    读取;不落盘、不进 notebook,适合分享的云环境。
-  - 本地 / 无 Google 环境:用仓库根的 .env 文件(HF_TOKEN=...),已被 .gitignore 忽略。
-
-`get_hf_token()` 按以下优先级解析并把结果写回 os.environ['HF_TOKEN']/
-['HUGGING_FACE_HUB_TOKEN'],使 transformers / huggingface_hub 后续调用自动带上:
-
-  1. 显式环境变量 HF_TOKEN / HUGGING_FACE_HUB_TOKEN(调用方已手动设置 ⇒ 最高优先)
-  2. Colab Secret(google.colab.userdata)——仅 Colab 可用
-  3. 仓库根 .env 文件
-  4. huggingface_hub 已登录的缓存 token(`hf auth login` 留下的)
+提供 YAML 配置加载以及 HuggingFace 鉴权 Token 获取。
 """
 import os
+import yaml
 from pathlib import Path
 
-__all__ = ["get_hf_token"]
+__all__ = ["load_yaml", "get_hf_token"]
 
 _ENV_KEYS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+
+
+def load_yaml(path):
+    """读 yaml 文件为 dict。缺包(pyyaml)/缺文件直接报错(AGENTS §2:不写降级)。"""
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 
 def _from_environ():
@@ -68,8 +64,9 @@ def _from_cached_login():
 
 
 def get_hf_token(colab_secret_name="HF_TOKEN", set_environ=True):
-    """解析 HuggingFace token(见模块 docstring 的优先级)。找不到返回 None。
+    """解析 HuggingFace token(按优先级: 环境变量 -> Colab -> .env -> hf login)。
 
+    找不到返回 None。
     colab_secret_name: Colab Secret 面板里的条目名(默认 HF_TOKEN)。
     set_environ: 解析到后写回 os.environ,使后续 HF 库调用自动鉴权。
     """

@@ -27,7 +27,7 @@ def load_backbone(kind, repo_override=None):
     repo_override: 非空时覆盖默认 repo id(可换 ViT-B 等更大变体;enc_dim 自动取 hidden_size)。
     """
     from transformers import AutoModel
-    from utils.hf_token import get_hf_token
+    from utils.io import get_hf_token
     repo = repo_override or _HF_REPOS.get(kind)
     if repo is None:
         raise ValueError(f"未知 encoder: {kind}")
@@ -35,7 +35,7 @@ def load_backbone(kind, repo_override=None):
         model = AutoModel.from_pretrained(repo, token=get_hf_token())
     except Exception as ex:
         hint = ("DINOv3 权重 gated:在 HF 接受许可证后,把 token 放进 Colab Secret(HF_TOKEN)"
-                "或仓库根 .env(HF_TOKEN=...)——见 utils/hf_token.py;无 token 改用 configs/minecraft/dinov2.yaml 预设(开放权重)。"
+                "或仓库根 .env(HF_TOKEN=...)——见 utils/io.py;无 token 改用 configs/minecraft/dinov2.yaml 预设(开放权重)。"
                 if kind == "dinov3" else "需要网络访问 HuggingFace Hub(首次下载后本地缓存)。")
         raise RuntimeError(f"{kind} 从 HF 加载失败({repo}:{ex})。{hint}") from ex
     cfg = model.config

@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from utils.hf_token import get_hf_token
+from utils.io import get_hf_token
 
 
 def main():

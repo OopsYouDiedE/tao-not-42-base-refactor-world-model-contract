@@ -49,7 +49,7 @@ from domains.minecraft.vpt_action import CAMERA_SCALE, CAMERA_BINS, camera_to_bi
 from domains.minecraft.task_text import TaskTextEncoder
 from blocks.regularization import SIGReg
 from net.config import ModelConfig
-from utils.config_io import load_yaml
+from utils.io import load_yaml
 
 EPS = 1e-4
 ACT_DIM = 22        # 2 鼠标 + 20 键盘

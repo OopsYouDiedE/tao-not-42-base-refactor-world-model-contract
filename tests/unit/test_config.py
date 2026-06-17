@@ -14,7 +14,7 @@ sys.path.insert(0, _ROOT)
 
 from net.config import ModelConfig
 from net.world_model import MinecraftWorldModel
-from utils.config_io import load_yaml
+from utils.io import load_yaml
 
 
 class _MockBackbone(nn.Module):

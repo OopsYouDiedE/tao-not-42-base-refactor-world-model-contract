@@ -21,6 +21,10 @@
   * **职责**：定时动作计划解码头。利用 `Linear` 和 `softplus` 分支在未来 $K$ 步定时动作计划上解码 onset 累积时间、按键二分类及鼠标移动。
 * **`InverseDynamicsHead`** (`net/heads.py:L56`)
   * **职责**：逆动力学解码头。基于 $1\mathrm{D}$ 隐藏层及 FiLM 上下文调制，将 slots 的残差变化反推为已发生的键盘/鼠标动作；并利用解耦的 patch-mean $\Delta z$ 旁路预测动作，作性能诊断。
+* **`ActionTokenizer`** (`net/action_model.py:L14`)
+  * **职责**：连续动作序列到离散 Token 的自适应聚类编码器。通过双层 MLP 提取时序特征、使用有效掩码池化并输入 `VectorQuantizer` 得到离散索引。
+* **`ActionExecutor`** (`net/action_model.py:L74`)
+  * **职责**：离散动作 Token 的时间编码执行器。将 Token 向量与当前状态拼接投影，结合相对时间步的 `ContinuousTimeEncoding` 特征，通过多层全连接网络解码，并在超出 `dt` 的时间步上应用零掩码，高保真还原出原始动作序列。
 * **`WorldProbeDecoder`** (`net/world_probe.py:L14`)
   * **职责**：世界信念状态检测薄探针。利用极薄的单隐层 MLP 回归解码出音符的客观物理坐标与色彩属性。
 

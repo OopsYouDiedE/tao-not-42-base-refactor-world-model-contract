@@ -88,8 +88,9 @@ def evaluate(model, effect_tok, loader, device, amp_dev, use_amp, cfg):
 
         z_hats, e_norms = [], None
         for k in cuts:
-            out = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=False)
-            out0 = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=True)
+            with torch.autocast(device_type=amp_dev, enabled=use_amp):
+                out = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=False)
+                out0 = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=True)
             z_hats.append(out["z_hat"])
             e_norms = (out["z_hat_inv"].float() - out0["z_hat_inv"].float()).norm(dim=-1)
         align, _ = latent_align_loss(z_hats[-1], z_tgt[:, target])

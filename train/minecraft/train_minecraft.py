@@ -20,7 +20,7 @@ from domains.minecraft.vpt_action import ACTION_DIM
 from train.minecraft._seq import _to_float_img
 from train.minecraft.losses import (
     importance_from_effect, latent_align_loss, agreement_loss, event_ce,
-    noop_loss, path_invariance_loss, recon_split)
+    noop_loss, path_invariance_loss, recon_split, effect_guidance_loss)
 from train.minecraft.eval import evaluate
 from train.minecraft.minecraft_viz import visualize_minecraft
 from blocks.regularization import SIGReg
@@ -31,12 +31,14 @@ from utils.io import load_yaml
 
 
 def _context_cutoffs(target, n):
-    """在 [1, target-1] 上取至多 n 个上下文截止 k(去重升序;≥2 个才有一致性约束)。"""
+    """在 [max(1, target//2), target-1] 上取至多 n 个上下文截止 k。"""
     hi = max(1, target - 1)
-    if n <= 1 or hi <= 1:
-        return sorted({hi})
-    step = (hi - 1) / (n - 1)
-    return sorted({int(round(1 + i * step)) for i in range(n)})
+    lo = max(1, target // 2)
+    if n <= 1 or hi <= lo:
+        return sorted({hi, lo} if hi != lo else {hi})[:n]
+    step = (hi - lo) / (n - 1)
+    return sorted({int(round(lo + i * step)) for i in range(n)})
+
 
 
 def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev, use_amp):
@@ -68,11 +70,14 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
     if reach_id is None:
         reach_id = torch.full((B,), -1, dtype=torch.long, device=z.device)
 
+    # 真实未来不可逆潜发散
+    fdiv = (z_tgt[:, target, :, d_rev:].float() - z_tgt[:, 0, :, d_rev:].float()).norm(dim=-1)
+
     cuts = _context_cutoffs(target, cfg.predictor.n_context_cutoffs)
     z_hats, acc_loss = [], torch.zeros((), device=z.device)
     metrics = {"align": 0.0, "event_ce": 0.0, "noop": 0.0, "path": 0.0,
                "commit": 0.0, "e_norm": 0.0, "recon_rev": 0.0, "recon_inv": 0.0,
-               "persistence_ratio": 0.0, "event_acc": 0.0, "surprise": 0.0}
+               "persistence_ratio": 0.0, "event_acc": 0.0, "surprise": 0.0, "guide": 0.0}
 
     for k in cuts:
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
@@ -88,8 +93,9 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
         l_ev = event_ce(ev_logits, event_idx)
         l_noop = noop_loss(out["e_norm_hat"], e_norm)
         l_path = path_invariance_loss(out["z_hat_inv"], reach_id)
+        l_guide = effect_guidance_loss(e_norm, fdiv)
 
-        acc_loss = acc_loss + (align + 0.1 * l_ev + l_noop + l_path + commit.mean())
+        acc_loss = acc_loss + (align + 0.1 * l_ev + l_noop + l_path + commit.mean() + 0.1 * l_guide)
         z_hats.append(out["z_hat"])
 
         rs = recon_split(out["z_hat_rev"], out["z_hat_inv"], z_tgt[:, target], d_rev)
@@ -101,6 +107,7 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
         metrics["e_norm"] += e_norm.mean().item()
         metrics["surprise"] += out["surprise"].mean().item()
         metrics["event_acc"] += (ev_logits.argmax(-1) == event_idx).float().mean().item()
+        metrics["guide"] += l_guide.item()
         for kk in ("recon_rev", "recon_inv", "persistence_ratio"):
             metrics[kk] += rs[kk]
 
@@ -114,6 +121,7 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
         metrics[key] /= nk
     metrics.update(loss=total.item(), agree=agree.item(), kl=kl.item(), sigreg=l_sig.item())
     return total, metrics
+
 
 
 def train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, device, steps,
@@ -245,9 +253,9 @@ def main():
         if ep % args.log_every == 0 or ep == args.epochs - 1:
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | align {r['align']:.4f} "
                   f"agree {r['agree']:.4f} | event_acc {r['event_acc']:.2%} | e_norm {r['e_norm']:.4f} "
-                  f"| recon_inv {r['recon_inv']:.4f} | sig {r['sigreg']:.2f} kl {r['kl']:.3f}")
+                  f"| guide {r['guide']:.4f} | sig {r['sigreg']:.2f}")
 
-        # W&B 基础训练指标同步
+        # W&B 基础训练指标同步（已过滤调试性冗余指标）
         if args.wandb:
             log_dict = {
                 "epoch": ep,
@@ -256,11 +264,8 @@ def main():
                 "train/agree": r["agree"],
                 "train/event_acc": r["event_acc"],
                 "train/e_norm": r["e_norm"],
-                "train/recon_inv": r["recon_inv"],
-                "train/recon_rev": r["recon_rev"],
                 "train/sigreg": r["sigreg"],
-                "train/kl": r["kl"],
-                "train/surprise": r["surprise"]
+                "train/guide": r["guide"]
             }
 
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):

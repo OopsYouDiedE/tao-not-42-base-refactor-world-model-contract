@@ -100,3 +100,11 @@ def recon_split(z_hat_rev, z_hat_inv, z_tgt, d_rev):
         ratio = (F.mse_loss(torch.cat([z_hat_rev, z_hat_inv], -1).float(),
                             z_tgt.float()) / denom).item()
     return {"recon_rev": recon_rev, "recon_inv": recon_inv, "persistence_ratio": ratio}
+
+
+def effect_guidance_loss(e_norm, fdiv):
+    """引导后果权重:将反事实效应的空间分布对齐到真实的下游潜发散 (fdiv)。"""
+    en = e_norm.float() / e_norm.float().mean(dim=-1, keepdim=True).clamp(min=EPS)
+    fd = fdiv.float() / fdiv.float().mean(dim=-1, keepdim=True).clamp(min=EPS)
+    return F.mse_loss(en, fd.detach())
+

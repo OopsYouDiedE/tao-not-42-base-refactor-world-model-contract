@@ -88,8 +88,9 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     z_hats, e_norm, out = [], None, None
     model_err_by_cut = []
     for k in cuts:
-        out = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=False)
-        out0 = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=True)
+        with torch.autocast(device_type=amp_dev, enabled=use_amp):
+            out = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=False)
+            out0 = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=True)
         z_hats.append(out["z_hat"])
         e_norm = (out["z_hat_inv"].float() - out0["z_hat_inv"].float()).norm(dim=-1)   # [B,M]
         se = (out["z_hat"].float() - z_tgt[:, target]).pow(2).mean(dim=-1)             # [B,M]
@@ -107,21 +108,18 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     corr_pixel = _pearson(w, pdiff)
     agree = agreement_loss(z_hats).item()
 
-    c = out["c"][0].float().cpu().numpy()                                               # [M,n_gen]
-    event_idx = out["event_logits"].argmax(dim=-1).reshape(-1).cpu().numpy()            # [B*M]
-    vocab = model.event_vocab_size
-
     # 开环漂移:用预测作锚点逐步外推,看 z_inv 增量是否有界
     drifts, zr, t_cur = [], z_hats[-1], query_t.clone()
     for _ in range(n_rollout):
         ctx = torch.stack([z[:, 0], zr], dim=1)
         tctx = torch.stack([tf[:, 0], t_cur], dim=1)
-        out2 = model(ctx, tctx, act, t_act, t_cur + 1.0, null=False)
+        with torch.autocast(device_type=amp_dev, enabled=use_amp):
+            out2 = model(ctx, tctx, act, t_act, t_cur + 1.0, null=False)
         drifts.append((out2["z_hat_inv"].float() - zr[..., d_rev:].float()).norm(dim=-1).mean().item())
         zr, t_cur = out2["z_hat"], t_cur + 1.0
 
-    # ---- 绘制 2×3 面板 ----
-    fig, ax = plt.subplots(2, 3, figsize=(15, 8))
+    # ---- 绘制 2×2 面板 ----
+    fig, ax = plt.subplots(2, 2, figsize=(11, 9))
 
     # A. Δz 误差 vs persistence
     labels = ["persist"] + [f"k={k}" for k in cuts]
@@ -131,32 +129,21 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     ax[0, 0].set_title("A. Δz error: model vs persistence (lower=better)")
     ax[0, 0].set_ylabel("mean squared error")
 
-    # B. 后果权重 w(sample 0)
-    im = ax[0, 1].imshow(_grid(w[0]), cmap="viridis")
-    ax[0, 1].set_title("B. consequence weight w (patch grid)")
-    fig.colorbar(im, ax=ax[0, 1], fraction=0.046)
+    # B. 开环漂移
+    ax[0, 1].plot(range(1, n_rollout + 1), drifts, "o-", color="tab:red")
+    ax[0, 1].set_title("B. open-loop rollout drift")
+    ax[0, 1].set_xlabel("rollout step"); ax[0, 1].set_ylabel("‖Δz_inv‖")
+    ax[0, 1].set_ylim(bottom=0)
 
-    # C. 像素差(sample 0)
-    im = ax[0, 2].imshow(_grid(pdiff[0]), cmap="magma")
-    ax[0, 2].set_title(f"C. pixel diff | corr(w,fut)={corr_future:+.2f} corr(w,pix)={corr_pixel:+.2f}")
-    fig.colorbar(im, ax=ax[0, 2], fraction=0.046)
-
-    # D. generator 系数 c(gen×patch)
-    im = ax[1, 0].imshow(c.T, aspect="auto", cmap="coolwarm", vmin=-1, vmax=1)
-    ax[1, 0].set_title("D. generator coef c (control gate)")
-    ax[1, 0].set_xlabel("patch"); ax[1, 0].set_ylabel("generator")
+    # C. 后果权重 w (sample 0)
+    im = ax[1, 0].imshow(_grid(w[0]), cmap="viridis")
+    ax[1, 0].set_title("C. consequence weight w (patch grid)")
     fig.colorbar(im, ax=ax[1, 0], fraction=0.046)
 
-    # E. 事件词表使用
-    ax[1, 1].hist(event_idx, bins=range(vocab + 1), color="tab:green")
-    ax[1, 1].set_title(f"E. event token usage ({len(np.unique(event_idx))}/{vocab} used)")
-    ax[1, 1].set_xlabel("event token id"); ax[1, 1].set_ylabel("patch count")
-
-    # F. 开环漂移
-    ax[1, 2].plot(range(1, n_rollout + 1), drifts, "o-", color="tab:red")
-    ax[1, 2].set_title("F. open-loop rollout drift")
-    ax[1, 2].set_xlabel("rollout step"); ax[1, 2].set_ylabel("‖Δz_inv‖")
-    ax[1, 2].set_ylim(bottom=0)
+    # D. 未来潜发散 fdiv (sample 0)
+    im = ax[1, 1].imshow(_grid(fdiv[0]), cmap="magma")
+    ax[1, 1].set_title(f"D. future lat div | corr(w,fut)={corr_future:+.2f} corr(w,pix)={corr_pixel:+.2f}")
+    fig.colorbar(im, ax=ax[1, 1], fraction=0.046)
 
     fig.suptitle(
         f"epoch {epoch} | align={model_err_by_cut[-1]:.3f} persistence={persistence_err:.3f} "

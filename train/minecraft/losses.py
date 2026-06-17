@@ -9,10 +9,31 @@
   path_invariance_loss— (6):到达同一未来态的不同序列其 ẑ_inv 须重合。
   recon_split         — 分通道重建指标(rev/inv)+ persistence-ratio 探针。
 """
+import math
+
 import torch
 import torch.nn.functional as F
 
 EPS = 1e-4
+
+
+def pearson_corr(a, b, eps=EPS):
+    """展平后的全局 Pearson 相关(返回带梯度标量张量;b 通常已 detach)。fp32(I4),分母 clamp(I1)。"""
+    a = a.float().reshape(-1)
+    b = b.float().reshape(-1)
+    a = a - a.mean()
+    b = b - b.mean()
+    return (a @ b) / (a.norm() * b.norm()).clamp(min=eps)
+
+
+def patch_pixel_diff(img, anchor, target, M):
+    """anchor/target 两帧逐 patch 像素差幅度 → [B, M](方形网格 √M×√M,否则退化 1×M)。"""
+    B = img.shape[0]
+    hw = int(round(math.sqrt(M)))
+    H, W = (hw, hw) if hw * hw == M else (1, M)
+    diff = (img[:, target].float() - img[:, anchor].float()).abs().mean(dim=1, keepdim=True)  # [B,1,h,w]
+    pooled = F.adaptive_avg_pool2d(diff, (H, W))                          # [B,1,H,W]
+    return pooled.reshape(B, M)
 
 
 def importance_from_effect(e_norm, w_max=5.0):
@@ -102,9 +123,36 @@ def recon_split(z_hat_rev, z_hat_inv, z_tgt, d_rev):
     return {"recon_rev": recon_rev, "recon_inv": recon_inv, "persistence_ratio": ratio}
 
 
-def effect_guidance_loss(e_norm, fdiv):
-    """引导后果权重:将反事实效应的空间分布对齐到真实的下游潜发散 (fdiv)。"""
-    en = e_norm.float() / e_norm.float().mean(dim=-1, keepdim=True).clamp(min=EPS)
-    fd = fdiv.float() / fdiv.float().mean(dim=-1, keepdim=True).clamp(min=EPS)
-    return F.mse_loss(en, fd.detach())
+def effect_guidance_loss(e_norm, fdiv, pdiff, lambda_pixel=1.0):
+    """引导后果权重(数学 (8) 验收同口径)。
+
+    把反事实效应 e_norm 的**全局**空间分布拉向「去掉像素可线性预测部分」的未来潜发散
+    fdiv_resid,并显式惩罚 e_norm 与像素差 pdiff 的相关:
+        loss = (1 − corr(e_norm, fdiv_resid)) + λ·corr(e_norm, pdiff)²
+    训练目标 == eval 的 corr(w,future)↑ / corr(w,pixel)→0。e_norm 带梯度;fdiv/pdiff stop-grad。
+
+    旧实现是**逐样本归一 MSE**(mean(dim=-1)),只约束样本内形状、丢掉跨样本幅度,且目标 fdiv
+    被像素污染——降到 0 却让 eval 的全局 corr_w_future 变负、corr_w_pixel 反升。此处改为
+    与 eval 完全同口径的全局相关,并把像素分量从目标里残差化掉。
+    """
+    en = e_norm.float().reshape(-1)
+    fd = fdiv.float().reshape(-1).detach()
+    pd = pdiff.float().reshape(-1).detach()
+    # 从 fdiv 回归掉 pdiff 可线性预测的部分,只留与像素无关的未来发散(stop-grad 目标)
+    pd_c = pd - pd.mean()
+    fd_c = fd - fd.mean()
+    beta = (pd_c @ fd_c) / pd_c.pow(2).sum().clamp(min=EPS)
+    fd_resid = fd_c - beta * pd_c
+    corr_future = pearson_corr(en, fd_resid)
+    corr_pixel = pearson_corr(en, pd)
+    return (1.0 - corr_future) + lambda_pixel * corr_pixel.pow(2)
+
+
+def null_consequence_loss(z_inv_hat_null, z_inv_anchor):
+    """no-op 锚定(替代真 VPT 无标签、恒为 0 的 path_invariance):不动作 ⇒ 无不可逆后果。
+
+    强制 do(null) 的预测 ẑ_inv 回到锚点 z_inv₀,使 e_norm=‖ẑ_inv(a)−ẑ_inv(null)‖ 成为
+    真正的反事实增量基线,并止住 z_inv/闭环漂移的无约束膨胀。锚点 stop-grad(只约束预测器)。
+    """
+    return F.mse_loss(z_inv_hat_null.float(), z_inv_anchor.float().detach())
 

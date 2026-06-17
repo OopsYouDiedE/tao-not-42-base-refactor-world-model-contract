@@ -27,8 +27,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from train.minecraft._seq import _to_float_img
-from train.minecraft.eval import _patch_pixel_diff, _pearson
-from train.minecraft.losses import importance_from_effect, agreement_loss
+from train.minecraft.eval import _pearson
+from train.minecraft.losses import importance_from_effect, agreement_loss, patch_pixel_diff
 
 
 def _grid(vec_m):
@@ -103,7 +103,7 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     # 反捷径:w vs 未来潜发散 / 像素差
     w = importance_from_effect(e_norm)                                                  # [B,M]
     fdiv = (z_tgt[:, target, :, d_rev:] - z_tgt[:, 0, :, d_rev:]).norm(dim=-1)          # [B,M]
-    pdiff = _patch_pixel_diff(img, 0, target, M)                                        # [B,M]
+    pdiff = patch_pixel_diff(img, 0, target, M)                                         # [B,M]
     corr_future = _pearson(w, fdiv)
     corr_pixel = _pearson(w, pdiff)
     agree = agreement_loss(z_hats).item()

@@ -100,7 +100,7 @@ def test_run_sequence_and_evaluate_smoke():
         "dt": torch.randint(1, 4, (B, T - 1)).float(),
     }
     total, metrics = run_sequence(model.train(), etok, sigreg, batch, cfg,
-                                  beta_sigreg=0.1, amp_dev="cpu", use_amp=False)
+                                  beta_sigreg=0.1, beta_guide=0.1, amp_dev="cpu", use_amp=False)
     total.backward()
     assert "align" in metrics and "agree" in metrics and "e_norm" in metrics
 

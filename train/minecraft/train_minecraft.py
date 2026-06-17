@@ -20,7 +20,8 @@ from domains.minecraft.vpt_action import ACTION_DIM
 from train.minecraft._seq import _to_float_img
 from train.minecraft.losses import (
     importance_from_effect, latent_align_loss, agreement_loss, event_ce,
-    noop_loss, path_invariance_loss, recon_split, effect_guidance_loss)
+    noop_loss, path_invariance_loss, recon_split, effect_guidance_loss,
+    null_consequence_loss, patch_pixel_diff, pearson_corr)
 from train.minecraft.eval import evaluate
 from train.minecraft.minecraft_viz import visualize_minecraft
 from blocks.regularization import SIGReg
@@ -41,7 +42,8 @@ def _context_cutoffs(target, n):
 
 
 
-def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev, use_amp):
+def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_guide,
+                 amp_dev, use_amp):
     """构造时空 token 集合,对若干上下文截止预测同一未来帧 t*,返回 (total_loss, metrics)。"""
     img = batch_dev["img"]
     act_agg = batch_dev["act_agg"]
@@ -70,14 +72,16 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
     if reach_id is None:
         reach_id = torch.full((B,), -1, dtype=torch.long, device=z.device)
 
-    # 真实未来不可逆潜发散
+    # 真实未来不可逆潜发散(后果目标)与逐 patch 像素差(捷径对照)——guide/诊断同口径
     fdiv = (z_tgt[:, target, :, d_rev:].float() - z_tgt[:, 0, :, d_rev:].float()).norm(dim=-1)
+    pdiff = patch_pixel_diff(img, 0, target, M)                  # [B,M]
 
     cuts = _context_cutoffs(target, cfg.predictor.n_context_cutoffs)
     z_hats, acc_loss = [], torch.zeros((), device=z.device)
-    metrics = {"align": 0.0, "event_ce": 0.0, "noop": 0.0, "path": 0.0,
+    metrics = {"align": 0.0, "event_ce": 0.0, "noop": 0.0, "path": 0.0, "null": 0.0,
                "commit": 0.0, "e_norm": 0.0, "recon_rev": 0.0, "recon_inv": 0.0,
-               "persistence_ratio": 0.0, "event_acc": 0.0, "surprise": 0.0, "guide": 0.0}
+               "persistence_ratio": 0.0, "event_acc": 0.0, "surprise": 0.0, "guide": 0.0,
+               "corr_w_future": 0.0, "corr_w_pixel": 0.0}
 
     for k in cuts:
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
@@ -93,9 +97,11 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
         l_ev = event_ce(ev_logits, event_idx)
         l_noop = noop_loss(out["e_norm_hat"], e_norm)
         l_path = path_invariance_loss(out["z_hat_inv"], reach_id)
-        l_guide = effect_guidance_loss(e_norm, fdiv)
+        l_guide = effect_guidance_loss(e_norm, fdiv, pdiff)
+        l_null = null_consequence_loss(out0["z_hat_inv"], z_inv0)  # do(null) ⇒ 无不可逆后果
 
-        acc_loss = acc_loss + (align + 0.1 * l_ev + l_noop + l_path + commit.mean() + 0.1 * l_guide)
+        acc_loss = acc_loss + (align + 0.1 * l_ev + l_noop + l_path + commit.mean()
+                               + beta_guide * l_guide + l_null)
         z_hats.append(out["z_hat"])
 
         rs = recon_split(out["z_hat_rev"], out["z_hat_inv"], z_tgt[:, target], d_rev)
@@ -103,11 +109,15 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
         metrics["event_ce"] += l_ev.item()
         metrics["noop"] += l_noop.item()
         metrics["path"] += float(l_path.detach())
+        metrics["null"] += l_null.item()
         metrics["commit"] += commit.mean().item()
         metrics["e_norm"] += e_norm.mean().item()
         metrics["surprise"] += out["surprise"].mean().item()
         metrics["event_acc"] += (ev_logits.argmax(-1) == event_idx).float().mean().item()
         metrics["guide"] += l_guide.item()
+        # 训练侧也记 corr 诊断(w/fdiv/pdiff 均 detach,只监控不反传),直接看 train↔eval gap
+        metrics["corr_w_future"] += float(pearson_corr(w, fdiv))
+        metrics["corr_w_pixel"] += float(pearson_corr(w, pdiff))
         for kk in ("recon_rev", "recon_inv", "persistence_ratio"):
             metrics[kk] += rs[kk]
 
@@ -125,7 +135,7 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, amp_dev
 
 
 def train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, device, steps,
-                cfg, beta_sigreg, amp_dev, use_amp):
+                cfg, beta_sigreg, beta_guide, amp_dev, use_amp):
     model.train()
     effect_tok.train()
     agg, n = {}, 0
@@ -140,7 +150,7 @@ def train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, device, steps
 
         opt.zero_grad(set_to_none=True)
         total, metrics = run_sequence(model, effect_tok, sigreg, batch_dev, cfg,
-                                      beta_sigreg, amp_dev, use_amp)
+                                      beta_sigreg, beta_guide, amp_dev, use_amp)
         scaler.scale(total).backward()
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(
@@ -176,6 +186,8 @@ def main():
     ap.add_argument("--config", default="configs/minecraft/base.yaml")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--beta_sigreg", type=float, default=0.1)
+    ap.add_argument("--beta_guide", type=float, default=0.1,
+                    help="后果权重引导损失权重(corr(w,future)↑/corr(w,pixel)→0;0=关闭)")
     ap.add_argument("--no_amp", action="store_true")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
@@ -248,12 +260,14 @@ def main():
 
     for ep in range(args.epochs):
         r = train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, dev,
-                        args.steps_per_epoch, cfg, args.beta_sigreg, amp_dev, use_amp)
+                        args.steps_per_epoch, cfg, args.beta_sigreg, args.beta_guide,
+                        amp_dev, use_amp)
         sched.step()
         if ep % args.log_every == 0 or ep == args.epochs - 1:
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | align {r['align']:.4f} "
                   f"agree {r['agree']:.4f} | event_acc {r['event_acc']:.2%} | e_norm {r['e_norm']:.4f} "
-                  f"| guide {r['guide']:.4f} | sig {r['sigreg']:.2f}")
+                  f"| guide {r['guide']:.4f} null {r['null']:.4f} "
+                  f"corr(w,fut) {r['corr_w_future']:+.3f} | sig {r['sigreg']:.2f}")
 
         # W&B 基础训练指标同步（已过滤调试性冗余指标）
         if args.wandb:
@@ -265,7 +279,10 @@ def main():
                 "train/event_acc": r["event_acc"],
                 "train/e_norm": r["e_norm"],
                 "train/sigreg": r["sigreg"],
-                "train/guide": r["guide"]
+                "train/guide": r["guide"],
+                "train/null": r["null"],
+                "train/corr_w_future": r["corr_w_future"],
+                "train/corr_w_pixel": r["corr_w_pixel"],
             }
 
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):

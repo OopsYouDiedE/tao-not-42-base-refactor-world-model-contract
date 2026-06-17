@@ -3,23 +3,17 @@
 反捷径主指标(数学 (8)):后果权重 w 应与**下游潜发散**正相关、与**像素差**去相关
 ——证明模型按"后果"而非"像素"分配重要性,没在编码上偷懒。
 """
-import math
-
 import torch
 
 from train.minecraft._seq import _to_float_img
 from train.minecraft.losses import (
-    importance_from_effect, latent_align_loss, agreement_loss)
+    importance_from_effect, latent_align_loss, agreement_loss,
+    pearson_corr, patch_pixel_diff)
 
 
-def _pearson(a, b, eps=1e-4):
-    """两个 1D 张量的 Pearson 相关(fp32,I4;分母 clamp,I1)。"""
-    a = a.float().reshape(-1)
-    b = b.float().reshape(-1)
-    a = a - a.mean()
-    b = b - b.mean()
-    denom = (a.norm() * b.norm()).clamp(min=eps)
-    return float((a @ b) / denom)
+def _pearson(a, b):
+    """全局 Pearson 相关(float,供监控);与训练 guide 同口径(losses.pearson_corr)。"""
+    return float(pearson_corr(a, b))
 
 
 def linear_probe_acc(X, y, steps=300, lr=0.5, eps=1e-4):
@@ -42,16 +36,6 @@ def linear_probe_acc(X, y, steps=300, lr=0.5, eps=1e-4):
     with torch.no_grad():
         pred = ((X @ w + b) > 0).float()
         return float((pred == y).float().mean())
-
-
-def _patch_pixel_diff(img, anchor, target, M):
-    """anchor/target 两帧的逐 patch 像素差幅度 → [B, M]。"""
-    B = img.shape[0]
-    hw = int(round(math.sqrt(M)))
-    H, W = (hw, hw) if hw * hw == M else (1, M)
-    diff = (img[:, target].float() - img[:, anchor].float()).abs().mean(dim=1, keepdim=True)  # [B,1,h,w]
-    pooled = torch.nn.functional.adaptive_avg_pool2d(diff, (H, W))   # [B,1,H,W]
-    return pooled.reshape(B, M)
 
 
 @torch.no_grad()
@@ -100,7 +84,7 @@ def evaluate(model, effect_tok, loader, device, amp_dev, use_amp, cfg):
         w = importance_from_effect(e_norms)                       # [B,M]
         fdiv = (z_tgt[:, target, :, d_rev:].float()
                 - z_tgt[:, 0, :, d_rev:].float()).norm(dim=-1)    # [B,M]
-        pdiff = _patch_pixel_diff(img, 0, target, M)              # [B,M]
+        pdiff = patch_pixel_diff(img, 0, target, M)               # [B,M]
 
         # 闭环 rollout 漂移:用预测作锚点再推一步,看 z_inv 增量幅度
         zr = z_hats[-1]

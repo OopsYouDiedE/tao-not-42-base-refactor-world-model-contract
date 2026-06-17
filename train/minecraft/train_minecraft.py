@@ -22,6 +22,7 @@ from train.minecraft.losses import (
     importance_from_effect, latent_align_loss, agreement_loss, event_ce,
     noop_loss, path_invariance_loss, recon_split)
 from train.minecraft.eval import evaluate
+from train.minecraft.minecraft_viz import visualize_minecraft
 from blocks.regularization import SIGReg
 from net.config import ModelConfig
 from net.world_model import MinecraftWorldModel
@@ -161,6 +162,8 @@ def main():
     ap.add_argument("--holdout_n", type=int, default=1)
     ap.add_argument("--log_every", type=int, default=5)
     ap.add_argument("--eval_every", type=int, default=5)
+    ap.add_argument("--viz_every", type=int, default=0, help="每多少 epoch 渲染一张诊断面板(0=关闭)")
+    ap.add_argument("--viz_dir", default="runs/mc_viz", help="诊断面板 PNG 输出目录")
     ap.add_argument("--ckpt_dir", default="runs/mc_ckpt")
     ap.add_argument("--config", default="configs/minecraft/base.yaml")
     ap.add_argument("--lr", type=float, default=3e-4)
@@ -290,6 +293,15 @@ def main():
                     artifact.add_file(best_path)
                     wandb.log_artifact(artifact)
                     print(f"  [wandb] Best checkpoint uploaded as artifact: {artifact.name}")
+
+        if args.viz_every > 0 and ((ep + 1) % args.viz_every == 0 or ep == args.epochs - 1):
+            os.makedirs(args.viz_dir, exist_ok=True)
+            png = os.path.join(args.viz_dir, f"ep{ep:04d}.png")
+            visualize_minecraft(model, effect_tok, _get_eval_batches()[0], cfg,
+                                dev, amp_dev, use_amp, png, epoch=ep)
+            print(f"  [viz] -> {png}")
+            if args.wandb:
+                log_dict["viz/panel"] = wandb.Image(png)
 
         if args.wandb:
             wandb.log(log_dict)

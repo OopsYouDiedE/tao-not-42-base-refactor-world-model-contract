@@ -127,11 +127,13 @@
 * **`_to_float_img(img)`**: 图像转换辅助函数。将 uint8 的 `[0, 255]` 图像归一化到 `[0.0, 1.0]` 的 float32。
 
 #### [train/minecraft/minecraft_viz.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/train/minecraft/minecraft_viz.py)
-* **`collect_rollout(...)`**: 模型推演与诊断轨迹数据采集函数。img: [B,T,3,H,W] 归一化后取样本 0。
-  包含闭环感知段与开环推演段（使用自身的预测 $\hat{z}$ 累加推演），采集各项预测误差、逆动力学读出、可控闸 $c$ 极化和未来计划快照。
-* **`_attn_overlays(attn_map, frame, n_show)`**: 贪心挑选出空间互异且局部特征最显著的 `n_show` 个 slots，对它们在当前帧上渲染注意力热图叠加。
-* **`render_panel(traj, out_path, title)`**: 使用 matplotlib 在后台线程绘制一张汇聚了六个子图（A-F）的诊断面板并保存为 PNG 图像。
-* **`visualize_minecraft(...)`**: 可视化面板落盘主入口。
+* **`visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp, out_path, epoch, n_rollout)`**:
+  在固定 holdout batch 上渲染 2×3 诊断面板 PNG（与 `eval.evaluate` 同口径）。六个子图各带不可作弊对照：
+  A. Δz 预测误差 vs persistence 基线（按上下文截止 k 分组）；B. 后果权重 w 的 patch 网格；
+  C. 像素差 patch 网格 + 标题显示 corr(w,future)/corr(w,pixel)（反捷径，数学 (8)）；
+  D. generator 系数 c（控制闸 gen×patch 热图）；E. 事件词表使用直方图（𝒟 离散通道，探词表坍缩）；
+  F. 开环 rollout 漂移（预测作锚点逐步外推，看 $\hat{z}_{inv}$ 增量是否有界）。
+* **`_grid(vec_m)`**: 把 [M] patch 向量重排成 √M×√M 方形网格（非完全平方退化 1×M），供 B/C 热图用。
 
 #### [train/minecraft/train_minecraft.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/train/minecraft/train_minecraft.py)
 * **`_resolve_gpu_util()` / `_gpu_util()`**: 瞬时 GPU 负载采样。
@@ -216,10 +218,9 @@ graph TD
     train_epoch -->|13. 周期评估| evaluate["train/minecraft/eval.py: evaluate"]
     evaluate -->|评估开环| rollout_probe["train/minecraft/eval.py: rollout_probe"]
     
-    train_epoch -->|14. 周期可视化| visualize_minecraft["train/minecraft/minecraft_viz.py: visualize_minecraft"]
-    visualize_minecraft -->|累积推演数据| collect_rollout["train/minecraft/minecraft_viz.py: collect_rollout"]
-    visualize_minecraft -->|槽注意力分析| _attn_overlays["train/minecraft/minecraft_viz.py: _attn_overlays"]
-    visualize_minecraft -->|绘制画板| render_panel["train/minecraft/minecraft_viz.py: render_panel"]
+    main -->|周期可视化 --viz_every| visualize_minecraft["train/minecraft/minecraft_viz.py: visualize_minecraft"]
+    visualize_minecraft -->|patch 向量→网格| _grid["train/minecraft/minecraft_viz.py: _grid"]
+    visualize_minecraft -->|复用反捷径助手| eval_helpers["train/minecraft/eval.py: _patch_pixel_diff / _pearson"]
 ```
 
 ---

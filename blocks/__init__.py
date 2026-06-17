@@ -15,6 +15,7 @@ from blocks.regularization import StochLatent, SIGReg, BoundedActivation
 from blocks.attention import PreLNAttn, ProtoDecode, SlotCompetitiveAttn
 from blocks.conv import Conv2dSamePad, ImgChLayerNorm
 from blocks.sequence import static_scan, static_scan_for_lambda_return, lambda_return
+from blocks.quantization import VectorQuantizer
 from blocks.distributions import (
     symlog, symexp, SampleDist, OneHotDist, DiscDist, MSEDist, SymlogDist,
     ContDist, Bernoulli, UnnormalizedHuber, SafeTruncatedNormal, TanhBijector,
@@ -26,7 +27,7 @@ __all__ = [
     "SlotCompetitiveAttn",
     "StochLatent", "SIGReg", "BoundedActivation", "Accumulator", "DiscreteRouter",
     "BEVSplat", "ContinuousTimeEncoding", "SpatialPosEmbed", "sinusoidal_time_encoding",
-    "rot6d_to_matrix", "make_4x4", "box_iou",
+    "rot6d_to_matrix", "make_4x4", "box_iou", "VectorQuantizer",
     # dreamer 系 vendored 算子
     "GRUCell", "Conv2dSamePad", "ImgChLayerNorm",
     "static_scan", "static_scan_for_lambda_return", "lambda_return",
@@ -34,4 +35,5 @@ __all__ = [
     "SymlogDist", "ContDist", "Bernoulli", "UnnormalizedHuber",
     "SafeTruncatedNormal", "TanhBijector",
 ]
+
 

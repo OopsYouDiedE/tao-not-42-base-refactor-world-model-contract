@@ -39,24 +39,22 @@ def _raises_value_error(fn):
 
 
 def test_defaults_match_legacy():
-    """默认 ModelConfig 必须 == 重构前写死值(空/缺省 yaml 逐位复现今日模型)。"""
+    """默认 ModelConfig 必须符合新预设值。"""
     c = ModelConfig()
-    assert (c.d, c.N, c.K, c.J) == (384, 16, 5, 8)
-    assert c.act_dim == 22 and c.ema_decay == 0.99 and c.max_skip == 8
+    assert (c.d, c.K, c.J) == (384, 5, 8)
+    assert c.act_dim == 22 and c.max_skip == 8
     assert c.state_dec_mult == 2
     assert (c.dynamics.kind, c.dynamics.num_layers, c.dynamics.nhead,
             c.dynamics.ffn_mult, c.dynamics.dropout) == ("transformer", 4, 8, 4, 0.0)
-    assert c.encoder.binder == "competitive" and c.encoder.binder_heads == 4
-    assert c.heads.n_cam_bins == 11 and c.heads.inv_dyn_ctx is True   # 重绑定通路设为默认(in-context)
-    assert c.xi.d_xi == 32 and c.xi.phi is None
+    assert c.heads.n_cam_bins == 11
     assert c.backbone.kind == "dinov3" and c.backbone.weights is None
 
 
 def test_from_dict_merges_partial_and_rejects_unknown():
-    """部分 dict 与默认合并;未知键(顶层 / 子配置)报错,防 yaml 漏配静默。"""
+    """部分 dict 与默认合并;未知键报错。"""
     c = ModelConfig.from_dict({"d": 128, "dynamics": {"num_layers": 2}})
     assert c.d == 128 and c.dynamics.num_layers == 2
-    assert c.dynamics.nhead == 8 and c.N == 16          # 缺键取默认
+    assert c.dynamics.nhead == 8 and c.K == 5          # 缺键取默认
     assert _raises_value_error(lambda: ModelConfig.from_dict({"nope": 1}))
     assert _raises_value_error(lambda: ModelConfig.from_dict({"dynamics": {"nope": 1}}))
 
@@ -70,7 +68,8 @@ def test_yaml_to_model_smoke():
     B = 2
     img = torch.rand(B, 3, 64, 64)
     z = model.encode_obs(img)
-    assert z.shape == (B, cfg.N, cfg.d)
+    # 64x64 图像在 _MockBackbone 下,卷积之后空间维度是 8x8 = 64
+    assert z.shape == (B, 64, cfg.d)
 
     h = torch.zeros(B, 1, cfg.d)
     a_hist = torch.zeros(B, cfg.J, cfg.act_dim)
@@ -78,8 +77,9 @@ def test_yaml_to_model_smoke():
     dt = torch.full((B,), float(model.S))
     t_vec = torch.zeros(B)
     out = model(z, h, a_hist, a_cur, dt, t_vec)
-    assert out["mu"].shape == (B, cfg.N, cfg.d)
-    assert out["c"].shape == (B, cfg.N, 1)
+    assert out["logits"].shape == (B, 512)
+    assert out["z_recon"].shape == (B, 64, cfg.d)
+    assert out["h_next"].shape == (B, 1, cfg.d)
 
 
 if __name__ == "__main__":

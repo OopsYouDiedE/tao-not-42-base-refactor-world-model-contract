@@ -19,13 +19,6 @@ class BackboneConfig:
 
 
 @dataclass
-class EncoderConfig:
-    """感知编码的实体槽 binder。"""
-    binder: str = "competitive"    # competitive=slot 维竞争(防冗余)| preln=PreLNAttn cross
-    binder_heads: int = 4          # 须整除 d
-
-
-@dataclass
 class DynamicsConfig:
     """动力学核(token 序列内推演)。"""
     kind: str = "transformer"
@@ -39,36 +32,23 @@ class DynamicsConfig:
 class HeadsConfig:
     """解码头选项。"""
     n_cam_bins: int = 11           # 必须 == domains.minecraft.vpt_action.CAMERA_BINS(训练端断言)
-    inv_dyn_ctx: bool = True       # 逆动力学头吃脑内记忆 h(FiLM 调制);in-context 重绑定硬前提,
-                                   # 设为默认 ⇒ base/dinov2/空 yaml 一致带此通路(见 mental_world §6)
-
-
-@dataclass
-class XiConfig:
-    """随机隐变量 ξ。"""
-    d_xi: int = 32
-    phi: Optional[int] = None      # 逐槽 Δz 降维带宽;None=默认 max(8, d // 8)
 
 
 @dataclass
 class ModelConfig:
-    """MinecraftWorldModel 的顶层结构配置。默认值 = 今日写死值 ⇒ 空 yaml 逐位复现今日模型。"""
+    """MinecraftWorldModel 的顶层结构配置。"""
     d: int = 384
-    N: int = 16                    # 实体槽数
     K: int = 5                     # 动作查询数
     J: int = 8                     # 历史动作长度
     act_dim: int = 22              # 必须 == domains.minecraft.vpt_action.ACTION_DIM(训练端断言)
-    ema_decay: float = 0.99
     max_skip: int = 8              # 区间动作序列上限(= 数据集 frame_skip 上限,装配时由 train 注入)
     state_dec_mult: int = 2        # state_dec 隐藏维 = d * state_dec_mult
     backbone: BackboneConfig = field(default_factory=BackboneConfig)
-    encoder: EncoderConfig = field(default_factory=EncoderConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     heads: HeadsConfig = field(default_factory=HeadsConfig)
-    xi: XiConfig = field(default_factory=XiConfig)
 
-    _SUB = {"backbone": BackboneConfig, "encoder": EncoderConfig,
-            "dynamics": DynamicsConfig, "heads": HeadsConfig, "xi": XiConfig}
+    _SUB = {"backbone": BackboneConfig,
+            "dynamics": DynamicsConfig, "heads": HeadsConfig}
 
     @classmethod
     def from_dict(cls, d):

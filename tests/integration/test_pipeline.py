@@ -103,10 +103,10 @@ def test_run_sequence_and_evaluate_smoke():
                                   beta_sigreg=0.1, beta_guide=0.1, beta_decorr=0.1,
                                   amp_dev="cpu", use_amp=False)
     total.backward()
-    assert "align" in metrics and "agree" in metrics and "e_norm" in metrics
+    assert "align_ratio" in metrics and "agree" in metrics and "e_norm" in metrics
 
     ev = evaluate(model, etok, [batch], device, amp_dev="cpu", use_amp=False, cfg=cfg)
-    for k in ("align", "agree", "rollout_drift", "corr_w_future", "corr_w_pixel"):
+    for k in ("align_ratio", "agree", "rollout_drift"):
         assert k in ev
 
 

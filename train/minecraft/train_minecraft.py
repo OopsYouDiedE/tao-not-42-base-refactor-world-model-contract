@@ -67,7 +67,6 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_gu
     t_act = tf[:, :target]
     query_t = tf[:, target]
 
-    z_inv0 = z[:, 0, :, d_rev:]
     z_invT = z[:, target, :, d_rev:]
     if reach_id is None:
         reach_id = torch.full((B,), -1, dtype=torch.long, device=z.device)
@@ -78,8 +77,8 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_gu
 
     cuts = _context_cutoffs(target, cfg.predictor.n_context_cutoffs)
     z_hats, acc_loss = [], torch.zeros((), device=z.device)
-    metrics = {"align": 0.0, "event_ce": 0.0, "noop": 0.0, "path": 0.0, "null": 0.0,
-               "commit": 0.0, "e_norm": 0.0, "recon_rev": 0.0, "recon_inv": 0.0,
+    metrics = {"align": 0.0, "align_ratio": 0.0, "event_ce": 0.0, "noop": 0.0, "path": 0.0,
+               "null": 0.0, "commit": 0.0, "e_norm": 0.0, "recon_rev": 0.0, "recon_inv": 0.0,
                "persistence_ratio": 0.0, "event_acc": 0.0, "surprise": 0.0, "guide": 0.0,
                "corr_w_future": 0.0, "corr_w_pixel": 0.0}
 
@@ -87,18 +86,22 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_gu
         with torch.autocast(device_type=amp_dev, enabled=use_amp):
             out = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=False)
             out0 = model(z[:, :k + 1], tf[:, :k + 1], act, t_act, query_t, null=True)
+        anchor_inv = z[:, k, :, d_rev:]                          # 锚=最近观测帧 inv(与 forward 锚一致)
         e_inv = out["z_hat_inv"].float() - out0["z_hat_inv"].float()
         e_norm = e_inv.norm(dim=-1)                               # [B,M]
         w = importance_from_effect(e_norm)
         align, _ = latent_align_loss(out["z_hat"], z_tgt[:, target], w)
+        # 诚实技能:模型误差 / copy-last(复制锚帧)误差,<1 才算真学到前向动力学而非复制(只监控)
+        me = (out["z_hat"].float() - z_tgt[:, target].float()).pow(2).mean().detach()
+        ce = (z[:, k].float() - z_tgt[:, target].float()).pow(2).mean().detach()
 
-        event_idx, commit, _ = effect_tok(z_inv0, z_invT)
+        event_idx, commit, _ = effect_tok(anchor_inv, z_invT)
         ev_logits = out["event_logits"].mean(dim=1)              # [B,V]
         l_ev = event_ce(ev_logits, event_idx)
         l_noop = noop_loss(out["e_norm_hat"], e_norm)
         l_path = path_invariance_loss(out["z_hat_inv"], reach_id)
         l_guide = effect_guidance_loss(e_norm, fdiv, pdiff)
-        l_null = null_consequence_loss(out0["z_hat_inv"], z_inv0)  # do(null) ⇒ 无不可逆后果
+        l_null = null_consequence_loss(out0["z_hat_inv"], anchor_inv)  # do(null) ⇒ 回锚帧,无不可逆后果
 
         acc_loss = acc_loss + (align + 0.1 * l_ev + l_noop + l_path + commit.mean()
                                + beta_guide * l_guide + l_null)
@@ -106,6 +109,7 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_gu
 
         rs = recon_split(out["z_hat_rev"], out["z_hat_inv"], z_tgt[:, target], d_rev)
         metrics["align"] += align.item()
+        metrics["align_ratio"] += float(me / ce.clamp(min=1e-4))
         metrics["event_ce"] += l_ev.item()
         metrics["noop"] += l_noop.item()
         metrics["path"] += float(l_path.detach())
@@ -269,51 +273,47 @@ def main():
                         args.beta_decorr, amp_dev, use_amp)
         sched.step()
         if ep % args.log_every == 0 or ep == args.epochs - 1:
-            print(f"ep {ep:4d} | loss {r['loss']:7.3f} | align {r['align']:.4f} "
-                  f"agree {r['agree']:.4f} | event_acc {r['event_acc']:.2%} | e_norm {r['e_norm']:.4f} "
+            print(f"ep {ep:4d} | loss {r['loss']:7.3f} | align_ratio {r['align_ratio']:.3f} "
+                  f"agree {r['agree']:.4f} | e_norm {r['e_norm']:.4f} "
                   f"| guide {r['guide']:.4f} null {r['null']:.4f} "
                   f"corr(w,fut) {r['corr_w_future']:+.3f} | sig {r['sigreg']:.2f}")
 
-        # W&B 基础训练指标同步（已过滤调试性冗余指标）
+        # W&B 训练面板:精简到 9 条核心指标(诚实技能/一致/防坍/反捷径/去相关)
         if args.wandb:
             log_dict = {
                 "epoch": ep,
                 "train/loss": r["loss"],
-                "train/align": r["align"],
+                "train/align_ratio": r["align_ratio"],
                 "train/agree": r["agree"],
-                "train/event_acc": r["event_acc"],
                 "train/e_norm": r["e_norm"],
                 "train/sigreg": r["sigreg"],
                 "train/guide": r["guide"],
                 "train/null": r["null"],
                 "train/corr_w_future": r["corr_w_future"],
-                "train/corr_w_pixel": r["corr_w_pixel"],
                 "train/decorr": r["decorr"],
             }
 
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):
             ev = evaluate(model, effect_tok, _get_eval_batches(), dev, amp_dev, use_amp, cfg)
-            print(f"  [eval] align {ev['align']:.4f} | agree {ev['agree']:.4f} | "
-                  f"drift {ev['rollout_drift']:.4f} | corr(w,future) {ev['corr_w_future']:.3f} "
-                  f"corr(w,pixel) {ev['corr_w_pixel']:.3f}")
-            
+            print(f"  [eval] align_ratio {ev['align_ratio']:.3f} | agree {ev['agree']:.4f} | "
+                  f"drift {ev['rollout_drift']:.4f}")
+
+            # W&B 评估面板:精简到 3 条独立健康轴(诚实技能比/多上下文一致/闭环漂移)
             if args.wandb:
                 log_dict.update({
-                    "eval/align": ev["align"],
+                    "eval/align_ratio": ev["align_ratio"],
                     "eval/agree": ev["agree"],
                     "eval/rollout_drift": ev["rollout_drift"],
-                    "eval/corr_w_future": ev["corr_w_future"],
-                    "eval/corr_w_pixel": ev["corr_w_pixel"]
                 })
 
-            if best_loss is None or ev["align"] < best_loss:
-                best_loss = ev["align"]
+            if best_loss is None or ev["align_ratio"] < best_loss:
+                best_loss = ev["align_ratio"]
                 torch.save({
                     "model": {k: v for k, v in model.state_dict().items() if not k.startswith("backbone.")},
                     "effect_tok": effect_tok.state_dict(),
-                    "epoch": ep, "align": best_loss, "config": asdict(cfg),
+                    "epoch": ep, "align_ratio": best_loss, "config": asdict(cfg),
                 }, best_path)
-                print(f"  [best] align={best_loss:.4f} @ep{ep} -> {best_path}")
+                print(f"  [best] align_ratio={best_loss:.3f} @ep{ep} -> {best_path}")
                 
                 # 记录最好模型权重到 W&B Artifacts
                 if args.wandb:

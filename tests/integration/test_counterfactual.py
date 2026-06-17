@@ -75,7 +75,7 @@ def test_counterfactual_data_roundtrip_and_train():
 
         ev = evaluate(model, etok, [{"img": batch["img"], "act_agg": batch["act_agg"],
                                      "dt": batch["dt"]}], "cpu", "cpu", False, cfg)
-        for k in ("align", "agree", "rollout_drift", "corr_w_future", "corr_w_pixel"):
+        for k in ("align_ratio", "agree", "rollout_drift"):
             assert k in ev and ev[k] == ev[k], f"eval 指标 {k} 非有限"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

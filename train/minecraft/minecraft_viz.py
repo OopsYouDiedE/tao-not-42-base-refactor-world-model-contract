@@ -96,9 +96,13 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
         se = (out["z_hat"].float() - z_tgt[:, target]).pow(2).mean(dim=-1)             # [B,M]
         model_err_by_cut.append(se.mean().item())
 
-    # persistence 基线:预测"不变"= 锚点 z[:,0],对同一未来帧的误差
-    persistence_err = (z[:, 0] - z_tgt[:, target]).pow(2).mean(dim=-1).mean().item()
-    ratio = persistence_err and model_err_by_cut[-1] / persistence_err
+    # 公平基线:copy-first(旧易基线,留作对照)/ copy-last(最近观测,诚实 no-change)/
+    # batch-mean(防"收缩到批均值"的平凡解)。诚实比 ratio = 模型 / copy-last,<1 才算赢。
+    copy_first = (z[:, 0] - z_tgt[:, target]).pow(2).mean(dim=-1).mean().item()
+    copy_last = (z[:, target - 1] - z_tgt[:, target]).pow(2).mean(dim=-1).mean().item()
+    mean_base = (z_tgt[:, target] - z_tgt[:, target].mean(dim=0, keepdim=True)
+                 ).pow(2).mean(dim=-1).mean().item()
+    ratio = copy_last and model_err_by_cut[-1] / copy_last
 
     # 反捷径:w vs 未来潜发散 / 像素差
     w = importance_from_effect(e_norm)                                                  # [B,M]
@@ -106,6 +110,8 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     pdiff = patch_pixel_diff(img, 0, target, M)                                         # [B,M]
     corr_future = _pearson(w, fdiv)
     corr_pixel = _pearson(w, pdiff)
+    # e_norm 空间变异系数:逐样本 std/mean 再批均;≈0 ⇒ 反事实效应空间均匀 ⇒ w 无信号、corr 是噪声
+    cov = (e_norm.std(dim=-1) / e_norm.mean(dim=-1).clamp(min=1e-4)).mean().item()
     agree = agreement_loss(z_hats).item()
 
     # 开环漂移:用预测作锚点逐步外推,看 z_inv 增量是否有界
@@ -121,13 +127,15 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     # ---- 绘制 2×2 面板 ----
     fig, ax = plt.subplots(2, 2, figsize=(11, 9))
 
-    # A. Δz 误差 vs persistence
-    labels = ["persist"] + [f"k={k}" for k in cuts]
-    heights = [persistence_err] + model_err_by_cut
-    colors = ["gray"] + ["tab:blue"] * len(cuts)
+    # A. Δz 误差 vs 诚实基线(model < copy-last 才算有前向技能)
+    labels = ["copy-first", "copy-last", "mean"] + [f"k={k}" for k in cuts]
+    heights = [copy_first, copy_last, mean_base] + model_err_by_cut
+    colors = ["lightgray", "gray", "silver"] + ["tab:blue"] * len(cuts)
     ax[0, 0].bar(labels, heights, color=colors)
-    ax[0, 0].set_title("A. Δz error: model vs persistence (lower=better)")
+    ax[0, 0].axhline(copy_last, color="dimgray", lw=0.8, ls="--")     # 诚实基线参考线
+    ax[0, 0].set_title("A. Δz error vs honest baselines (model<copy-last=skill)")
     ax[0, 0].set_ylabel("mean squared error")
+    ax[0, 0].tick_params(axis="x", labelrotation=30)
 
     # B. 开环漂移
     ax[0, 1].plot(range(1, n_rollout + 1), drifts, "o-", color="tab:red")
@@ -137,7 +145,7 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
 
     # C. 后果权重 w (sample 0)
     im = ax[1, 0].imshow(_grid(w[0]), cmap="viridis")
-    ax[1, 0].set_title("C. consequence weight w (patch grid)")
+    ax[1, 0].set_title(f"C. consequence weight w (spatial CoV={cov:.2f})")
     fig.colorbar(im, ax=ax[1, 0], fraction=0.046)
 
     # D. 未来潜发散 fdiv (sample 0)
@@ -146,10 +154,10 @@ def visualize_minecraft(model, effect_tok, batch, cfg, device, amp_dev, use_amp,
     fig.colorbar(im, ax=ax[1, 1], fraction=0.046)
 
     fig.suptitle(
-        f"epoch {epoch} | align={model_err_by_cut[-1]:.3f} persistence={persistence_err:.3f} "
-        f"ratio={ratio:.2f} | agree={agree:.4f} | corr(w,fut)={corr_future:+.2f} "
-        f"corr(w,pix)={corr_pixel:+.2f}",
-        fontsize=12)
+        f"epoch {epoch} | model={model_err_by_cut[-1]:.3f} copy_last={copy_last:.3f} "
+        f"ratio={ratio:.2f} (<1=skill) | agree={agree:.4f} | w_CoV={cov:.2f} | "
+        f"corr(w,fut)={corr_future:+.2f} corr(w,pix)={corr_pixel:+.2f}",
+        fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(out_path, dpi=90)
     plt.close(fig)

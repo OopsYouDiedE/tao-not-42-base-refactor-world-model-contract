@@ -213,7 +213,7 @@ class MinecraftWorldModel(nn.Module):
     def forward(self, z_frames, t_frames, act, t_act, query_t, null=False):
         """对上下文 token 集合 + 未来 query 做一次掩码预测。
 
-        z_frames : [B, Nf, M, d]  上下文帧的 online 潜(锚点 = z_frames[:,0])
+        z_frames : [B, Nf, M, d]  上下文帧的 online 潜(锚点 = z_frames[:,-1] 最近观测帧)
         t_frames : [B, Nf]        各上下文帧的帧时刻
         act      : [B, Na, act_dim] 区间动作(条件输入;null=True 置零)
         t_act    : [B, Na]        各动作的帧时刻
@@ -230,7 +230,7 @@ class MinecraftWorldModel(nn.Module):
         X = self.blocks(X)
         hq = X[:, -M:, :]                                       # query 槽位输出 [B,M,d]
 
-        anchor = z_frames[:, 0]                                 # [B,M,d]
+        anchor = z_frames[:, -1]                                # [B,M,d] 锚=最近观测帧:从"现在"外推
         a_rev, a_inv = anchor[..., :self.d_rev], anchor[..., self.d_rev:]
 
         c = torch.tanh(self.coef_head(hq))                      # 有界系数(可逆增量小)

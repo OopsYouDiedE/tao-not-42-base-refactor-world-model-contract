@@ -76,8 +76,10 @@ def evaluate(model, effect_tok, loader, device, amp_dev, use_amp, cfg):
             feats = model.extract_feats(img.reshape(B * T, *img.shape[2:]))
             z, _ = model.encode(feats)
         M = z.shape[-2]
-        z = z.view(B, T, M, model.d)
-        z_tgt = model.encode_target(feats).view(B, T, M, model.d)
+        # autocast 下 adapter 的 Linear 产出 Half;eval 的预测器前向在 autocast 块外
+        # (fp32 权重),且下游 z_tgt/相关性统计均为 fp32 —— 统一转 fp32 避免 dtype 不匹配。
+        z = z.view(B, T, M, model.d).float()
+        z_tgt = model.encode_target(feats).view(B, T, M, model.d).float()
 
         tf = torch.cat([torch.zeros(B, 1, device=dt.device), dt.cumsum(dim=1)], dim=1)
         target = T - 1

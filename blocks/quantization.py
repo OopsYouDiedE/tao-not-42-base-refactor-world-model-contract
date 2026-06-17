@@ -85,9 +85,12 @@ class VectorQuantizer(nn.Module):
         # 进行 One-hot 编码
         encodings = F.one_hot(encoding_indices, self.n_embed).float()  # [N, n_embed]
         
-        # 量化特征
-        z_q = torch.matmul(encodings, self.embed).view(orig_shape)
-        
+        # 量化特征:在 fp32 域取码本向量,再回到输入 dtype。
+        # autocast 下 z 为 Half,而 embed buffer/encodings 为 fp32;若不回到 z.dtype,
+        # 下面的 STE 加法 z + (z_q - z) 会把 z 的梯度提升为 fp32,与 Half 的 z 冲突
+        # (反向报 "Found dtype Float but expected Half")。
+        z_q = torch.matmul(encodings, embed_f32).view(orig_shape).to(z.dtype)
+
         # 计算 commitment loss
         loss = self.commitment_cost * F.mse_loss(z_q.detach(), z)
         
@@ -108,8 +111,9 @@ class VectorQuantizer(nn.Module):
                 # 1. 更新 EMA 聚类大小
                 self.ema_cluster_size.lerp_(n_encodings, 1.0 - self.decay)
                 
-                # 2. 更新 EMA 特征加权和
-                z_flattened_sum = torch.matmul(encodings.t(), z_flattened)  # [n_embed, dim]
+                # 2. 更新 EMA 特征加权和(fp32:EMA buffer 数值敏感且 buffer 为 fp32,I4;
+                #    autocast 下 z_flattened 可能为 Half,须用 fp32 版避免 dtype 不匹配)
+                z_flattened_sum = torch.matmul(encodings.t(), z_flattened_f32)  # [n_embed, dim]
                 self.ema_w.lerp_(z_flattened_sum, 1.0 - self.decay)
                 
                 # 3. 计算新的质心
@@ -121,10 +125,10 @@ class VectorQuantizer(nn.Module):
                 # 如果某个 embedding 向量在此 batch 内完全没有被使用 (n_encodings == 0)，
                 # 并且其长期的 EMA 计数也极小，我们就将它重新初始化为 batch 中的某个随机 z。
                 dead_indices = (n_encodings == 0) & (self.ema_cluster_size < 1.0)
-                if dead_indices.any() and z_flattened.shape[0] > 0:
+                if dead_indices.any() and z_flattened_f32.shape[0] > 0:
                     dead_indices_where = torch.where(dead_indices)[0]
-                    random_idx = torch.randint(0, z_flattened.shape[0], (len(dead_indices_where),), device=z.device)
-                    new_embeds = z_flattened[random_idx]
+                    random_idx = torch.randint(0, z_flattened_f32.shape[0], (len(dead_indices_where),), device=z.device)
+                    new_embeds = z_flattened_f32[random_idx]  # fp32,匹配 embed/ema_w buffer
                     
                     self.embed[dead_indices_where] = new_embeds
                     self.ema_w[dead_indices_where] = new_embeds

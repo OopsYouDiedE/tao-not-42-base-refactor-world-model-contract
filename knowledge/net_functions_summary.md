@@ -20,18 +20,16 @@
 * **`_Adapter`** (`net/world_model.py`)
   * **职责**:冻结骨干之上的可训练编码器(PreLNAttn 自注意 + GatedResidual MLP)→ 两路头
     (BoundedActivation('flow') 的 z_rev / StochLatent 的 z_inv)。online 与 EMA 教师同构。
-* **`SlotCompetitiveAttn`** (已迁至 `blocks/attention.py`，由 `net/slots.py` 导入和 re-export)
-  * **职责**：槽竞争交叉注意力网络层。在计算 attention 时，首先沿 **slot 维度**进行 `softmax` 归一化以确保槽间零和竞争，然后再沿 **token 维度**归一化做加权平均，以此消除 slots 重合冗余。
-* **`SlotBinder`** (`net/slots.py:L66`)
-  * **职责**：滤波式实体槽绑定器。结合 Z 和 Z 变动量，通过单层线性映射与 Sigmoid 有界门控，实现贝叶斯卡尔曼滤波式的 Convex 残差更新。
-* **`DecoderHeads`** (`net/heads.py:L16`)
-  * **职责**：定时动作计划解码头。利用 `Linear` 和 `softplus` 分支在未来 $K$ 步定时动作计划上解码 onset 累积时间、按键二分类及鼠标移动。
-* **`InverseDynamicsHead`** (`net/heads.py:L56`)
-  * **职责**：逆动力学解码头。基于 $1\mathrm{D}$ 隐藏层及 FiLM 上下文调制，将 slots 的残差变化反推为已发生的键盘/鼠标动作；并利用解耦的 patch-mean $\Delta z$ 旁路预测动作，作性能诊断。
-* **`ActionTokenizer`** (`net/action_model.py:L14`)
-  * **职责**：连续动作序列到离散 Token 的自适应聚类编码器。通过双层 MLP 提取时序特征、使用有效掩码池化并输入 `VectorQuantizer` 得到离散索引。
-* **`ActionExecutor`** (`net/action_model.py:L74`)
-  * **职责**：离散动作 Token 的时间编码执行器。将 Token 向量与当前状态拼接投影，结合相对时间步的 `ContinuousTimeEncoding` 特征，通过多层全连接网络解码，并在超出 `dt` 的时间步上应用零掩码，高保真还原出原始动作序列。
+* **`EffectTokenizer`** (`net/effect_tokenizer.py`)
+  * **职责**：不可逆事件词表。对 $\Delta z_{inv} = z_{inv,next} - z_{inv,t}$ 提取帧级净效应后做向量量化(EMA+死码重启)，输出事件码索引、commitment损失及量化前的效应向量。
+* **`GeneratorBank`** (`net/effect_tokenizer.py`)
+  * **职责**：可逆连续生成元算子组。对 $z_{rev}$ 通过自适应的线性 basis 映射产生生成元方向，并利用有界预测系数进行线性叠加，以有界增量形式演化 $z_{rev}$。
+* **`EventVocabHead`** (`net/heads.py`)
+  * **职责**：不可逆事件码分类头。从预测器输出特征中分类预测事件码概率，用于离散通道的监督。
+* **`AffordanceHead`** (`net/heads.py`)
+  * **职责**：反事实效应幅度头。回归预测无操作/操作之间的反事实效应 $\|e\|$。
+* **`SurpriseHead`** (`net/heads.py`)
+  * **职责**：多头未来预测集成。利用多头独立预测未来的头间方差作为认知 surprise。
 * **`WorldProbeDecoder`** (`net/world_probe.py:L14`)
   * **职责**：世界信念状态检测薄探针。利用极薄的单隐层 MLP 回归解码出音符的客观物理坐标与色彩属性。
 
@@ -101,9 +99,9 @@
 
 ### 2.5 动作特征 Mu-Law 编解码
 * **`camera_to_bin(x)`** (`domains/minecraft/vpt_action.py:L33`)
-  * **特征**：将连续视角坐标通过非线性 mu-law 压缩映射到 $11\mathrm{D}$ 离散 bin 索引，是分类动作解码头（如 `InverseDynamicsHead` 的交叉熵）的监督标签映射层。
+  * **特征**：将连续视角坐标通过非线性 mu-law 压缩映射到 $11\mathrm{D}$ 离散 bin 索引，常用于连续视角到离散编码的目标分类映射以提高回归优化的数值稳定性。
 * **`bin_to_camera(idx)`** (`domains/minecraft/vpt_action.py:L45`)
-  * **特征**：`camera_to_bin` 的逆映射。在推理解码时，作为动作计划输出头（`DecoderHeads`）后面的连续空间投影映射函数。
+  * **特征**：`camera_to_bin` 的逆映射。在推理解码或评估分析时，将分箱索引投影还原为连续视角坐标。
 
 ### 2.6 自适应网络归一化构造
 * **`gn(channels)`** (`utils/nn.py:L7`)

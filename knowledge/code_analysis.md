@@ -54,31 +54,25 @@
 #### [net/backbone.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/net/backbone.py)
 * **`load_backbone(kind, repo_override=None)`**: 视觉骨干加载函数。通过 HuggingFace 加载冻结的 `dinov3` 或 `dinov2` 模型。返回骨干网络 Module 实例、patch 边长、隐藏状态维度与 register token 数量。
 
-#### [net/slots.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/net/slots.py)
-* **`class SlotCompetitiveAttn(nn.Module)`**: 实体槽竞争注意力模块。在交叉注意力前向计算时，在第一阶段对注意力图沿 **slot 维度**进行 `softmax` 归一化（进行排他性选择），再沿 **token 维度**做聚合平均。以此解决多个 slots 冗余看向同一个显著 patch 的问题。
-* **`class SlotBinder(nn.Module)`**: 门控实体槽绑定模块（贝叶斯滤波更新）。输入 slots 状态 `Z` 与感知 tokens `P`，利用 `SlotCompetitiveAttn`（或 `PreLNAttn`）计算出差分增量 `delta_Z`，并通过一层 `Linear` 门控结构（Sigmoid 有界激活）计算每个 slot 的增益系数，执行残差门控凸更新。
+#### [net/effect_tokenizer.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/net/effect_tokenizer.py)
+* **`class EffectTokenizer(nn.Module)`**: 不可逆事件分词器。对前后帧的不可逆潜变化 $\Delta z_{inv} = z_{inv,next} - z_{inv,t}$ 提取帧级净效应后进行向量量化（EMA方式和死码重启），映射到离散事件词表并生成 commitment 损失。
+* **`class GeneratorBank(nn.Module)`**: 可逆连续生成元算子组。在可逆潜空间 $z_{rev}$ 上进行线性 basis 映射形成有界增量生成元，协同预测器输出的系数 $c$ 进行可逆演化。
 
 #### [net/heads.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/net/heads.py)
-* **`class DecoderHeads(nn.Module)`**: 长程动作计划解码器。包含键盘、鼠标动作分类预测，以及动作计划预测分支（鼠标分箱 logits、键盘 BCE、计划开始时间 onset、动作持续时长 duration、计划有效概率 exist）。
-  * **`decode_action_plan(u_tokens)`**: 使用带 `softplus` 递增的 `cumsum`，在序列维上单调计算动作开始时间 `onset`，消除查询置换对称性，输出定时动作计划字典。
-* **`class InverseDynamicsHead(nn.Module)`**: 逆动力学解码头。从前向残差潜变化 `residual_z` 解码出当前发生的动作（键盘概率和鼠标 mu-law 分箱分类）。
-  * **`forward(residual_z, patch_dz=None, ctx=None)`**: 前向反推动作。支持使用脑内记忆 `ctx` (即 $h$) 执行 FiLM 调制，并支持对冻结骨干的全 patch 平均特征增量 `patch_dz` 进行旁路诊断，与槽路预测独立解耦以避免梯度饥饿。
+* **`class EventVocabHead(nn.Module)`**: 不可逆事件分类预测头。从 Transformer query 隐状态中回归并分类预测离散事件码 $\mathcal{D}$ 的对数概率。
+* **`class AffordanceHead(nn.Module)`**: 反事实效应幅度预测头。回归预测 $\|e\| = \|\hat{z}_{inv}(do\ a) - \hat{z}_{inv}(do\ null)\|$, 使用 softplus 激活保证非负性。
+* **`class SurpriseHead(nn.Module)`**: 认知 surprise 多头预测器。通过多头集成独立线性预测未来，其预测值 variance 均值用于表征模型的不确定性/认知 surprise。
 
 #### [net/world_model.py](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/net/world_model.py)
-* **`sinusoidal_time_encoding(t_vec, d)`**: 辅助函数。将绝对秒数时间戳转换为 $1\mathrm{D}$ 正弦和余弦高维位置嵌入。
-* **`class MinecraftWorldModel(nn.Module)`**: Minecraft 核心自监督世界模型类。
-  * **`__init__(...)`**: 初始化结构，加载冻结视觉骨干（DINOv2/v3），实例化投影层 `proj`、锚状态 `slots`（buffer）、绑定器 `binder`、EMA 目标编码器（`proj_ema` 与 `binder_ema`）、状态解码器 `state_dec`、主 Transformer `blocks`、动作编码与时间编码、逆动力学头与未来计划头，以及隐变量 $\xi$ 的先验/后验预测模块。
-  * **`train(mode=True)`**: 重置训练状态。确保被冻结的预训练 `backbone` 始终处于 `.eval()` 评估模式，屏蔽其中的随机 Dropout 或 BatchNorm。
-  * **`_ema_params()`**: 生成器方法。返回 EMA 目标感知路径的参数迭代器，使其不加入训练梯度。
-  * **`extract_feats(img)`**: 特征提取。对图像进行 ImageNet 归一化与尺度裁剪后送入冻结骨干，切除 CLS 和 register tokens 后返回纯 patch 特征。
-  * **`encode_obs(img, feats)`**: 在线感知编码。将 patch 特征通过 `proj` 和 `binder` 绑定到 slots，减去 `anchor` 锚得到在线观测增量 $z_{obs}$。
-  * **`encode_target(img, feats)`**: JEPA 目标编码。使用 EMA 的投影层和绑定层在无梯度模式下编码得到平稳靶子 $z_{tg}$。
-  * **`ema_update(decay)`**: EMA 参数跟踪。用在线感知权重的指数滑动平均（`lerp`）更新 EMA 的目标编码器。
-  * **`_xi_ctx(z_ref, h, dt)`**: 获取 $\xi$ 分布网络所需的拼接上下文特征。
-  * **`xi_prior(z_ref, h, dt)`**: 预测隐变量 $\xi$ 的先验分布参数（均值和有界 log 方差）。
-  * **`xi_posterior(z_ref, h, dt, dz_tg)`**: 预测隐变量 $\xi$ 的后验分布参数。利用对未来增量 `dz_tg` 进行 slot 轴上的 mean 与 max 池化（保留槽级突发意外），输出后验均值与 log方差。
-  * **`xi_sample(mu, logvar)`**: 重参数化采样 $\xi$ 向量。
-  * **`forward(z_ref, h, a_hist, a_cur, dt, t_vec, ...)`**: 可变跨度动力学前向推演。将 slots 表征、任务文本、时间戳、历史动作、当前区间动作、跳帧编码以及隐变量 $\xi$ 拼接为 tokens 序列送入 Transformer 进行全局注意力推演。输出预测的潜在增量 $\mu$、逐 slot 的可控闸 $c$、槽存在概率、推演后的 slots 状态、下一步记忆 $h_{next}$ 及未来动作计划。
+* **`class _Adapter(nn.Module)`**: 视觉特征编码映射网络。包含 Pre-LN 结构多头注意力自编码及 FFN 模块，将骨干特征降维并拆分为连续有界的 $z_{rev}$ 潜特征和直通高斯/分类随机采样 $z_{inv}$ 潜特征。
+* **`class MinecraftWorldModel(nn.Module)`**: 序列对齐的后果结构世界模型主干。
+  * **`__init__(...)`**: 初始化加载冻结的 DINO 骨干，构建 online 编码器 `adapter`、EMA教师目标编码器 `target_adapter`、时空/时间位置编码器，以及预测器 Transformer `blocks`、生成元算子组 `generators`、事件词表分类头、affordance头和surprise头。
+  * **`train(mode=True)`**: 重置训练状态，确保被冻结的预训练 `backbone` 始终处于评估模式。
+  * **`extract_feats(img)`**: 视觉特征提取，对图像做尺寸调整后前向提取特征并丢弃 register tokens。
+  * **`encode(feats)`** / **`encode_obs(img, feats)`**: 在线编码映射。
+  * **`encode_target(feats)`**: JEPA 目标编码。使用 EMA 的教师编码器在无梯度下获取稳定目标。
+  * **`update_ema()`**: EMA 参数同步，平滑更新目标编码器权重。
+  * **`forward(z_frames, t_frames, act, t_act, query_t, null=False)`**: 序列↔序列未来对齐前向。将多个上下文帧的 token 向量、动作条件 token 向量和未来 $t^*$ 帧的 query token 向量一次性拼入 Transformer 核。利用生成元系数 $c$ 和事件码分类预测演化得到目标未来帧预测 $\hat{z}$，并读出反事实效应值与不确定性度量。
 
 #### [net/dreamer/](file:///c:/Users/zznZZ/Desktop/tao-not-42-base-refactor-world-model-contract/net/dreamer/) (做对照用的第三方世界模型 DreamerV3 模块，通过垫片完全解耦自包含)
 * **`net/dreamer/_compat.py`**: Dreamer 垫片。除了 re-export 概率分布和序列扫描算子外，在本地完全复刻了 Dreamer 原 tools.py 里的初始化与训练胶水代码（`RequiresGrad`, `Optimizer`, `weight_init`, `uniform_weight_init`, `tensorstats`, `to_np`），实现了 `net/dreamer/` 模块的深度内聚和与主项目的解耦。
@@ -196,36 +190,33 @@ graph TD
     
     %% 在线前向推演
     _run_sequence -->|1. 提取 patch 特征| extract_feats["world_model.py: MinecraftWorldModel.extract_feats"]
-    _run_sequence -->|2. 在线编码| encode_obs["world_model.py: MinecraftWorldModel.encode_obs"]
-    encode_obs -->|Slot 绑定| SlotBinder_forward["slots.py: SlotBinder.forward"]
-    SlotBinder_forward -->|非竞争/竞争 CrossAttn| SlotCompetitiveAttn_forward["blocks/attention.py: SlotCompetitiveAttn.forward"]
+    _run_sequence -->|2. 在线编码| encode["world_model.py: MinecraftWorldModel.encode"]
+    encode -->|调用 _Adapter| _Adapter_forward["world_model.py: _Adapter.forward"]
     
     _run_sequence -->|3. EMA 目标编码| encode_target["world_model.py: MinecraftWorldModel.encode_target"]
     
-    _run_sequence -->|4. 计算后验/先验隐变量| xi_posterior["world_model.py: MinecraftWorldModel.xi_posterior"]
-    _run_sequence -->|5. 前向动力学推演| world_model_forward["world_model.py: MinecraftWorldModel.forward"]
-    world_model_forward -->|绝对时间正弦编码| sinusoidal_time_encoding["net/world_model.py: sinusoidal_time_encoding"]
-    world_model_forward -->|连续步长时间编码| ContinuousTimeEncoding_forward["blocks/encodings.py: ContinuousTimeEncoding.forward"]
-    world_model_forward -->|解码动作计划| DecoderHeads_decode["net/heads.py: DecoderHeads.decode_action_plan"]
+    _run_sequence -->|4. 前向动力学推演| world_model_forward["world_model.py: MinecraftWorldModel.forward"]
+    world_model_forward -->|可逆演化| GeneratorBank_forward["effect_tokenizer.py: GeneratorBank.forward"]
+    world_model_forward -->|预测事件码概率| EventVocabHead_forward["heads.py: EventVocabHead.forward"]
+    world_model_forward -->|预测反事实效应| AffordanceHead_forward["heads.py: AffordanceHead.forward"]
+    world_model_forward -->|预测认知 surprise| SurpriseHead_forward["heads.py: SurpriseHead.forward"]
     
     %% 损失计算
-    _run_sequence -->|6. 计算损失| dz_pred_loss["train/minecraft/losses.py: dz_pred_loss"]
-    _run_sequence -->|7. 计算 slot 多样性损失| slot_diversity_loss["train/minecraft/losses.py: slot_diversity_loss"]
-    _run_sequence -->|8. 计算逆动力学损失| minecraft_inv_dyn_loss["train/minecraft/losses.py: minecraft_inv_dyn_loss"]
-    minecraft_inv_dyn_loss -->|逆动力学解码| InverseDynamicsHead_forward["net/heads.py: InverseDynamicsHead.forward"]
-    _run_sequence -->|9. 计算动作计划损失| plan_bc_loss["train/minecraft/losses.py: plan_bc_loss"]
-    _run_sequence -->|10. 随机隐变量散度| kl_diag_gauss["train/minecraft/losses.py: kl_diag_gauss"]
-    _run_sequence -->|11. 表征防坍缩正则| SIGReg_forward["blocks/regularization.py: SIGReg.forward"]
+    _run_sequence -->|5. 计算潜对齐损失| latent_align_loss["train/minecraft/losses.py: latent_align_loss"]
+    _run_sequence -->|6. 计算多上下文一致损失| agreement_loss["train/minecraft/losses.py: agreement_loss"]
+    _run_sequence -->|7. 计算辅助离散通道CE| event_ce["train/minecraft/losses.py: event_ce"]
+    _run_sequence -->|8. 计算效应头回归损失| noop_loss["train/minecraft/losses.py: noop_loss"]
+    _run_sequence -->|9. 计算路径无关损失| path_invariance_loss["train/minecraft/losses.py: path_invariance_loss"]
+    _run_sequence -->|10. 表征防坍缩正则| SIGReg_forward["blocks/regularization.py: SIGReg.forward"]
     
-    _run_sequence -->|12. 滚动动作历史| roll_hist["train/minecraft/_seq.py: roll_hist"]
+    _run_sequence -->|11. 滚动动作历史| roll_hist["train/minecraft/_seq.py: roll_hist"]
     
     %% 平滑更新与评估
-    train_epoch -->|13. 优化步更新平稳 target| model_ema_update["net/world_model.py: MinecraftWorldModel.ema_update"]
-    train_epoch -->|14. 周期评估| evaluate["train/minecraft/eval.py: evaluate"]
+    train_epoch -->|12. 优化步更新 EMA 教师| model_ema_update["net/world_model.py: MinecraftWorldModel.update_ema"]
+    train_epoch -->|13. 周期评估| evaluate["train/minecraft/eval.py: evaluate"]
     evaluate -->|评估开环| rollout_probe["train/minecraft/eval.py: rollout_probe"]
-    rollout_probe -->|逆动力学诊断| InverseDynamicsHead_forward
     
-    train_epoch -->|15. 周期可视化| visualize_minecraft["train/minecraft/minecraft_viz.py: visualize_minecraft"]
+    train_epoch -->|14. 周期可视化| visualize_minecraft["train/minecraft/minecraft_viz.py: visualize_minecraft"]
     visualize_minecraft -->|累积推演数据| collect_rollout["train/minecraft/minecraft_viz.py: collect_rollout"]
     visualize_minecraft -->|槽注意力分析| _attn_overlays["train/minecraft/minecraft_viz.py: _attn_overlays"]
     visualize_minecraft -->|绘制画板| render_panel["train/minecraft/minecraft_viz.py: render_panel"]
@@ -238,9 +229,9 @@ graph TD
 本项目采用了模块化高阶重构，将模型核心逻辑转移到了基于 DINOv3 冻结骨干的 **$\Delta z$-JEPA 潜表征预测架构**。
 
 ### 1. 已被使用的核心代码 (Active)
-* **`net/world_model.py`**：核心动力学模型，所有前向推理、在线/EMA目标编码全部使用。
-* **`net/slots.py`**：`SlotBinder`（滤波式绑定）在特征空间中被调用。
-* **`net/heads.py`**：`InverseDynamicsHead`（逆动力学读出）和 `DecoderHeads`（未来计划读出）在训练/评估和可视化中被全程调用。
+* **`net/world_model.py`**：核心动力学模型，包含 online 编码器和 EMA 教师目标编码器，负责拼接 token 并在序列空间执行前向预测。
+* **`net/effect_tokenizer.py`**：`EffectTokenizer`（事件分词）和 `GeneratorBank`（生成元算子）在特征空间中被调用以解耦可逆/不可逆流。
+* **`net/heads.py`**：`EventVocabHead`、`AffordanceHead` 和 `SurpriseHead` 在训练/评估和可视化中被全程调用。
 * **`net/backbone.py`**：`load_backbone` 用于在训练/评估和测试中加载预训练视觉特征提取器。
 * **`net/dreamer/`**：做对照世界模型用的第三方模块。
 * **`blocks/`**：各细分文件中的 `ContinuousTimeEncoding`（时间段条件）、`PreLNAttn`（Transformer 内部使用）、`SlotCompetitiveAttn`（竞争绑定，在 `blocks/attention.py` 内部）以及 `SIGReg`（Sliced各向同性高斯正则，防坍缩核心）被全程调用。

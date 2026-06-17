@@ -168,6 +168,9 @@ def main():
     ap.add_argument("--no_amp", action="store_true")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--wandb", action="store_true", help="启用 W&B 实验同步")
+    ap.add_argument("--wandb_project", default="minecraft-world-model", help="W&B 项目名")
+    ap.add_argument("--wandb_run", default=None, help="W&B 运行实例名")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -209,6 +212,21 @@ def main():
     effect_tok = EffectTokenizer(d_inv=cfg.d_inv, event_vocab_size=cfg.effect.event_vocab_size).to(dev)
     sigreg = SIGReg(knots=17, num_proj=512).to(dev)
 
+    if args.wandb:
+        import wandb
+        wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_run,
+            config={
+                "lr": args.lr,
+                "epochs": args.epochs,
+                "batch": args.batch,
+                "seq_len": args.seq_len,
+                "frame_skip": args.frame_skip,
+                "model_config": asdict(cfg),
+            }
+        )
+
     opt = torch.optim.Adam(list(model.parameters()) + list(effect_tok.parameters()), lr=args.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, eta_min=args.lr * 0.1)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
@@ -225,11 +243,38 @@ def main():
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | align {r['align']:.4f} "
                   f"agree {r['agree']:.4f} | event_acc {r['event_acc']:.2%} | e_norm {r['e_norm']:.4f} "
                   f"| recon_inv {r['recon_inv']:.4f} | sig {r['sigreg']:.2f} kl {r['kl']:.3f}")
+
+        # W&B 基础训练指标同步
+        if args.wandb:
+            log_dict = {
+                "epoch": ep,
+                "train/loss": r["loss"],
+                "train/align": r["align"],
+                "train/agree": r["agree"],
+                "train/event_acc": r["event_acc"],
+                "train/e_norm": r["e_norm"],
+                "train/recon_inv": r["recon_inv"],
+                "train/recon_rev": r["recon_rev"],
+                "train/sigreg": r["sigreg"],
+                "train/kl": r["kl"],
+                "train/surprise": r["surprise"]
+            }
+
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):
             ev = evaluate(model, effect_tok, _get_eval_batches(), dev, amp_dev, use_amp, cfg)
             print(f"  [eval] align {ev['align']:.4f} | agree {ev['agree']:.4f} | "
                   f"drift {ev['rollout_drift']:.4f} | corr(w,future) {ev['corr_w_future']:.3f} "
                   f"corr(w,pixel) {ev['corr_w_pixel']:.3f}")
+            
+            if args.wandb:
+                log_dict.update({
+                    "eval/align": ev["align"],
+                    "eval/agree": ev["agree"],
+                    "eval/rollout_drift": ev["rollout_drift"],
+                    "eval/corr_w_future": ev["corr_w_future"],
+                    "eval/corr_w_pixel": ev["corr_w_pixel"]
+                })
+
             if best_loss is None or ev["align"] < best_loss:
                 best_loss = ev["align"]
                 torch.save({
@@ -238,6 +283,16 @@ def main():
                     "epoch": ep, "align": best_loss, "config": asdict(cfg),
                 }, best_path)
                 print(f"  [best] align={best_loss:.4f} @ep{ep} -> {best_path}")
+                
+                # 记录最好模型权重到 W&B Artifacts
+                if args.wandb:
+                    artifact = wandb.Artifact(name=f"best-model-{args.wandb_run or 'run'}", type="model")
+                    artifact.add_file(best_path)
+                    wandb.log_artifact(artifact)
+                    print(f"  [wandb] Best checkpoint uploaded as artifact: {artifact.name}")
+
+        if args.wandb:
+            wandb.log(log_dict)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
-# MinecraftWorldModel 生产基线结构。
+# MinecraftWorldModel 生产基线结构(序列对齐的后果结构世界模型)。
 model:
   d: 384
+  d_rev: 256         # 可逆连续潜(相机/平移)
+  d_inv: 128         # 不可逆离散潜(事件/持物);后果落在此
   K: 5               # 动作查询数
   J: 8               # 历史动作长度
   max_skip: 8
@@ -8,11 +10,25 @@ model:
   backbone:
     kind: dinov3     # dinov3=ViT-S/16(gated)| dinov2=ViT-S/14(开放权重备选)
     weights: null    # 覆盖 HF repo id(换更大变体);null=用 kind 默认 repo
-  dynamics:
+  adapter:
+    num_layers: 2
+    nhead: 8
+    ffn_mult: 4
+    z_inv_kind: gaussian
+    beta_kl: 0.001
+    ema_decay: 0.996
+  dynamics:          # 序列↔序列预测器 P_ψ 的 Transformer 主干
     kind: transformer
     num_layers: 4
     nhead: 8
     ffn_mult: 4
     dropout: 0.0
+  effect:
+    event_vocab_size: 64
+    n_generators: 8
+  predictor:
+    horizon: 6
+    n_context_cutoffs: 2
+    lambda_agree: 1.0
   heads:
     n_cam_bins: 11

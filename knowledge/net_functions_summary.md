@@ -11,8 +11,15 @@
 以下类全部继承自 `nn.Module`（或在内置库中隐式实现），属于显式的神经网络模型与网络子层：
 
 ### 1.1 核心网络架构层 (`net/` 目录)
-* **`MinecraftWorldModel`** (`net/world_model.py:L67`)
-  * **职责**：整个世界模型的主干，将冻结的 DINO 视觉特征、slots 嵌入、任务文本、时间编码与动作序列拼接为 tokens，送入 4 层 Transformer 块进行全局注意力时序前向推演。
+* **`MinecraftWorldModel`** (`net/world_model.py`)
+  * **职责**：序列对齐的后果结构世界模型主干。冻结 DINO → 可训练 adapter 编码因子化潜
+    `z=(z_rev 有界连续, z_inv 随机潜+KL 瓶颈)`;把所有帧的 patch 加屏幕坐标 sine2d + 帧单位
+    时间编码摊平成**时空 token 集合**,与未来 query token 一次性送入 Transformer 核做
+    **掩码未来帧预测**;因子化输出 `ẑ_rev=z_rev+Σc·G_j`、`ẑ_inv=z_inv+𝒟.decode`,`do(null)`
+    旁路给反事实效应 e。目标编码取 **EMA 教师 `target_adapter` + stop-grad**(JEPA,I8)。
+* **`_Adapter`** (`net/world_model.py`)
+  * **职责**:冻结骨干之上的可训练编码器(PreLNAttn 自注意 + GatedResidual MLP)→ 两路头
+    (BoundedActivation('flow') 的 z_rev / StochLatent 的 z_inv)。online 与 EMA 教师同构。
 * **`SlotCompetitiveAttn`** (已迁至 `blocks/attention.py`，由 `net/slots.py` 导入和 re-export)
   * **职责**：槽竞争交叉注意力网络层。在计算 attention 时，首先沿 **slot 维度**进行 `softmax` 归一化以确保槽间零和竞争，然后再沿 **token 维度**归一化做加权平均，以此消除 slots 重合冗余。
 * **`SlotBinder`** (`net/slots.py:L66`)

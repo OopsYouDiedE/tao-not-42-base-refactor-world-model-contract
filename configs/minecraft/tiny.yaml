@@ -1,16 +1,29 @@
 # 小尺寸预设:CPU 离线冒烟用(配依赖注入 mock 骨干,见 tests/unit/test_config.py)。
-# nhead 须整除 d。
+# nhead 须整除 d;d_rev + d_inv == d。
 model:
   d: 64
+  d_rev: 48
+  d_inv: 16
   K: 2
   J: 2
   max_skip: 3
   backbone:
     kind: dinov2          # 仅 DI mock 冒烟时被骨干注入覆盖;真加载用 base.yaml
+  adapter:
+    num_layers: 1
+    nhead: 4
+    ffn_mult: 2
+    z_inv_kind: gaussian
   dynamics:
     kind: transformer
     num_layers: 2
     nhead: 4
     ffn_mult: 2
+  effect:
+    event_vocab_size: 16
+    n_generators: 4
+  predictor:
+    horizon: 3
+    n_context_cutoffs: 2
   heads:
     n_cam_bins: 11

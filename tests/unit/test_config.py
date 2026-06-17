@@ -42,17 +42,25 @@ def test_defaults_match_legacy():
     """默认 ModelConfig 必须符合新预设值。"""
     c = ModelConfig()
     assert (c.d, c.K, c.J) == (384, 5, 8)
+    assert (c.d_rev, c.d_inv) == (256, 128) and c.d_rev + c.d_inv == c.d
     assert c.act_dim == 22 and c.max_skip == 8
     assert c.state_dec_mult == 2
     assert (c.dynamics.kind, c.dynamics.num_layers, c.dynamics.nhead,
             c.dynamics.ffn_mult, c.dynamics.dropout) == ("transformer", 4, 8, 4, 0.0)
+    assert c.adapter.z_inv_kind == "gaussian"
+    assert c.effect.event_vocab_size == 64 and c.effect.n_generators == 8
     assert c.heads.n_cam_bins == 11
     assert c.backbone.kind == "dinov3" and c.backbone.weights is None
 
 
+def test_factorization_dim_guard():
+    """d_rev + d_inv != d 必须报错(__post_init__ 守卫)。"""
+    assert _raises_value_error(lambda: ModelConfig(d=64, d_rev=40, d_inv=16))
+
+
 def test_from_dict_merges_partial_and_rejects_unknown():
     """部分 dict 与默认合并;未知键报错。"""
-    c = ModelConfig.from_dict({"d": 128, "dynamics": {"num_layers": 2}})
+    c = ModelConfig.from_dict({"d": 128, "d_rev": 96, "d_inv": 32, "dynamics": {"num_layers": 2}})
     assert c.d == 128 and c.dynamics.num_layers == 2
     assert c.dynamics.nhead == 8 and c.K == 5          # 缺键取默认
     assert _raises_value_error(lambda: ModelConfig.from_dict({"nope": 1}))
@@ -60,30 +68,31 @@ def test_from_dict_merges_partial_and_rejects_unknown():
 
 
 def test_yaml_to_model_smoke():
-    """tiny.yaml → ModelConfig → 建模(DI mock 骨干),跑通 encode_obs → forward 的 shape。"""
+    """tiny.yaml → ModelConfig → 建模(DI mock 骨干),跑通 encode → 序列对齐 forward 的 shape。"""
     raw = load_yaml(os.path.join(_ROOT, "configs/minecraft/tiny.yaml"))
     cfg = ModelConfig.from_dict(raw["model"])
     model = MinecraftWorldModel(cfg, backbone=_MockBackbone(cfg.d)).eval()
 
-    B = 2
-    img = torch.rand(B, 3, 64, 64)
-    z = model.encode_obs(img)
-    # 64x64 图像在 _MockBackbone 下,卷积之后空间维度是 8x8 = 64
-    assert z.shape == (B, 64, cfg.d)
+    B, T = 2, 4
+    img = torch.rand(B, T, 3, 64, 64)
+    feats = model.extract_feats(img.reshape(B * T, 3, 64, 64))
+    z, kl = model.encode(feats)
+    M = z.shape[-2]                          # 64x64 经 MockBackbone(stride 8)→ 8x8=64 patch
+    assert z.shape == (B * T, M, cfg.d) and kl.shape == (B * T,)
+    z = z.view(B, T, M, cfg.d)
 
-    h = torch.zeros(B, 1, cfg.d)
-    a_hist = torch.zeros(B, cfg.J, cfg.act_dim)
-    a_cur = torch.zeros(B, model.S, cfg.act_dim)
-    dt = torch.full((B,), float(model.S))
-    t_vec = torch.zeros(B)
-    out = model(z, h, a_hist, a_cur, dt, t_vec)
-    assert out["logits"].shape == (B, 512)
-    assert out["z_recon"].shape == (B, 64, cfg.d)
-    assert out["h_next"].shape == (B, 1, cfg.d)
+    dt = torch.ones(B, T - 1)
+    tf = torch.cat([torch.zeros(B, 1), dt.cumsum(1)], dim=1)
+    act = torch.zeros(B, T - 1, cfg.act_dim)
+    out = model(z[:, :2], tf[:, :2], act, tf[:, :T - 1], tf[:, T - 1])
+    assert out["z_hat"].shape == (B, M, cfg.d)
+    assert out["event_logits"].shape == (B, M, cfg.effect.event_vocab_size)
+    assert out["e_norm_hat"].shape == (B, M)
 
 
 if __name__ == "__main__":
     test_defaults_match_legacy()
+    test_factorization_dim_guard()
     test_from_dict_merges_partial_and_rejects_unknown()
     test_yaml_to_model_smoke()
     print("ok")

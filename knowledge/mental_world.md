@@ -64,33 +64,45 @@ Mamba 的长序列线性扫描优势也用不上。
 
 ---
 
-## 3. 现状：活模型闭环（Δz-JEPA Minecraft）
+## 3. 现状：活模型（序列对齐的后果结构世界模型）
 
-本节描述 [net/world_model.py](../net/world_model.py) 的 `MinecraftWorldModel` **已实现**的结构。它是 §0–§2 立场在 Minecraft 离线 VPT 录像上的已落地子集：把 §0 的"脑内世界"做成**以动作为条件、在潜空间预测增量 Δz** 的自监督世界模型。
+本节描述 [net/world_model.py](../net/world_model.py) 的 `MinecraftWorldModel` **已实现**的结构,是 §0–§2
+立场在 Minecraft 离线录像上的落地。相对早期"两步式离散动作词表 + 单步 Δz 重建"(已弃),本版把对齐
+从"逐帧/对动作词表"改为**编码空间的序列↔序列对齐**:用"初始帧编码 + 一段(图像+动作)token"预测
+**同一个未来帧的潜向量**,要求不同长度上下文对该未来帧的预测互相一致。设计四原则:① 对齐在编码空间
+且序列↔序列;② 后果 = 下游潜发散(非瞬时像素差);③ 主动防编码偷懒;④ 可逆/不可逆因子化。
 
 ```
-img_t ─ 冻结骨干(DINOv3 ViT-S/16) ─ patch ─ proj ─ SlotBinder(固定锚) − 锚 ─→ z_obs(t)  [在线]
-img_t ─ 冻结骨干(共享特征)        ─ patch ─ proj_ema ─ binder_ema − 锚 ───→ z_tg (EMA 目标, stop-grad)
+img_t ─ 冻结 DINO ─ patch ─ adapter ─→ z=(z_rev 有界, z_inv 随机潜+KL)  [online]
+img_t ─ 冻结 DINO ─ patch ─ adapter_ema ───────────────────────────→ z̄ (EMA 目标, stop-grad)
 
-   [Z=z_ref, text, h(记忆), dt, ξ, a_hist, a_cur, u(动作查询)] ─→ Transformer ×L
-                                                                         │
-   解码头：StateDecoder(μ=Δz 预测, c=逐 slot 可控闸, exist) · action_plan(定时动作序列)
+   时空 token 集合 𝒯 = {u_{t,p}=W·z+ρ(屏幕坐标 sine2d)+τ(帧时间)} ∪ {g_n=W·a_n+τ(t_n)}
+   上下文 𝒞_k(观测帧 0..k + 全程动作)  ⊕  未来 query q=m+ρ+τ(t*)  ─→ Transformer 核 ─→ ẑ_{t*}
+   因子化:ẑ_rev=z_rev+Σ_j c_j·G_j(z_rev)  ·  ẑ_inv=z_inv+𝒟.decode(event)  ·  do(null) 旁路→ e
 ```
 
-要点（每条都已在活模型实现）：
+### 数学(8 式,代码即此)
 
-- **冻结视觉骨干**：DINOv3 ViT-S/16（HF，默认；dinov2 ViT-S/14 开放权重备选），**冻结**。从零训练的随机卷积骨干没有先验、泛化失败（prime-leaf-7 实测：把纹理背熟但 holdout 退化）；冻结预训练骨干给目标编码一个独立于本任务数据的意义来源——这是 JEPA 的前提。骨干冻结且在线/目标共享 ⇒ 特征每帧只提取一次，EMA 只覆盖可训练部分（proj + binder）。
-- **统一锚坐标系感知（correct）**：`proj → SlotBinder(固定锚) − 锚`。锚是与内容零互信息的常数 buffer；减锚后编码 = 纯内容增量。在线（梯度进 proj+binder）与 EMA 目标（proj_ema/binder_ema，no_grad）**同构**——同一帧两条路径得到同坐标系下同一向量（至 EMA 滞后）。时间条件不进感知输入（移到 h token），保证逆动力学差信号 `(z_tg − z_obs)` 干净。
-- **预测目标 = Δz（不是绝对 z）**：旧版预测绝对潜表征时，静态内容占目标能量约 99.8%、动力学仅约 0.2%，persistence 基线不可战胜。改预测 `Δz = sg[enc(img_{t+1}) − enc(img_t)]` 后，persistence 退化为"预测 0"，动力学占目标能量 100%，动作信息成为唯一可用的预测来源——这是"训练几乎无效"根因的修复。
-- **EMA 目标编码器（JEPA 稳定靶，stop-grad）**：目标走在线权重的 EMA 副本，慢速跟踪。骨干冻结 ⇒ 非平稳只可能来自 proj/binder，EMA 恰好罩住这两处；在线权重的任何坍缩动作要经 `ema_decay` 低通才会进目标，期间 SIGReg 与逆动力学有时间纠偏。**目标必须 stop-grad（I8）**，否则"减小预测误差"可靠移动靶子白嫖（让 encoder 把目标变得好预测）= 坍缩。
-- **Transformer 动力学推演**：双向无掩码，一次推演全部 token。跨步记忆只走 **h token**（其余每步重新编码）。
-- **StateDecoder → μ / c / exist**：μ 是 Δz 预测；c 是**逐 slot 标量可控闸**（sigmoid 有界，I3）；exist 是存在概率。末层零初始化 ⇒ 冷启动 μ=0（恰为 persistence 基线，归一化 pred 损失从 1.0 起步）、c=0.5（居中待极化）。**σ 异方差支路已撤**（见 §4）。
-- **可变 Δt（jumpy prediction）**：每个转移跨度 `dt ~ U{1..max_skip}`（帧）由数据集采样。模型同时收 (a) 区间内**完整原始动作序列** `a_cur`（带有效位区分零填充与真·无操作）、(b) 聚合动作历史 `a_hist`（各条目用 `ContinuousTimeEncoding(t_hist)` 标"几帧前"）、(c) `ContinuousTimeEncoding(dt)` 条件 token。固定步长会让模型学"默认漂移先验"；Δt 可变后唯一能解释 Δz 的就是把区间内动作逐个积分——这正是开环推演所需能力，且动作效应随 Δt 累积而编码噪声地板不变，大 Δt 样本信噪比更高。
-- **plan-as-vector（动作规划头）**：DETR 式 K 个动作查询，各解码出（按哪键、onset Δt、时长、是否真有），一次输出一段**定时动作序列**而非单步动作。时间锚契约：`t_vec` 是本次前向的"现在"，也是一切输出的 0 时刻（onset 从这一刻起算，单位 = 帧，与 dt 同单位）。
-- **任务文本条件**：冻结句向量（[domains/minecraft/task_text.py](../domains/minecraft/task_text.py)，384 维）→ 线性投影 → text token。单任务数据下文本是常数（零互信息）；多任务混采时它解释任务间行为方差。不传时回退可学常数 placeholder（等价无条件）。
-- **防坍缩两道闸**：SIGReg（训练端施加在在线 `z_obs` 上，坍缩发生处）+ `slot_diversity_loss`（§1）。
+记上下文视图 `𝒞_k`、未来 query `q_{t*,p}=m+ρ(row,col)+τ(t*)`,预测器 `P_ψ`(Transformer 核):
+1. **时空 token**:`u_{t,p}=W_in z_{t,p}+ρ(row_p,col_p)+τ(t)`,动作 `g_n=W_a a_n+τ(t_n)` ⇒ 摊平成集合单次处理(省算力)。
+2. **序列→未来帧**:`ẑ_{t*,p}=P_ψ(𝒞_k; q_{t*,p})`,拆 `(ẑ_rev,ẑ_inv)`。目标是任意未来 t*、由动作序列积分,**非逐帧下一帧**。
+3. **EMA 教师**:`z̄_{t*,p}=sg·E_θ̄(f_{t*,p})`(I8)。
+4. **序列↔序列对齐**:`L_align = Σ_k (1/M)Σ_p w·‖ẑ^{(k)}−z̄‖² + λ_agree·Σ_{k<k'}‖ẑ^{(k)}−sg ẑ^{(k')}‖²`
+   ——多上下文预测同一 t* 且互相一致。
+5. **后果权重**:`w ∝ norm(‖ẑ_inv(do a)−ẑ_inv(do null)‖ + α·Φ_future)`,随未来效应不随像素 ⇒ 小像素高后果不被淹没。
+6. **路径无关**:`L_path=‖ẑ_inv(A)−ẑ_inv(A')‖²`(A,A' 到同一未来态)⇒ z_inv = 对可逆/路径冗余取商的"后果"。
+7. **因子化动力学**:可逆 `ẑ_rev=z_rev_0+Σc_j G_j`(生成元复合);不可逆 `ẑ_inv=z_inv_0+Σ𝒟(event)`,`event=VQ(Δz_inv)`(无序累加 ⇒ 离散通道天然路径无关)。
+8. **反捷径**:stop-grad 目标 + SIGReg + w 随未来发散 + 多上下文一致 + 验收 `corr(w,像素)≈0, corr(w,未来发散)>0`。
 
-**训练时序（teacher forcing）**：每步感知输入 = 在线编码 `z_obs(t)`，μ 预测 `Δz(t→t+dt)`；跨步记忆只走 h。开环推演（可视化/诊断）用 `ẑ(t+dt) = ẑ(t) + μ(t)` 累积。
+要点(均已落地):
+- **冻结视觉骨干 + 可训练 adapter**:DINOv3 ViT-S/16(dinov2 备选),冻结;之上 `_Adapter`(`Linear`→PreLNAttn 自注意 + GatedResidual MLP)给编码侧容量。`unfreeze_backbone_layers>0` 时探针失败可解冻顶层(默认关)。
+- **因子化潜 z=(z_rev,z_inv)**:`z_rev` 经 `BoundedActivation('flow')` 有界(I3);`z_inv` 由 `StochLatent` 给随机潜 + `β_kl·KL` 信息瓶颈(逼其只留会改变未来的位;β_kl 不能太大以免丢掉小而关键的位,由后果监督托底)。
+- **EMA 教师 + stop-grad(I8)**:目标走 `adapter` 的 EMA 副本 `target_adapter`,慢速跟踪;减小预测误差不能靠移动靶子白嫖。
+- **效应词表 𝔤⊕𝒟 全部从潜变化读出**:`EffectTokenizer` 对 `Δz_inv` 量化得事件码(token=不可逆后果,**非动作**);`GeneratorBank` 是可逆生成元算子组;动作只作条件 token。
+- **后果加权 + 反捷径验收**:importance 由反事实效应 ‖e‖ 给出;eval 报 `corr(w,future)`/`corr(w,pixel)` 与闭环漂移、z_inv 线性探针(解 has_item/airborne)。
+- **可变 Δt(jumpy prediction)**:转移跨度 `dt~U{1..max_skip}`(帧),帧时间由 dt 累计、喂帧不喂秒;未来 t* 须把区间动作积分才能预测。
+
+**训练采样**:每个 clip 取锚点 0、目标 t*=末帧、若干上下文截止 k;构造 token 集合一次前向算对齐 + 一致损失,EMA 每优化步更新。详见 [train/minecraft/train_minecraft.py](../train/minecraft/train_minecraft.py) 的 `run_sequence`。
 
 ---
 

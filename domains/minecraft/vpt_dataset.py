@@ -222,6 +222,9 @@ class VPTStreamDataset(IterableDataset):
         文件不存在/半写坏(滚动下载器随时增删)→ 返回 None,调用方换一段重试。
         """
         actions, gflags, task = [], [], ""
+        # 可选反事实 GT(download_sample_data --counterfactual 写入;真 VPT 缺这些字段)
+        gt = {"has_item": [], "airborne": [], "branch": [], "reach_state_id": []}
+        have_gt = False
         try:
             with open(jsonl, "r", encoding="utf-8") as f:
                 for t, line in enumerate(f):
@@ -230,6 +233,10 @@ class VPTStreamDataset(IterableDataset):
                         task = a["task"]
                     actions.append(_action_vec(a, self.camera_scale))
                     gflags.append(1.0 if a.get("gui") else 0.0)
+                    for key in gt:
+                        if key in a:
+                            have_gt = True
+                        gt[key].append(float(a.get(key, -1)))
         except (OSError, ValueError):
             return None
         cap = cv2.VideoCapture(mp4)
@@ -250,8 +257,11 @@ class VPTStreamDataset(IterableDataset):
         # gui 标记(jsonl "gui" 字段,colab §2 写入):GUI 打开时画面变化(光标/物品)
         # 无法被记录的动作解释——纯标签噪声,采样时拒采。全零则存 None 免查。
         gui = torch.tensor(gflags[:n]) if any(gflags[:n]) else None
-        return {"img": img, "action": torch.stack(actions[:n]), "task": task,
-                "gui": gui, "n": n}
+        out = {"img": img, "action": torch.stack(actions[:n]), "task": task,
+               "gui": gui, "n": n}
+        if have_gt:
+            out["gt"] = {k: torch.tensor(v[:n], dtype=torch.float32) for k, v in gt.items()}
+        return out
 
     def _split_actions(self, act, start, skips):
         """把 [start, start+Σskips) 的逐帧动作按转移切开。
@@ -382,6 +392,11 @@ class VPTStreamDataset(IterableDataset):
                 "task_text": m["task"],
                 "t_vec": tv,               # [T]
             }
+            # 反事实 GT 透传(存在才加):按采样帧索引 fidx 切片 → [T];真 VPT 无此键
+            if "gt" in m:
+                for key, vec in m["gt"].items():
+                    sample[key] = vec[fidx]
+                sample["reach_id"] = sample["reach_state_id"]
             if quota == 0:
                 yield sample
                 continue

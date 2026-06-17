@@ -156,3 +156,19 @@ def null_consequence_loss(z_inv_hat_null, z_inv_anchor):
     """
     return F.mse_loss(z_inv_hat_null.float(), z_inv_anchor.float().detach())
 
+
+def decorrelation_loss(z_rev, z_inv, eps=EPS):
+    """z_rev 与 z_inv 跨特征去相关(Barlow 式 cross-cov 惩罚),从表征根上切断不可逆通道的外观泄漏。
+
+    两通道各自按特征在 batch 维标准化(零均值单位方差)后求互相关矩阵 C[d_rev,d_inv],
+    惩罚其平方均值——逼 z_inv 不再与承载可逆/外观的 z_rev 共享信息(corr_w_pixel 爬升的病根)。
+    作用于 online z(带梯度,塑形编码器);fp32(I4),分母 clamp(I1);只进 loss、不进前向(I6)。
+    """
+    zr = z_rev.float().reshape(-1, z_rev.shape[-1])
+    zi = z_inv.float().reshape(-1, z_inv.shape[-1])
+    zr = (zr - zr.mean(0)) / zr.std(0).clamp(min=eps)
+    zi = (zi - zi.mean(0)) / zi.std(0).clamp(min=eps)
+    n = max(zr.shape[0], 1)
+    c = (zr.transpose(0, 1) @ zi) / n                    # [d_rev, d_inv] 跨通道互相关
+    return c.pow(2).mean()
+

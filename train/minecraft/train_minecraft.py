@@ -21,7 +21,7 @@ from train.minecraft._seq import _to_float_img
 from train.minecraft.losses import (
     importance_from_effect, latent_align_loss, agreement_loss, event_ce,
     noop_loss, path_invariance_loss, recon_split, effect_guidance_loss,
-    null_consequence_loss, patch_pixel_diff, pearson_corr)
+    null_consequence_loss, patch_pixel_diff, pearson_corr, decorrelation_loss)
 from train.minecraft.eval import evaluate
 from train.minecraft.minecraft_viz import visualize_minecraft
 from blocks.regularization import SIGReg
@@ -43,7 +43,7 @@ def _context_cutoffs(target, n):
 
 
 def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_guide,
-                 amp_dev, use_amp):
+                 beta_decorr, amp_dev, use_amp):
     """构造时空 token 集合,对若干上下文截止预测同一未来帧 t*,返回 (total_loss, metrics)。"""
     img = batch_dev["img"]
     act_agg = batch_dev["act_agg"]
@@ -125,17 +125,20 @@ def run_sequence(model, effect_tok, sigreg, batch_dev, cfg, beta_sigreg, beta_gu
     acc_loss = acc_loss / nk
     agree = agreement_loss(z_hats)
     l_sig = sigreg(z.float().permute(2, 0, 1, 3).reshape(M, B * T, model.d))
-    total = acc_loss + cfg.predictor.lambda_agree * agree + model.beta_kl * kl + beta_sigreg * l_sig
+    l_decorr = decorrelation_loss(z[..., :d_rev], z[..., d_rev:])  # z_rev⊥z_inv 断外观泄漏
+    total = (acc_loss + cfg.predictor.lambda_agree * agree + model.beta_kl * kl
+             + beta_sigreg * l_sig + beta_decorr * l_decorr)
 
     for key in metrics:
         metrics[key] /= nk
-    metrics.update(loss=total.item(), agree=agree.item(), kl=kl.item(), sigreg=l_sig.item())
+    metrics.update(loss=total.item(), agree=agree.item(), kl=kl.item(),
+                   sigreg=l_sig.item(), decorr=l_decorr.item())
     return total, metrics
 
 
 
 def train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, device, steps,
-                cfg, beta_sigreg, beta_guide, amp_dev, use_amp):
+                cfg, beta_sigreg, beta_guide, beta_decorr, amp_dev, use_amp):
     model.train()
     effect_tok.train()
     agg, n = {}, 0
@@ -150,7 +153,7 @@ def train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, device, steps
 
         opt.zero_grad(set_to_none=True)
         total, metrics = run_sequence(model, effect_tok, sigreg, batch_dev, cfg,
-                                      beta_sigreg, beta_guide, amp_dev, use_amp)
+                                      beta_sigreg, beta_guide, beta_decorr, amp_dev, use_amp)
         scaler.scale(total).backward()
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(
@@ -188,6 +191,8 @@ def main():
     ap.add_argument("--beta_sigreg", type=float, default=0.1)
     ap.add_argument("--beta_guide", type=float, default=0.1,
                     help="后果权重引导损失权重(corr(w,future)↑/corr(w,pixel)→0;0=关闭)")
+    ap.add_argument("--beta_decorr", type=float, default=0.1,
+                    help="z_rev⊥z_inv 跨通道去相关权重(断不可逆通道的外观泄漏;0=关闭)")
     ap.add_argument("--no_amp", action="store_true")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
@@ -261,7 +266,7 @@ def main():
     for ep in range(args.epochs):
         r = train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, dev,
                         args.steps_per_epoch, cfg, args.beta_sigreg, args.beta_guide,
-                        amp_dev, use_amp)
+                        args.beta_decorr, amp_dev, use_amp)
         sched.step()
         if ep % args.log_every == 0 or ep == args.epochs - 1:
             print(f"ep {ep:4d} | loss {r['loss']:7.3f} | align {r['align']:.4f} "
@@ -283,6 +288,7 @@ def main():
                 "train/null": r["null"],
                 "train/corr_w_future": r["corr_w_future"],
                 "train/corr_w_pixel": r["corr_w_pixel"],
+                "train/decorr": r["decorr"],
             }
 
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):

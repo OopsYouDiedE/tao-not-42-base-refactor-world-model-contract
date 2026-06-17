@@ -68,7 +68,8 @@ def test_counterfactual_data_roundtrip_and_train():
         bd = {"img": _to_float_img(batch["img"]), "act_agg": batch["act_agg"],
               "dt": batch["dt"], "reach_id": batch["reach_id"][:, 0].long()}
         total, metrics = run_sequence(model.train(), etok, sig, bd, cfg,
-                                      beta_sigreg=0.1, beta_guide=0.1, amp_dev="cpu", use_amp=False)
+                                      beta_sigreg=0.1, beta_guide=0.1, beta_decorr=0.1,
+                                      amp_dev="cpu", use_amp=False)
         total.backward()
         assert torch.isfinite(total) and "surprise" in metrics
 

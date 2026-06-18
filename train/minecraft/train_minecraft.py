@@ -174,6 +174,7 @@ def train_epoch(model, effect_tok, sigreg, data_iter, opt, scaler, device, steps
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="runs/vpt_sample")
+    ap.add_argument("--holdout_dir", default=None, help="独立测试集目录(滚动模式下必传)")
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--steps_per_epoch", type=int, default=50)
     ap.add_argument("--batch", type=int, default=16)
@@ -215,18 +216,21 @@ def main():
     img_size = args.img_size if args.img_size > 0 else None
     n_workers = args.workers if args.workers is not None else max(2, min(8, (os.cpu_count() or 2) - 1))
 
+    split_train = None if args.holdout_dir else "train"
     ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
                           seed=args.seed, img_size=img_size, frame_skip=args.frame_skip,
-                          split="train", holdout_n=args.holdout_n,
+                          split=split_train, holdout_n=args.holdout_n,
                           clip_cache=args.clip_cache, clip_refresh=args.clip_refresh)
     loader = DataLoader(ds, batch_size=args.batch, num_workers=n_workers,
                         pin_memory=is_cuda, persistent_workers=(n_workers > 0),
                         prefetch_factor=(2 if n_workers > 0 else None))
     data_iter = iter(loader)
 
-    eval_ds = VPTStreamDataset(args.data_dir, seq_len=args.seq_len, fps=args.fps,
+    eval_dir = args.holdout_dir if args.holdout_dir else args.data_dir
+    split_eval = None if args.holdout_dir else "holdout"
+    eval_ds = VPTStreamDataset(eval_dir, seq_len=args.seq_len, fps=args.fps,
                                seed=args.seed + 555, img_size=img_size,
-                               frame_skip=args.frame_skip, split="holdout", holdout_n=args.holdout_n)
+                               frame_skip=args.frame_skip, split=split_eval, holdout_n=args.holdout_n)
     eval_bs = min(args.batch, 64)
     eval_batches = []
 

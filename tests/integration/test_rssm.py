@@ -6,6 +6,7 @@
 import os
 import sys
 import copy
+import math
 
 import torch
 import torch.nn as nn
@@ -130,10 +131,38 @@ def test_perception_and_prep_batch():
     assert phi.shape == (B, T, 1) and phi_mask.shape == (B, T, 1)
 
 
+def test_no_gt_path():
+    """无 has_item GT:只训 RSSM+grounding(sf=0),align_hard 可测、dose_corr=nan、反向有限。"""
+    B, T, E = 2, 6, 16
+    cfg = _tiny_cfg(E)
+    rssm = RSSM(cfg)
+    sf_target = copy.deepcopy(rssm.sf_head)
+    e = torch.randn(B, T, E)
+    actions = torch.randn(B, T - 1, ACT)
+
+    total, metrics, _ = rssm_loss(rssm, sf_target, e, actions, None, None,
+                                  gamma=0.97, lam=0.95, beta_ground=1.0)
+    assert metrics["sf"] == 0.0, metrics["sf"]
+    assert torch.isfinite(total)
+    total.backward()
+    assert not any(p.grad is not None and torch.isnan(p.grad).any() for p in rssm.parameters())
+
+    # _prep_batch 无 has_item → phi/phi_mask=None;dose_corr=nan,align_hard 仍可算
+    perc = FrozenBackbonePerception(BackboneConfig(), injected=MockDINOv2(E))
+    batch = {"img": (torch.rand(B, T, 3, 64, 64) * 255).to(torch.uint8),
+             "act_agg": torch.randn(B, T - 1, ACT)}
+    e2, a2, phi, pm = _prep_batch(batch, perc, "cpu")
+    assert phi is None and pm is None
+    assert math.isnan(dose_response_corr(rssm, e2, a2, phi, pm, 0.97))
+    ar, _ = hard_horizon_align_ratio(rssm, e2, a2)
+    assert ar > 0 and ar == ar
+
+
 if __name__ == "__main__":
     test_rssm_core_forward_backward()
     test_observe_imagine_shapes()
     test_acceptance_lines_computable()
     test_lambda_return_and_discount_shapes()
     test_perception_and_prep_batch()
+    test_no_gt_path()
     print("ok")

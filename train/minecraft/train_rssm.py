@@ -109,13 +109,16 @@ def rssm_loss(rssm, sf_target, e, actions, phi, phi_mask, gamma, lam, beta_groun
     e_hat = rssm.grounding_head(feats)
     ground = F.mse_loss(e_hat, e)                            # decoder-free 重建(目标冻结)
 
-    psi = rssm.sf_head(feats)                                # [B,T,F]
-    with torch.no_grad():
-        psi_tgt = sf_target(feats)                           # 目标网自举值
-    targets = lambda_return_sf(phi, psi_tgt, gamma, lam).detach()   # [B,T-1,F]
-    m = phi_mask[:, :-1]
-    sf_err = F.smooth_l1_loss(psi[:, :-1], targets, reduction="none") * m
-    sf = sf_err.sum() / m.sum().clamp(min=1.0)
+    if phi is not None:                                      # 有 GT 才训后继特征(无 GT 仍训 RSSM+grounding)
+        psi = rssm.sf_head(feats)                            # [B,T,F]
+        with torch.no_grad():
+            psi_tgt = sf_target(feats)                       # 目标网自举值
+        targets = lambda_return_sf(phi, psi_tgt, gamma, lam).detach()   # [B,T-1,F]
+        m = phi_mask[:, :-1]
+        sf_err = F.smooth_l1_loss(psi[:, :-1], targets, reduction="none") * m
+        sf = sf_err.sum() / m.sum().clamp(min=1.0)
+    else:
+        sf = torch.zeros((), device=e.device)
 
     total = kl + beta_ground * ground + sf
     metrics = {"loss": total.item(), "kl": kl_value.item(), "ground": ground.item(),
@@ -143,7 +146,9 @@ def hard_horizon_align_ratio(rssm, e, actions):
 
 @torch.no_grad()
 def dose_response_corr(rssm, e, actions, phi, phi_mask, gamma):
-    """ψ dose-response(验收线 2):corr(ψ_t, 经验折扣未来 D_t),masked。返回 float。"""
+    """ψ dose-response(验收线 2):corr(ψ_t, 经验折扣未来 D_t),masked。无 GT 返回 nan。"""
+    if phi is None:
+        return float("nan")
     feats, _, _, _ = rssm.observe(e, actions)
     psi = rssm.sf_head(feats)
     D = empirical_discounted_future(phi, gamma)
@@ -161,13 +166,16 @@ def update_target(target_head, live_head, decay):
 
 # ---- 数据装配 ----
 def _prep_batch(batch, perception, device):
-    """batch → (e[B,T,E], actions[B,T-1,A], phi[B,T,1], phi_mask[B,T,1])。须含 has_item GT。"""
-    if "has_item" not in batch:
-        raise RuntimeError("数据缺 has_item GT —— 后继特征头需自我结局标签;"
-                           "用 download_sample_data --counterfactual 生成带 GT 的数据。")
+    """batch → (e[B,T,E], actions[B,T-1,A], phi, phi_mask)。
+
+    无 has_item GT(真 BASALT)时 phi=phi_mask=None:只训 RSSM+grounding,验收线 1(align_hard)
+    仍可测;验收线 2(ψ dose-response)需 GT(download_sample_data --counterfactual)才激活。
+    """
     img = _to_float_img(batch["img"].to(device))
     actions = batch["act_agg"].to(device)
     e = perception.encode_seq(img)
+    if "has_item" not in batch:
+        return e, actions, None, None
     raw = batch["has_item"].to(device).float()               # [B,T];-1=缺标
     phi_mask = (raw >= 0).float().unsqueeze(-1)               # [B,T,1]
     phi = raw.clamp(min=0).unsqueeze(-1)                      # [B,T,1](-1→0)
@@ -248,7 +256,7 @@ def main():
 
     for ep in range(args.epochs):
         rssm.train()
-        agg, n = {}, 0
+        agg, cnt = {}, {}
         for batch in itertools.islice(data_iter, args.steps_per_epoch):
             e, actions, phi, phi_mask = _prep_batch(batch, perception, dev)
             opt.zero_grad(set_to_none=True)
@@ -261,27 +269,34 @@ def main():
             metrics["align_hard"], _ = hard_horizon_align_ratio(rssm, e, actions)
             metrics["dose_corr"] = dose_response_corr(rssm, e, actions, phi, phi_mask, args.gamma)
             for k, v in metrics.items():
-                agg[k] = agg.get(k, 0.0) + (v if v == v else 0.0)   # nan→0
-            n += 1
-        r = {k: v / max(n, 1) for k, v in agg.items()}
+                if v != v:                                   # 跳过 nan(无 GT 时的 dose_corr)
+                    continue
+                agg[k] = agg.get(k, 0.0) + v
+                cnt[k] = cnt.get(k, 0) + 1
+        r = {k: agg[k] / max(cnt[k], 1) for k in agg}
 
         if ep % args.log_every == 0:
             print(f"ep {ep:4d} | loss {r['loss']:.3f} | kl {r['kl']:.3f} ground {r['ground']:.3f} "
                   f"sf {r['sf']:.4f} | align_hard {r['align_hard']:.3f} (<1=win) "
-                  f"dose_corr {r['dose_corr']:+.3f}")
+                  f"dose_corr {r.get('dose_corr', float('nan')):+.3f}")
         log = {"epoch": ep, **{f"train/{k}": v for k, v in r.items()}}
 
         if args.eval_every > 0 and ((ep + 1) % args.eval_every == 0 or ep == args.epochs - 1):
             rssm.eval()
-            ar, dc, nb = 0.0, 0.0, 0
+            ar, nb, dc, dn = 0.0, 0, 0.0, 0
             for b in _eval_batches():
                 e, actions, phi, phi_mask = _prep_batch(b, perception, dev)
                 a, _ = hard_horizon_align_ratio(rssm, e, actions)
                 d = dose_response_corr(rssm, e, actions, phi, phi_mask, args.gamma)
-                ar += a; dc += (d if d == d else 0.0); nb += 1
-            ar, dc = ar / max(nb, 1), dc / max(nb, 1)
+                ar += a; nb += 1
+                if d == d:                                   # 有 GT 才计 dose_corr
+                    dc += d; dn += 1
+            ar = ar / max(nb, 1)
+            dc = dc / dn if dn else float("nan")
             print(f"  [eval] align_hard {ar:.3f} (<1=win) | dose_corr {dc:+.3f}")
-            log.update({"eval/align_hard": ar, "eval/dose_corr": dc})
+            log["eval/align_hard"] = ar
+            if dn:
+                log["eval/dose_corr"] = dc
 
         if args.wandb:
             wandb.log(log)

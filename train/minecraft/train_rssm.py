@@ -135,9 +135,10 @@ def hard_horizon_align_ratio(rssm, e, actions):
     """
     B, T = e.shape[0], e.shape[1]
     k = T // 2
-    _, _, _, states = rssm.observe(e[:, :k + 1], actions[:, :k])
+    # 评估走确定性 rollout(均值/众数):消除采样方差与 MSE 上偏,给前向技能干净点估计
+    _, _, _, states = rssm.observe(e[:, :k + 1], actions[:, :k], sample=False)
     state_k = {"h": states["h"][:, k], "z": states["z"][:, k]}
-    img_feats = rssm.imagine(state_k, actions[:, k:T - 1])   # 帧 k+1..T-1
+    img_feats = rssm.imagine(state_k, actions[:, k:T - 1], sample=False)   # 帧 k+1..T-1
     e_hat = rssm.grounding_head(img_feats[:, -1])            # ê_{T-1}
     num = (e_hat - e[:, T - 1]).pow(2).mean(dim=-1)
     den = (e[:, k] - e[:, T - 1]).pow(2).mean(dim=-1)        # copy-last 基线
@@ -149,7 +150,7 @@ def dose_response_corr(rssm, e, actions, phi, phi_mask, gamma):
     """ψ dose-response(验收线 2):corr(ψ_t, 经验折扣未来 D_t),masked。无 GT 返回 nan。"""
     if phi is None:
         return float("nan")
-    feats, _, _, _ = rssm.observe(e, actions)
+    feats, _, _, _ = rssm.observe(e, actions, sample=False)   # 确定性后验,稳定读 ψ
     psi = rssm.sf_head(feats)
     D = empirical_discounted_future(phi, gamma)
     m = phi_mask.bool()

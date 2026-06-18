@@ -95,14 +95,22 @@ class RSSM(nn.Module):
         p = F.softmax(logits.float(), dim=-1)
         return (1.0 - self.unimix) * p + self.unimix / self.classes
 
-    def _sample(self, stats):
-        """由统计量采样随机态 z[..,stoch_dim](rev reparam;inv 直通 one-hot)。fp32 采样。"""
-        eps = torch.randn_like(stats["rev_std"])
-        z_rev = stats["rev_mean"] + stats["rev_std"] * eps                  # reparam
+    def _sample(self, stats, sample=True):
+        """随机态 z[..,stoch_dim]。fp32。
+
+        sample=True(训练):rev reparam + inv 直通 one-hot(带梯度的随机采样)。
+        sample=False(评估):rev 取均值 + inv 取众数 one-hot —— 确定性预测,消除采样方差与
+          MSE 上偏(E‖采样−目标‖²=‖均值−目标‖²+方差 ≥ 用均值),给前向技能一个干净点估计。
+        """
+        if sample:
+            z_rev = stats["rev_mean"] + stats["rev_std"] * torch.randn_like(stats["rev_std"])
+        else:
+            z_rev = stats["rev_mean"]
         probs = self._unimix_probs(stats["inv_logits"])                    # [..,G,C]
-        idx = torch.multinomial(probs.reshape(-1, self.classes), 1).reshape(probs.shape[:-1])
+        idx = (torch.multinomial(probs.reshape(-1, self.classes), 1).reshape(probs.shape[:-1])
+               if sample else probs.argmax(dim=-1))
         onehot = F.one_hot(idx, self.classes).float()
-        z_inv = onehot + probs - probs.detach()                            # straight-through
+        z_inv = (onehot + probs - probs.detach()) if sample else onehot    # 训练直通;评估纯众数
         z_inv = z_inv.reshape(*z_inv.shape[:-2], self.groups * self.classes)
         return torch.cat([z_rev, z_inv], dim=-1).to(stats["rev_mean"].dtype)
 
@@ -111,27 +119,28 @@ class RSSM(nn.Module):
         x = self.recur_in(torch.cat([z, action.to(z.dtype)], dim=-1))
         return self.gru(x, h)
 
-    def obs_step(self, prev, prev_action, embed):
-        """后验一步:返回 (post_state{h,z}, post_stats, prior_stats)。"""
+    def obs_step(self, prev, prev_action, embed, sample=True):
+        """后验一步:返回 (post_state{h,z}, post_stats, prior_stats)。sample=False 取后验均值/众数。"""
         h = self._recur(prev["h"], prev["z"], prev_action)
         prior = self._prior_stats(h)
         post = self._post_stats(h, embed)
-        z = self._sample(post)
+        z = self._sample(post, sample=sample)
         return {"h": h, "z": z}, post, prior
 
-    def img_step(self, prev, prev_action):
-        """先验一步(开环,不看观测):返回 (prior_state{h,z}, prior_stats)。"""
+    def img_step(self, prev, prev_action, sample=True):
+        """先验一步(开环,不看观测):返回 (prior_state{h,z}, prior_stats)。sample=False 取先验均值/众数。"""
         h = self._recur(prev["h"], prev["z"], prev_action)
         prior = self._prior_stats(h)
-        z = self._sample(prior)
+        z = self._sample(prior, sample=sample)
         return {"h": h, "z": z}, prior
 
     # ---- 序列 ----
-    def observe(self, embeds, actions):
+    def observe(self, embeds, actions, sample=True):
         """后验滚动整段。
 
         embeds[B,T,E]、actions[B,T-1,A] → (feats[B,T,feat_dim], post_stats, prior_stats, states)。
         t=0 用零动作起步;states 含 h[B,T,deter]、z[B,T,stoch] 供 imagine 从任意帧续推。
+        sample=False:后验取均值/众数(评估去噪)。
         """
         B, T = embeds.shape[0], embeds.shape[1]
         device = embeds.device
@@ -140,18 +149,21 @@ class RSSM(nn.Module):
         hs, zs, posts, priors = [], [], [], []
         for t in range(T):
             a_prev = actions[:, t - 1] if t > 0 else zero_a
-            state, post, prior = self.obs_step(state, a_prev, embeds[:, t])
+            state, post, prior = self.obs_step(state, a_prev, embeds[:, t], sample=sample)
             hs.append(state["h"]); zs.append(state["z"])
             posts.append(post); priors.append(prior)
         states = {"h": torch.stack(hs, 1), "z": torch.stack(zs, 1)}
         feats = torch.cat([states["h"], states["z"]], dim=-1)
         return feats, _stack_stats(posts), _stack_stats(priors), states
 
-    def imagine(self, state, actions):
-        """先验开环滚动。state{h,z}(单帧),actions[B,H,A] → feats[B,H,feat_dim]。"""
+    def imagine(self, state, actions, sample=True):
+        """先验开环滚动。state{h,z}(单帧),actions[B,H,A] → feats[B,H,feat_dim]。
+
+        sample=False:先验取均值/众数 —— 确定性预测(前向技能的干净点估计,见 _sample)。
+        """
         feats = []
         for k in range(actions.shape[1]):
-            state, _ = self.img_step(state, actions[:, k])
+            state, _ = self.img_step(state, actions[:, k], sample=sample)
             feats.append(self.feat(state))
         return torch.stack(feats, 1)
 

@@ -96,6 +96,9 @@ def test_acceptance_lines_computable():
 
     ar, k = hard_horizon_align_ratio(rssm, e, actions)
     assert k == T // 2 and ar > 0 and ar == ar, (ar, k)
+    # 评估走确定性 rollout(sample=False)⇒ 两次调用必须一致(无采样方差)
+    ar2, _ = hard_horizon_align_ratio(rssm, e, actions)
+    assert abs(ar - ar2) < 1e-6, (ar, ar2)
     dc = dose_response_corr(rssm, e, actions, phi, phi_mask, gamma=0.97)
     assert -1.0 <= dc <= 1.0, dc
 

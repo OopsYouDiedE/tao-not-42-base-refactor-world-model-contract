@@ -61,6 +61,37 @@ class HeadsConfig:
 
 
 @dataclass
+class RSSMConfig:
+    """帧级 RSSM + 后继特征世界模型的结构配置(net/rssm.py;独立实验路径,不入 ModelConfig)。
+
+    设计与数学见 knowledge/rssm_sf_design.md。stoch = d_rev(高斯) + inv_groups*inv_classes(离散);
+    feat = deter + stoch。free_nats/dyn_scale/rep_scale 为 free-bits balanced KL 三参。
+    """
+    embed_dim: int = 384           # 冻结骨干池化嵌入维(grounding 目标维;DINO ViT-S=384)
+    act_dim: int = 22              # 动作维(== vpt_action.ACTION_DIM)
+    deter: int = 256               # 确定递归态 h 维(GRU 隐藏)
+    hidden: int = 256              # 先验/后验/各头 MLP 隐藏维
+    d_rev: int = 32                # 可逆连续随机态维(高斯,可逆相机/平移)
+    inv_groups: int = 8            # 不可逆离散随机态组数(事件)
+    inv_classes: int = 8           # 每组类别数
+    min_std: float = 0.1           # 高斯 z_rev 标准差下界(I1/I3)
+    unimix: float = 0.01           # categorical 均匀混合比(防死类)
+    free_nats: float = 1.0         # free bits:每序列步 KL 免费额度(防 posterior collapse)
+    dyn_scale: float = 0.5         # KL 先验侧(dyn)权重(> rep_scale ⇒ 先验向后验靠)
+    rep_scale: float = 0.1         # KL 后验侧(rep)权重
+    sf_dim: int = 1                # 后继特征维 = φ 个数(切片=1:has_item)
+    sf_hidden: int = 256           # 后继特征头 MLP 隐藏维
+
+    @property
+    def stoch_dim(self) -> int:
+        return self.d_rev + self.inv_groups * self.inv_classes
+
+    @property
+    def feat_dim(self) -> int:
+        return self.deter + self.stoch_dim
+
+
+@dataclass
 class ModelConfig:
     """MinecraftWorldModel 的顶层结构配置。"""
     d: int = 384

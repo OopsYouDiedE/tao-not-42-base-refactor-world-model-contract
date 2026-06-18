@@ -130,8 +130,12 @@ def rssm_loss(rssm, sf_target, e, actions, phi, phi_mask, gamma, lam, beta_groun
 def hard_horizon_align_ratio(rssm, e, actions):
     """难 horizon 诚实技能比(验收线 1)。
 
-    观测到 k=T//2,先验开环滚到 T-1,grounding 解码 ê_{T-1};ratio=‖ê-e_{T-1}‖²/‖e_k-e_{T-1}‖²。
+    观测到 k=T//2,先验开环滚到 T-1,grounding 解码 ê_{T-1};ratio=Σ‖ê-e_{T-1}‖²/Σ‖e_k-e_{T-1}‖²。
     返回 (ratio float, k)。<1 = 在难 horizon 上赢 copy-last。
+
+    聚合用 **sum-then-divide**(总模型误差/总 copy-last 误差),不是逐样本比值再平均:
+    后者遇到单个近静止样本(copy-last 误差≈0 → 分母趋零)会被该样本炸上天;前者下该样本
+    分子分母同趋零、对聚合几乎无贡献,鲁棒。
     """
     B, T = e.shape[0], e.shape[1]
     k = T // 2
@@ -140,9 +144,9 @@ def hard_horizon_align_ratio(rssm, e, actions):
     state_k = {"h": states["h"][:, k], "z": states["z"][:, k]}
     img_feats = rssm.imagine(state_k, actions[:, k:T - 1], sample=False)   # 帧 k+1..T-1
     e_hat = rssm.grounding_head(img_feats[:, -1])            # ê_{T-1}
-    num = (e_hat - e[:, T - 1]).pow(2).mean(dim=-1)
-    den = (e[:, k] - e[:, T - 1]).pow(2).mean(dim=-1)        # copy-last 基线
-    return float((num / den.clamp(min=EPS)).mean()), k
+    num = (e_hat - e[:, T - 1]).pow(2).sum()                 # 总模型误差
+    den = (e[:, k] - e[:, T - 1]).pow(2).sum()              # 总 copy-last 误差
+    return float(num / den.clamp(min=EPS)), k
 
 
 @torch.no_grad()

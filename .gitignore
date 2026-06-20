@@ -65,3 +65,7 @@ colab_quickstart.ipynb
 
 # Claude Code local settings (personal, do not commit)
 .claude/settings.local.json
+
+#
+.godot
+.uid

@@ -1,0 +1,35 @@
+[gd_scene format=3 uid="uid://dvwhi4k6gfm15"]
+
+[ext_resource type="Script" uid="uid://b2p4dif8q5p3m" path="res://meta_envs/env_spotlight_discrete.gd" id="1_env"]
+
+[node name="EnvSpotlightDiscrete" type="Node" unique_id=1851455328]
+script = ExtResource("1_env")
+
+[node name="SubViewport" type="SubViewport" parent="." unique_id=601743817]
+own_world_3d = true
+size = Vector2i(128, 128)
+render_target_update_mode = 4
+
+[node name="Camera3D" type="Camera3D" parent="SubViewport" unique_id=374162377]
+current = true
+fov = 70.0
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=742379638]
+
+[node name="DebugView" type="TextureRect" parent="CanvasLayer" unique_id=1166117044]
+texture_filter = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Hud" type="Label" parent="CanvasLayer" unique_id=1175968257]
+offset_left = 10.0
+offset_top = 8.0
+offset_right = 700.0
+offset_bottom = 90.0
+theme_override_colors/font_color = Color(1, 1, 0.4, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+text = "等待…"

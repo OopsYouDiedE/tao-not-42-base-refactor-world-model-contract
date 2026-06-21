@@ -1,7 +1,11 @@
 # DreamerV3(vendored)— 设计与放置说明
 
-> 本文解释 `net/dreamer/` 及其在 `blocks/`、`utils/` 中配套文件的来历、放置逻辑与加载方式。
-> 代码是 SSOT;本文只讲"为什么这么放"与"怎么用",不复述实现细节。
+> ⚠️ **已退役（2026-06,统一世界基座清白重设计）**：`net/dreamer/`（vendored 的完整 DreamerV3 模型——
+> networks.py 的 RSSM/编码解码器、models.py 的 WorldModel/ImagBehavior、_compat.py、config.py）**已整目录删除**
+> （见 git 历史）。仅保留被 `blocks/` 复用的独立算子（GRUCell / Conv2dSamePad / ImgChLayerNorm /
+> symlog·two-hot 分布 / static_scan·lambda_return）；MIT 署名与许可证随之移至 `blocks/NOTICE.dreamerv3`
+> 与 `blocks/LICENSE.dreamerv3`。本文以下内容仅作已删 vendored 模型的历史记录（其中 `utils/nn.py` 等
+> 映射目标早已不存在），勿据此查找文件。
 
 ## 1. 是什么 / 为什么
 

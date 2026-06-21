@@ -5,7 +5,7 @@
     static_scan_for_lambda_return  — λ-return 专用的逆向扫描(优化实现)。
     lambda_return                  — TD(λ) 回报(λ=1→蒙特卡洛,λ=0→1-step)。
 
-来源:原样照抄 NM512/dreamerv3-torch 的 `tools.py`(MIT,见 net/dreamer/NOTICE)。
+来源:原样照抄 NM512/dreamerv3-torch 的 `tools.py`(MIT,见 blocks/NOTICE.dreamerv3)。
 与任务无关的可复用序列算子:RSSM 的 observe/imagine 用 static_scan 沿时间递推,
 ImagBehavior 用 lambda_return 在想象轨迹上算价值目标。函数体保持 1:1 原样。
 """

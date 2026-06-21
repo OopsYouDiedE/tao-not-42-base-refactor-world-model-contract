@@ -96,7 +96,7 @@ class DiscreteRouter(nn.Module):
 # DreamerV3 的向量 GRU 单元(LayerNorm + 凸更新):与 ConvGRUCell 同属 I5/I7 安全递归算子
 # ——LayerNorm(I7)+ 凸组合 update*cand+(1-update)*state(I5 非扩张),RSSM 的确定性状态 deter
 # 由它递推;update_bias=-1 让初始更新门偏向"保持旧状态",state 以单元素列表传入(承袭 Keras 接口)。
-# 原样照抄 NM512/dreamerv3-torch 的 networks.py(类体逐字 1:1,见 net/dreamer/NOTICE)。
+# 原样照抄 NM512/dreamerv3-torch 的 networks.py(类体逐字 1:1,见 blocks/NOTICE.dreamerv3)。
 class GRUCell(nn.Module):
     def __init__(self, inp_size, size, norm=True, act=torch.tanh, update_bias=-1):
         super(GRUCell, self).__init__()

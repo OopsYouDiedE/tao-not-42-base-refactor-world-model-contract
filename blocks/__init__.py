@@ -2,7 +2,7 @@
 
 `primitives` — 17 个 L1 primitive(我们的,数值不变量 I1–I8 焊进实现)。
 `yolo` — 1:1 复刻官方 YOLO 的底层通用算子。
-`dreamer 系` — 原样 vendored 自 NM512/dreamerv3-torch 的可复用算子(MIT,见 net/dreamer/NOTICE):
+`dreamer 系` — 原样 vendored 自 NM512/dreamerv3-torch 的可复用算子(MIT,见 blocks/NOTICE.dreamerv3):
     distributions(symlog/two-hot/one-hot 分布)、sequence(static_scan/λ-return)、
     conv(same-pad / 通道 LayerNorm)、dynamics.GRUCell(向量 GRU)。
 """

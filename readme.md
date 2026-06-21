@@ -3,8 +3,15 @@
 游戏驱动的快速迁移模型基座。在预训练底座上,通过数分钟自监督交互学会"动作在当前场景里
 有什么效果",并以此为核心输出游戏实时指导信号。游戏是练兵场,不是终产品。
 
-当前活跃管线是 **Minecraft Δz-JEPA 世界模型**:在离线 VPT 录像(画面 + 动作)上做自监督,
-学世界动力学。设计愿景见 [knowledge/mental_world.md](knowledge/mental_world.md)。
+> ⚠️ **重构中(2026-06,统一世界基座清白重设计)**:原 **Minecraft Δz-JEPA 世界模型**
+> (`net/world_model.py` 等)与并行的 **RSSM+后继特征切片**(`net/rssm.py`)**已删除退役**,
+> 仓库正切换到一个**清白重设计、跨域共享权重的统一世界基座**(从 `blocks/` 算子库组装)。
+> 设计意图见 [knowledge/mental_world.md](knowledge/mental_world.md) 的退役公告;新基座设计文
+> `knowledge/world_foundation.md` 与 `net/` 实现待构建期补入。**本文下方"项目结构 / 训练 / 测试 /
+> 诊断工具"小节描述的是已删旧管线,暂作历史,待新基座落地后重写。** 当前可运行:`blocks/`、
+> `net/backbone.py`、`domains/`、Godot RL 子系统、`tests/unit/`。
+
+当前北极星仍是"看视频掌握玩法"的快速迁移底座(见 mental_world §6);Δz-JEPA 是其已退役的第一版载体。
 
 ---
 

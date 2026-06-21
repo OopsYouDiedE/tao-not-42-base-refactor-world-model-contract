@@ -1,5 +1,10 @@
 # Codebase Analysis: Architecture, Method Call Graphs, and Code Usage
 
+> ⚠️ **部分退役（2026-06,统一世界基座清白重设计）**：本报告第二、三部分，及第一部分中对
+> `net/world_model.py`/`heads.py`/`dynamics.py`/`effect_tokenizer.py`/`net/rssm.py`/`net/dreamer/` 与
+> `train/minecraft/*` 的走读，描述的代码**已删除退役**（见 git 历史），仅作历史记录。
+> **仍有效**：第一部分 §1 `blocks/`（积木库目录,新基座"请客"来源）与 `domains/` 数据契约部分。
+
 本报告全面梳理了当前世界模型代码库的各个文件、类和方法的功能（第一部分），提炼了精确到方法层面的代码引用关系（第二部分），并明确标识了哪些代码在实际流程中被使用，哪些为预留、被废弃或目前未被使用的代码（第三部分）。
 
 ---

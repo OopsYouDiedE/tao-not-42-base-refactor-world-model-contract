@@ -11,7 +11,7 @@
     SafeTruncatedNormal            — 截断 Normal(采样直通到合法区间)。
     TanhBijector                   — tanh 变换(tanh_normal 用)。
 
-来源:原样照抄 NM512/dreamerv3-torch 的 `tools.py`(MIT,见 net/dreamer/NOTICE)。
+来源:原样照抄 NM512/dreamerv3-torch 的 `tools.py`(MIT,见 blocks/NOTICE.dreamerv3)。
 DreamerV3 把"标量目标先 symlog、再用 two-hot 离散分布回归"作为奖励/价值头的统一参数化,
 以及"unimix one-hot + 直通梯度"作为离散隐变量分布——这些都是与任务无关的可复用算子,故落 blocks/。
 函数体保持 1:1 原样;仅本文件头 docstring 为本仓新增。

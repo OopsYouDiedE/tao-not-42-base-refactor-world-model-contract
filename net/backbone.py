@@ -8,7 +8,7 @@
 
 视觉骨干统一走 HuggingFace transformers(torch.hub 路径已废弃):gated 权重(dinov3)
 由 utils.hf_token 解析的 token 自动鉴权,不再手传 URL/.pth。
-离线/无网络的管线冒烟用依赖注入的 mock 骨干(`MinecraftWorldModel(cfg, backbone=...)`,
+离线/无网络的管线冒烟用依赖注入的 mock 骨干(`build_backbone(cfg, injected=...)`,
 见 tests/);按 AGENTS §2,生产 net/ 不提供任何 mock 骨干。
 """
 from net.config import BackboneConfig
@@ -35,7 +35,7 @@ def load_backbone(kind, repo_override=None):
         model = AutoModel.from_pretrained(repo, token=get_hf_token())
     except Exception as ex:
         hint = ("DINOv3 权重 gated:在 HF 接受许可证后,把 token 放进 Colab Secret(HF_TOKEN)"
-                "或仓库根 .env(HF_TOKEN=...)——见 utils/io.py;无 token 改用 configs/minecraft/dinov2.yaml 预设(开放权重)。"
+                "或仓库根 .env(HF_TOKEN=...)——见 utils/io.py;无 token 改用开放权重 dinov2 骨干(BackboneConfig.kind='dinov2')。"
                 if kind == "dinov3" else "需要网络访问 HuggingFace Hub(首次下载后本地缓存)。")
         raise RuntimeError(f"{kind} 从 HF 加载失败({repo}:{ex})。{hint}") from ex
     cfg = model.config

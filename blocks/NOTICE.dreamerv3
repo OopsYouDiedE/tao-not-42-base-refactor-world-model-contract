@@ -1,0 +1,24 @@
+DreamerV3 (PyTorch) — vendored 算子署名
+======================================
+
+blocks/ 下若干算子原样照抄(verbatim)自第三方开源实现:
+
+  项目: dreamerv3-torch
+  作者: NM512
+  地址: https://github.com/NM512/dreamerv3-torch
+  许可: MIT License(全文见同目录 LICENSE.dreamerv3,Copyright (c) 2023 NM512)
+  算法: Hafner et al., "Mastering Diverse Domains through World Models"
+        (DreamerV3, https://arxiv.org/abs/2301.04104)
+
+函数体保持 1:1 原样,仅做"物理拆分到本仓分层"所必需的 import 调整;未改动任何数值逻辑。
+
+文件级映射(原仓 → 本仓,均落在 blocks/):
+  networks.py  GRUCell                        → blocks/dynamics.py
+  networks.py  Conv2dSamePad / ImgChLayerNorm → blocks/conv.py
+  tools.py     symlog/symexp + 各 Dist 包装类  → blocks/distributions.py
+  tools.py     static_scan / lambda_return     → blocks/sequence.py
+
+历史说明:早期随附的完整 vendored 模型(net/dreamer/ 的 networks.py 内 RSSM/MultiEncoder/
+MultiDecoder、models.py 内 RewardEMA/WorldModel/ImagBehavior、_compat.py、config.py)在世界
+模型基座清白重设计时已删除(见 git 历史)。仅保留上述被 blocks/ 复用的独立算子,故署名/许可证
+随之移至本文件,确保 MIT 署名条款随存活代码一同保留。

@@ -214,7 +214,8 @@ def main():
             make_counterfactual_set(args.out, i, args.frames, args.size, args.fps,
                                     seed=args.seed + i, pixel_energy=args.pixel_energy)
             print(f"  [{i + 1}/{args.clips}] cf_{i:03d}_* ({len(CF_BRANCHES)} 支)")
-        print(f"完成。下一步:python train/minecraft/train_minecraft.py --data_dir {args.out}")
+        print(f"完成。{args.out}/ 可由 train/minecraft/vpt_dataset.VPTStreamDataset 读取"
+          f"(训练入口待新基座落地后补)")
         return
 
     print(f"=== 生成 {args.clips} 段合成 VPT 样本 -> {args.out}/ "
@@ -226,7 +227,8 @@ def main():
                   args.frames, args.size, args.fps, task, seed=args.seed + i,
                   pixel_energy=args.pixel_energy)
         print(f"  [{i + 1}/{args.clips}] {name}.mp4 + .jsonl  task='{task}'")
-    print(f"完成。下一步:python train/minecraft/train_minecraft.py --data_dir {args.out}")
+    print(f"完成。{args.out}/ 可由 train/minecraft/vpt_dataset.VPTStreamDataset 读取"
+          f"(训练入口待新基座落地后补)")
 
 
 if __name__ == "__main__":

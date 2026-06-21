@@ -45,7 +45,7 @@ tests/
 
 | 硬件环境 | 可运行内容 |
 | :--- | :--- |
-| **Linux + CUDA(生产)** | 全量:net/ + domains/ + train/ + 真实 DINOv3 骨干训练 |
+| **Linux + CUDA(生产)** | 全量:net/ + train/(含各数据集领域契约)+ 真实 DINOv3 骨干训练 |
 | **Windows + CUDA(开发)** | net/ 前向、`tests/`(DI mock 骨干离线冒烟;Mamba 已弃用,无平台门槛) |
 | **CPU Only** | `tests/unit/` + `tests/integration/`(依赖注入 mock 骨干,小尺寸) |
 

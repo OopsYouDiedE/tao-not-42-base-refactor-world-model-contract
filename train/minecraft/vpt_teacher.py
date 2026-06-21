@@ -18,9 +18,9 @@
 
 用法:
   # 真权重(用户环境):
-  python tools/vpt_teacher.py --model /path/rl-from-foundation-2x.model --weights /path/....weights
+  python train/minecraft/vpt_teacher.py --model /path/rl-from-foundation-2x.model --weights /path/....weights
   # 无权重冒烟(验证 minerl-free 装配 + 边缘化适配器,用小随机网络):
-  python tools/vpt_teacher.py
+  python train/minecraft/vpt_teacher.py
 """
 import os
 import sys
@@ -28,7 +28,7 @@ import sys
 import numpy as np
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

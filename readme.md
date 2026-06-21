@@ -9,7 +9,7 @@
 > 设计意图见 [knowledge/mental_world.md](knowledge/mental_world.md) 的退役公告;新基座设计文
 > `knowledge/world_foundation.md` 与 `net/` 实现待构建期补入。**本文下方"项目结构 / 训练 / 测试 /
 > 诊断工具"小节描述的是已删旧管线,暂作历史,待新基座落地后重写。** 当前可运行:`blocks/`、
-> `net/backbone.py`、`domains/`、Godot RL 子系统、`tests/unit/`。
+> `net/backbone.py`、`train/minecraft/`(数据契约 + VPT teacher)、Godot RL 子系统、`tests/`。
 
 当前北极星仍是"看视频掌握玩法"的快速迁移底座(见 mental_world §6);Δz-JEPA 是其已退役的第一版载体。
 
@@ -36,20 +36,12 @@ net/               网络组件
   heads.py         DecoderHeads(未来动作规划)/ InverseDynamicsHead(逆动力学)
   world_probe.py   世界探针
   vpt_lib/         vendored OpenAI VPT(第三方,见 NOTICE;不受代码规范约束)
-domains/minecraft/ 数据契约与领域逻辑(非训练循环)
-  vpt_action.py    动作 ↔ 张量契约 + mu-law 相机分箱(SSOT)
-  vpt_dataset.py   VPTStreamDataset(流式加载)
-  control_remap.py 逐 episode 控制重映射(in-context 看视频掌握玩法)
-  task_text.py     冻结句向量任务条件
-train/             训练基础设施(只放循环 + 装配)
-  minecraft/
-    train_minecraft.py  入口 / CLI / 主循环(_run_sequence/train_epoch/main)
-    losses.py           5 个损失函数
-    eval.py             evaluate / rollout_probe(离线诊断)
-    _seq.py             roll_hist / _to_float_img(train↔eval 共用低层助手)
-    minecraft_viz.py    训练面板可视化
-  vpt/
-    distill_vpt.py      VPT teacher 软 KL 蒸馏
+train/             训练域:不同数据集的区分全压在这一层(数据契约 + 循环 + 装配)
+  minecraft/         VPT/BASALT 数据集域(旧 train_minecraft/losses/eval 已删,训练循环待新基座补)
+    vpt_action.py    动作 ↔ 张量契约 + mu-law 相机分箱(SSOT)
+    vpt_dataset.py   VPTStreamDataset(流式 uint8 加载 / 可变帧跨度采样)
+    task_text.py     冻结句向量任务条件
+    vpt_teacher.py   minerl-free VPT teacher(软 KL 蒸馏的边缘化适配器)
   godot_meta_rl/     Godot 40 环境 RL 训练/诊断/协议测试(聚光灯瞄准独有,不可复用)
     vec_env.py          GodotVecEnv(SB3 VecEnv 适配)/ RolloutProgress
     train_ppo*.py       锁步 / 线程异步 / 双进程 三种 PPO 执行器
@@ -58,8 +50,8 @@ utils/             通用基础设施(data/geometry/losses/matching/nn/probes/vi
   godot_rl/          Godot RL 跨平台基础设施:shared_mem_env(文件后端共享内存+轮询握手驱动)/
                      launch(启停 Godot)/ ppo_factory(build_model/make_buffer/buffer 搬运)
 assets/godot_meta_rl/  Godot 引擎工程(C# Main.cs 编排 + GDScript 环境 + 场景),Python 侧见上
-tools/             离线脚本:oracle_idm(逆动力学上界诊断)/ download_sample_data / vpt_teacher
-tests/             unit/(几何/损失/SIGReg,CPU 可跑)+ integration/(活模型离线冒烟,DI 注入 mock 骨干)
+tests/             unit/(几何/损失/SIGReg,CPU 可跑)+ 离线脚本(download_sample_data 合成数据 /
+                   test_dinov3_hf 骨干冒烟)
 knowledge/         设计文档:mental_world(愿景)/ code_conventions(代码规范)
 runs/              下载数据 / checkpoints / 日志  [gitignored]
 ```

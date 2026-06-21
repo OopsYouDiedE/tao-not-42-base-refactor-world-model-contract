@@ -1,44 +1,39 @@
-"""
-轻量冒烟/理智检查：不依赖 SB3，用随机离散动作驱动 40 环境握手管线，
-验证新共享内存布局(10连续+30离散动作 / 5字段元数据)端到端打通。
+"""轻量冒烟/理智检查：不依赖 SB3，用随机离散动作驱动 40 环境握手管线，验证共享内存端到端打通。
 
-校验：收到图像、跨环境一致(方差0)、帧号严格+1(无丢帧)、sim_dt/reward/done 正常流动。
-真正的 PPO 训练见 train_ppo.py。
+校验：收到图像(非零)、跨环境一致(方差0)、帧号严格+1(无丢帧)、sim_dt/reward/done 正常流动。
+真正的 PPO 训练见 train_ppo.py。用法: python train/godot_meta_rl/smoke.py。
 """
 
 import os
-import subprocess
 import sys
 import time
 
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-import rl_train_env as E
-
-# 复用 rl_train_env 中的路径配置
-GODOT_EXE = E.GODOT_EXE
-PROJECT_DIR = E.PROJECT_DIR
-TRAIN_SCENE = E.TRAIN_SCENE
+from utils.godot_rl import shared_mem_env as E
+from utils.godot_rl.launch import launch_godot, kill_godot
 
 MEASURE_S = 6.0
 
 
 def main():
-    log_path = os.path.join(PROJECT_DIR, "_train_smoke.log")
+    log_path = os.path.join(E.PROJECT_DIR, "_train_smoke.log")
     log = open(log_path, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen([GODOT_EXE, "--path", PROJECT_DIR, TRAIN_SCENE],
-                            stdout=log, stderr=subprocess.STDOUT)
+    proc = launch_godot(log=log)
     ok = False
     try:
         env = E.GodotTrainEnv(connect_timeout_s=40)
-        print(f"已连接 {E.NUM_ENVS} 环境。随机离散动作冒烟 {MEASURE_S:.0f}s ...")
-
-        assert env.wait_obs(5000), "未收到首帧"
+        print(f"已连接 {E.NUM_ENVS} 环境。预热（吃掉首帧着色器编译）...")
+        # 软件渲染/Linux 首个真实渲染帧含一次性着色器编译，可能十几秒；预热吃掉它，避免计入吞吐。
+        assert env.warmup(timeout_ms=120000, frames=2), "预热未收到渲染帧"
+        print(f"随机离散动作冒烟 {MEASURE_S:.0f}s ...")
         _ = env.read_meta()
 
         cycles = 0
@@ -92,11 +87,7 @@ def main():
         print(f"=> {'[ PASS ] 训练管线打通' if ok else '[ FAIL ]'}")
         return 0 if ok else 1
     finally:
-        try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            proc.kill()
+        kill_godot(proc)
         log.close()
         if ok:
             try:

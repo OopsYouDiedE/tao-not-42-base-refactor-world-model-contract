@@ -69,3 +69,9 @@ colab_quickstart.ipynb
 #
 .godot
 .uid
+
+# Godot RL 训练/诊断产物(日志/模型权重)，落在工程目录，不入库
+assets/godot_meta_rl/*.log
+assets/godot_meta_rl/ppo_spotlight_discrete*.zip
+# 共享内存后备文件(临时)
+GodotRL_SharedMem.bin

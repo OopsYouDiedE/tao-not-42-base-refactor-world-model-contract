@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,17 +12,24 @@ using System.Threading.Tasks;
 //   set_action(cont[10], disc[30]) -> step_render(steps, dt) -> get_obs(图像) / get_reward_done()
 // 环境只管按动作更新自己；Main 负责加载、握手、回读纹理、写共享内存、分发动作。
 //
+// 跨平台共享内存(Win/Linux 自动识别)：
+//   - 用【文件后端 MemoryMappedFile】(临时目录下 GodotRL_SharedMem.bin)，不用 Windows 命名内核对象——
+//     .NET 在 Linux 上不支持命名 MMF/命名事件，文件后端两平台都通。
+//   - 握手用【共享内存内的轮询计数器】(seqlock)，不用命名事件：
+//       ObsSeq(Godot 写)：发布一帧观测后 +1。
+//       ActSeq(Python 写)：写完动作后置为它消费的 ObsSeq(应答)。Godot 轮询 ActSeq==ObsSeq 才推进。
 // 共享内存布局(字节)：
 //   [图像区]  NumEnvs * 128*128*3
 //   [元数据]  NumEnvs * 5 * float32  = [frameCount, steps, sim_dt(=steps*dt), reward, done]
 //   [连续动作] NumEnvs * 10 * float32 (Python 写)
 //   [离散动作] NumEnvs * 30 * int32   (Python 写)
+//   [Seq]     int32  异步 seqlock 序号
+//   [ObsSeq]  int32  锁步握手：Godot 发布观测计数
+//   [ActSeq]  int32  锁步握手：Python 应答计数
 public partial class Main : Node
 {
-    private const string MapName = "GodotRL_SharedMem";
-    private const string ObsReadyName = "GodotRL_ObsReady";
-    private const string ActReadyName = "GodotRL_ActReady";
-    private const string EnvScenePath = "res://env_spotlight_discrete.tscn";
+    private const string MapFileName = "GodotRL_SharedMem.bin";
+    private const string EnvScenePath = "res://mata_envs/env_spotlight_discrete.tscn";
 
     private const int NumEnvs = 40;
     private const int ImageWidth = 128, ImageHeight = 128, Channels = 3;
@@ -41,7 +49,10 @@ public partial class Main : Node
     private const int DiscOffset = ContOffset + ContBytes;
     // 异步模式用的 seqlock 序号(int32)：Godot 写 obs 前置奇、写完置偶；Python 读到奇或前后不等则重读，防撕裂帧。
     private const int SeqOffset = DiscOffset + DiscBytes;
-    private const int TotalSize = SeqOffset + 4;
+    // 锁步握手计数器：Godot 发布观测后 ObsSeq+1；Python 写完动作把 ActSeq 置为它消费的 ObsSeq。
+    private const int ObsSeqOffset = SeqOffset + 4;
+    private const int ActSeqOffset = ObsSeqOffset + 4;
+    private const int TotalSize = ActSeqOffset + 4;
 
     private const int WaitActMs = 200;
 
@@ -52,9 +63,10 @@ public partial class Main : Node
     [Export] public int MaxStepsPerRender = 8;
     [Export] public float PhysicsHz = 240f;
 
+    private FileStream _shmFile;
     private MemoryMappedFile _mmf;
     private MemoryMappedViewAccessor _accessor;
-    private EventWaitHandle _obsReady, _actReady;
+    private int _obsSeq = 0;   // 锁步握手：发布观测计数（写入 ObsSeqOffset）
 
     private Node[] _envs = new Node[NumEnvs];
     private SubViewport[] _viewports = new SubViewport[NumEnvs];
@@ -141,12 +153,22 @@ public partial class Main : Node
             _atlasViewport.AddChild(spr);
         }
 
-        _mmf = MemoryMappedFile.CreateOrOpen(MapName, TotalSize);
+        // 文件后端共享内存(跨平台)：Win/Linux 的 .NET 与 Python mmap 都能映射同一个文件。
+        // 路径优先 RL_SHM_PATH，否则系统临时目录下固定文件名，确保与 Python 的 shm_path() 一致。
+        var shmPath = EnvGet("RL_SHM_PATH");
+        if (string.IsNullOrEmpty(shmPath))
+            shmPath = Path.Combine(Path.GetTempPath(), MapFileName);
+        _shmFile = new FileStream(shmPath, System.IO.FileMode.OpenOrCreate,
+            System.IO.FileAccess.ReadWrite, System.IO.FileShare.ReadWrite);
+        _shmFile.SetLength(TotalSize);
+        // mapName 传 null：Linux 不支持命名 MMF；文件后端不需要命名也能让 Python 按路径打开。
+        _mmf = MemoryMappedFile.CreateFromFile(_shmFile, null, TotalSize,
+            MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: true);
         _accessor = _mmf.CreateViewAccessor(0, TotalSize);
-        _obsReady = new EventWaitHandle(false, EventResetMode.AutoReset, ObsReadyName);
-        _actReady = new EventWaitHandle(false, EventResetMode.AutoReset, ActReadyName);
+        _accessor.Write(ObsSeqOffset, 0);
+        _accessor.Write(ActSeqOffset, 0);
 
-        GD.Print($"[Main] 克隆 {NumEnvs} 个环境 '{EnvScenePath}'。共享内存 {TotalSize}B。" +
+        GD.Print($"[Main] 克隆 {NumEnvs} 个环境 '{EnvScenePath}'。共享内存 {TotalSize}B @ '{shmPath}'。" +
                  $" 模式={Mode} Fixed={FixedStepsPerRender} Max={MaxStepsPerRender} dt={_physicsDt:F4}。等待 Python action。");
     }
 
@@ -165,7 +187,7 @@ public partial class Main : Node
             // 2) 用 pending 动作(上一 tick 读入；首帧为 0)推进物理。其渲染在本帧末，与 Python 计算重叠。
             ApplyPendingAndStep();
             // 3) 阻塞取 Python 的新动作 → 存为下一 tick 的 pending。
-            if (_actReady.WaitOne(WaitActMs))
+            if (WaitForAction(WaitActMs))
             {
                 _accessor.ReadArray(ContOffset, _contAll, 0, NumEnvs * ContDim);
                 _accessor.ReadArray(DiscOffset, _discAll, 0, NumEnvs * DiscDim);
@@ -179,7 +201,7 @@ public partial class Main : Node
                 PublishObservation();
                 _awaitingAction = true;
             }
-            if (_actReady.WaitOne(WaitActMs))
+            if (WaitForAction(WaitActMs))
             {
                 _awaitingAction = false;
                 _accessor.ReadArray(ContOffset, _contAll, 0, NumEnvs * ContDim);
@@ -198,6 +220,29 @@ public partial class Main : Node
                      $"回读(atlas单次)={rb:F2}ms 写图={wr:F2}ms 累计帧={_frameCounts[0]}");
             _readbackMsAccum = 0; _writeMsAccum = 0; _pubCount = 0;
         }
+    }
+
+    // 发布观测就绪：ObsSeq+1 并写入共享内存（取代 Windows 命名事件）。先内存屏障保证图像/元数据已落盘可见。
+    private void NotifyObsReady()
+    {
+        System.Threading.Thread.MemoryBarrier();
+        _obsSeq++;
+        _accessor.Write(ObsSeqOffset, _obsSeq);
+    }
+
+    // 轮询等待 Python 应答(ActSeq==ObsSeq)，超时 ms 毫秒。返回是否拿到动作。取代 EventWaitHandle.WaitOne。
+    private bool WaitForAction(int ms)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var spin = new SpinWait();
+        while (sw.ElapsedMilliseconds < ms)
+        {
+            System.Threading.Thread.MemoryBarrier();
+            if (_accessor.ReadInt32(ActSeqOffset) == _obsSeq)
+                return true;
+            spin.SpinOnce();
+        }
+        return false;
     }
 
     // 用当前 pending 动作(_contAll/_discAll)推进每个环境 steps 个物理步并触发渲染。
@@ -265,7 +310,7 @@ public partial class Main : Node
                 _cumReward[i] = 0f;
                 _cumSimDt[i] = 0f;
             }
-        _obsReady.Set();
+        NotifyObsReady();
     }
 
     private void PublishObservation()
@@ -307,15 +352,14 @@ public partial class Main : Node
             if (_dones[i] > 0.5f)
                 _envs[i].Call("reset");
 
-        _obsReady.Set();
+        NotifyObsReady();
     }
 
     public override void _ExitTree()
     {
         _accessor?.Dispose();
         _mmf?.Dispose();
-        _obsReady?.Dispose();
-        _actReady?.Dispose();
-        GD.Print("[Main] 共享内存与事件已释放。");
+        _shmFile?.Dispose();
+        GD.Print("[Main] 共享内存已释放。");
     }
 }

@@ -1,37 +1,31 @@
-"""
-诊断：跑第一轮，到 10 仿真秒时把 40 个环境的相机画面拼成 5×8 一张图保存。
+"""诊断：跑第一轮，到 10 仿真秒时把 40 个环境的相机画面拼成 5×8 一张图保存。
 
-用途：聚光灯亮起后(0~2s 触发)，理论上 40 个环境里总有一些相机恰好朝着被照亮的物体，
-画面里应能看到明亮物体。若一个都看不到 → 渲染/聚光灯/可见性代码有误。
-
-本诊断用【零动作】(相机不动)，可见与否纯由"物体是否恰好落在初始视锥内"决定，最干净。
-输出: montage_10s.png（不会自动删除，留着看）。
+聚光灯亮起后(0~2s 触发)，理论上 40 个环境里总有一些相机恰好朝着被照亮的物体，画面里应能看到明亮物体。
+若一个都看不到 → 渲染/聚光灯/可见性代码有误。本诊断用【零动作】(相机不动)，可见与否纯由"物体是否恰好落在
+初始视锥内"决定。输出: montage_10s.png（不会自动删除，留着看）。
 """
 
 import os
-import subprocess
 import sys
 import time
 
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-import rl_train_env as E
-
-# 复用 rl_train_env 中的路径配置
-GODOT_EXE = E.GODOT_EXE
-PROJECT_DIR = E.PROJECT_DIR
-TRAIN_SCENE = E.TRAIN_SCENE
+from utils.godot_rl import shared_mem_env as E
+from utils.godot_rl.launch import launch_godot, kill_godot
 
 CAPTURE_SIM_T = 10.0       # 累计到 10 仿真秒时截图
 GRID_ROWS, GRID_COLS = 5, 8
 BRIGHT_THRESH = 200        # 像素(任一通道)亮度超过此值视为"被照亮"
 MIN_BRIGHT_PIXELS = 12     # 亮像素超过这么多，判定该环境"看得到物体"
-OUT_PNG = os.path.join(PROJECT_DIR, "montage_10s.png")
+OUT_PNG = os.path.join(E.PROJECT_DIR, "montage_10s.png")
 
 
 def save_png(arr, path):
@@ -50,10 +44,9 @@ def save_png(arr, path):
 
 
 def main():
-    log_path = os.path.join(PROJECT_DIR, "_diag_godot.log")
+    log_path = os.path.join(E.PROJECT_DIR, "_diag_godot.log")
     log = open(log_path, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen([GODOT_EXE, "--path", PROJECT_DIR, TRAIN_SCENE],
-                            stdout=log, stderr=subprocess.STDOUT)
+    proc = launch_godot(log=log)
     ok = False
     try:
         env = E.GodotTrainEnv(connect_timeout_s=40)
@@ -62,7 +55,8 @@ def main():
         zeros_c = np.zeros((E.NUM_ENVS, E.CONT_DIM), np.float32)
         zeros_d = np.zeros((E.NUM_ENVS, E.DISC_DIM), np.int32)
 
-        assert env.wait_obs(5000), "未收到首帧"
+        # 软件渲染/Linux 首帧含一次性着色器编译；预热吃掉它。
+        assert env.warmup(timeout_ms=120000, frames=2), "预热未收到渲染帧"
         env.read_meta()
         env.send_action(zeros_c, zeros_d)
 
@@ -117,11 +111,7 @@ def main():
             print("=> [ FAIL ] 没有任何环境看到亮物体 —— 渲染/聚光灯/可见性代码可能有误。")
             return 1
     finally:
-        try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            proc.kill()
+        kill_godot(proc)
         log.close()
         if ok:
             try:

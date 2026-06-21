@@ -1,21 +1,16 @@
-"""
-B：异步 actor-learner 训练（解耦 learner），配合 A 的 atlas 单次回读。
+"""线程版异步 actor-learner 训练（解耦 learner），配合 Main.cs 的 atlas 单次回读。
 
-与 train_ppo.py(锁步 SB3 .learn) 的本质区别：把"梯度更新"从"采集线程"挪走，Godot 不再因训练空转。
-  - 采集线程(主线程)：持续 握手→behavior 策略推理(no_grad)→送 action→写 rollout buffer。
-  - 学习线程：rollout buffer 满就跑 PPO 更新(复用 SB3 PPO.train)；更新后把权重拷给 behavior(双缓冲)。
-  - 双缓冲(2 个 rollout buffer + 2 份策略)：采集线程在学习线程训练上一份时，并行采下一份 →
-    Godot 空转时间从"整段训练时长"降到"max(0, 训练时长-采集时长)"。权重 staleness ≤ 1 次更新。
-  - torch 反传 / win32 等待都释放 GIL → 两线程真重叠；on-policy 语义保持(每步基于当前帧、最多落后 1 更新)。
+与锁步 train_ppo.py 的本质区别：把"梯度更新"从"采集线程"挪走，Godot 不再因训练空转。
+  - 采集线程(主)：握手→behavior 推理(no_grad)→送 action→写 rollout buffer。
+  - 学习线程：buffer 满就跑 PPO 更新(复用 SB3 PPO.train)；更新后把权重拷给 behavior(双缓冲，staleness≤1)。
+复用 SB3 的 MultiInputPolicy/优化器/DictRolloutBuffer/GAE/PPO.train()；只自己写采集与权重双缓冲。
 
-复用 SB3 的 MultiInputPolicy 网络/优化器/DictRolloutBuffer/GAE/PPO.train()；只自己写采集与权重双缓冲。
-对照基线: python train_ppo.py（锁步）。用法: python train_ppo_async.py [总步数]（默认 16000）。
+用法: python train/godot_meta_rl/train_ppo_async.py [总步数]（默认 16000）。对照: train_ppo.py（锁步）。
 """
 
 import copy
 import os
 import queue
-import subprocess
 import sys
 import threading
 import time
@@ -24,41 +19,17 @@ from collections import deque
 import numpy as np
 import torch
 
-from stable_baselines3 import PPO
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 from stable_baselines3.common.vec_env import VecMonitor, VecFrameStack
-from stable_baselines3.common.buffers import DictRolloutBuffer
-from stable_baselines3.common.logger import Logger
 from stable_baselines3.common.utils import obs_as_tensor
 
-import train_ppo as base   # 复用 GodotVecEnv / Godot 启动常量 / N_STACK / N_BUTTONS
-import rl_train_env as E
-
-N_STEPS = 64
-BATCH_SIZE = 256
-N_EPOCHS = 4
+from utils.godot_rl import shared_mem_env as E
+from utils.godot_rl.launch import launch_godot, kill_godot
+from utils.godot_rl.ppo_factory import build_model, make_buffer
+from train.godot_meta_rl.vec_env import GodotVecEnv, N_STACK
 
 _PROFILE = bool(os.environ.get("ASYNC_PROFILE"))
-
-
-def build_model(venv):
-    """与 train_ppo.py 完全相同的 PPO 超参，保证只变"异步"这一个变量。"""
-    model = PPO(
-        "MultiInputPolicy", venv,
-        n_steps=N_STEPS, batch_size=BATCH_SIZE, n_epochs=N_EPOCHS,
-        gamma=0.99, gae_lambda=0.95, ent_coef=0.01,
-        verbose=0, device="auto",
-    )
-    # 不走 .learn() → 没有自动配置 logger；PPO.train() 会用到，给一个空 logger。
-    model.set_logger(Logger(folder=None, output_formats=[]))
-    return model
-
-
-def make_buffer(model):
-    return DictRolloutBuffer(
-        model.n_steps, model.observation_space, model.action_space,
-        device=model.device, gae_lambda=model.gae_lambda,
-        gamma=model.gamma, n_envs=model.n_envs,
-    )
 
 
 def collect_rollout(venv, behavior, buf, last_obs, last_starts, device, weights_lock):
@@ -128,20 +99,16 @@ def main():
         pass
     total_timesteps = int(sys.argv[1]) if len(sys.argv) > 1 else 16000
 
-    log_path = os.path.join(base.PROJECT_DIR, "_train_ppo_async_godot.log")
+    log_path = os.path.join(E.PROJECT_DIR, "_train_ppo_async_godot.log")
     log = open(log_path, "w", encoding="utf-8", errors="replace")
-    run_env = os.environ.copy()
-    run_env["RL_FIXED_STEPS"] = "24"   # 240Hz / 24 = 10Hz 决策频率（与基线一致）
-
-    proc = subprocess.Popen([base.GODOT_EXE, "--path", base.PROJECT_DIR, base.TRAIN_SCENE],
-                            stdout=log, stderr=subprocess.STDOUT, env=run_env)
+    proc = launch_godot(log=log, extra_env={"RL_FIXED_STEPS": "24"})
     ok = False
     try:
         print(f"连接 {E.NUM_ENVS} 个并行 Godot 环境 ...")
-        venv = base.GodotVecEnv(connect_timeout_s=60)
+        venv = GodotVecEnv(connect_timeout_s=60)
         venv = VecMonitor(venv)
-        venv = VecFrameStack(venv, n_stack=base.N_STACK)
-        print(f"已连接。帧堆叠={base.N_STACK}。构建 PPO + 启动异步 actor-learner。\n")
+        venv = VecFrameStack(venv, n_stack=N_STACK)
+        print(f"已连接。帧堆叠={N_STACK}。构建 PPO + 启动异步 actor-learner。\n")
 
         model = build_model(venv)
         # PPO.__init__ 会在 venv 之上再自动套一层 VecTransposeImage(图像 HWC→CHW)；
@@ -197,7 +164,7 @@ def main():
         learner.join(timeout=10)
 
         dt = time.perf_counter() - t0
-        model.save(os.path.join(base.PROJECT_DIR, "ppo_spotlight_discrete_async"))
+        model.save(os.path.join(E.PROJECT_DIR, "ppo_spotlight_discrete_async"))
         sps = total_timesteps / dt if dt else 0.0
         print(f"\n训练完成：{total_timesteps} 步，用时 {dt:.1f}s（{sps:.0f} env-steps/s，40 并行，异步）。")
         print("模型已保存：ppo_spotlight_discrete_async.zip")
@@ -205,12 +172,9 @@ def main():
         ok = True
         return 0
     finally:
-        try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            proc.kill()
+        kill_godot(proc)
         log.close()
+        _ = ok
 
 
 if __name__ == "__main__":

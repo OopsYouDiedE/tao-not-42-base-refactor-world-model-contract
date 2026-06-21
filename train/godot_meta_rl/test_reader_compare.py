@@ -1,57 +1,29 @@
-"""
-握手吞吐基准（取代旧的 NAIVE vs FAST 去重对比）。
+"""握手吞吐基准：消费者每回合开销如何决定回合吞吐，且【任何开销下都不丢帧】。
 
-为什么不再做"去重对比"：旧版比的是"单线程轮询+内联推理" vs "读取线程+去重+队列"，
-其收益全部来自【消除重复帧的重复拷贝/推理】。而事件握手下每个 ObsReady 恰好一帧新观测，
-根本不存在重复帧，也没有轮询/锁竞争——去重这件事失去了对象。
-
-握手下真正值得测的是：消费者每回合的开销如何决定回合吞吐，且【任何开销下都不丢帧】。
-本基准在同一次 Godot 运行里，对不同"推理耗时"各跑一段，测量：
-  - 回合吞吐 cycles/s（= 唯一帧/s，握手下二者相等）
-  - 每回合平均耗时 ms
-  - 是否无丢帧（帧号严格 +1）
-结论：吞吐 ≈ 1 / (Godot步进+渲染 + 消费者开销)，随消费者变慢而下降，但始终零丢帧。
+在同一次 Godot 运行里，对不同"推理耗时"各跑一段，测量：回合吞吐 cycles/s、每回合平均耗时 ms、
+是否无丢帧（帧号严格 +1）。结论：吞吐 ≈ 1 / (Godot步进+渲染 + 消费者开销)，随消费者变慢而下降，但始终零丢帧。
 """
 
 import os
-import subprocess
 import sys
 import time
 
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-import rl_train_env as E
+from utils.godot_rl import shared_mem_env as E
+from utils.godot_rl.launch import launch_godot, kill_godot
 
-# 复用 rl_train_env 中的路径配置
-GODOT_EXE = E.GODOT_EXE
-PROJECT_DIR = E.PROJECT_DIR
-TRAIN_SCENE = E.TRAIN_SCENE
 GODOT_LOG = os.path.join(E.PROJECT_DIR, "_godot_compare_run.log")
 
 WARMUP_S = 0.8
 MEASURE_S = 4.0
-
-
-def launch_godot():
-    env = os.environ.copy()
-    env.pop("RL_STEP_MODE", None)
-    log = open(GODOT_LOG, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen([GODOT_EXE, "--path", PROJECT_DIR, TRAIN_SCENE],
-                            stdout=log, stderr=subprocess.STDOUT, env=env)
-    return proc, log
-
-
-def kill(proc):
-    try:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        proc.kill()
 
 
 def busy_infer(ms):
@@ -97,12 +69,13 @@ def fmt_row(name, s):
 
 
 def main():
-    E.set_timer_resolution(1)
+    E.set_timer_resolution(1)   # 仅 Windows，其它平台空操作
     print("=" * 76)
     print(" 握手吞吐基准：消费者开销 vs 回合吞吐（始终零丢帧）")
     print("=" * 76)
 
-    proc, log = launch_godot()
+    log = open(GODOT_LOG, "w", encoding="utf-8", errors="replace")
+    proc = launch_godot(log=log)
     zeros_cont = np.zeros((E.NUM_ENVS, E.CONT_DIM), np.float32)
     zeros_disc = np.zeros((E.NUM_ENVS, E.DISC_DIM), np.int32)
     try:
@@ -110,6 +83,11 @@ def main():
             envh = E.GodotTrainEnv(connect_timeout_s=40)
         except RuntimeError as e:
             print(f"[FAIL] {e}")
+            return 1
+
+        # 软件渲染/Linux 首帧含一次性着色器编译；预热吃掉它。
+        if not envh.warmup(timeout_ms=120000, frames=2):
+            print("[FAIL] 预热未收到渲染帧。")
             return 1
 
         scenarios = [
@@ -121,7 +99,6 @@ def main():
         print()
         all_lossless = True
         for title, infer_ms in scenarios:
-            # 预热
             t0 = time.perf_counter()
             while time.perf_counter() - t0 < WARMUP_S:
                 if envh.wait_obs(2000):
@@ -139,7 +116,7 @@ def main():
         print(f"总判定: {'[ ALL PASS ] 各负载均零丢帧' if all_lossless else '[ FAIL ] 出现丢帧'}")
         return 0 if all_lossless else 1
     finally:
-        kill(proc)
+        kill_godot(proc)
         log.close()
         E.reset_timer_resolution(1)
         print("[*] 已关闭 Godot。")

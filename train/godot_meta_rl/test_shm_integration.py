@@ -1,65 +1,36 @@
-"""
-端到端自动化测试（同步握手版）：验证 Godot(生产者) -> Python(消费者) 的数据通道。
+"""端到端自动化测试（同步握手版）：验证 Godot(生产者) -> Python(消费者) 的数据通道。
 
-原始三问（R2）在【事件握手协议】下重新验证：
-  1. 启动 Godot 跑 train_main.tscn（真实窗口渲染，非 headless，保证有真图像）；
-  2. Python 用 ObsReady/ActReady 握手连续跑若干秒同步回合
-     （等观测 -> 读图+元数据 -> 发 action）；
-  3. 校验三件事：
-       (A) Python 是否真的收到图像（字节数正确 + 像素非全零 + 指纹随时间变化为活数据 + 帧号在涨）；
-       (B) 40 个环境的"帧数/步数"方差是否为 0（所有环境步调一致）；
-       (C) Python 侧接收帧率 FPS —— 握手下每回合恰好一帧新观测，故
-           "接收速率 == 唯一帧速率"，无重复、无丢帧（帧号严格 +1）。
-  4. 关闭 Godot 并打印 PASS/FAIL 报告。
-
-与旧版的区别：不再有互斥锁/轮询/去重；每个 ObsReady 就是一帧，过采样和丢帧都不存在。
+校验三件事：
+  (A) Python 是否真的收到图像（字节数正确 + 像素非全零 + 指纹随时间变化为活数据 + 帧号在涨）；
+  (B) 40 个环境的"帧数/步数"方差是否为 0（所有环境步调一致）；
+  (C) Python 侧接收帧率 —— 握手下每回合恰一帧新观测，无重复、无丢帧（帧号严格 +1）。
 退出码：0 = 全部通过，1 = 有失败。
 """
 
 import os
-import subprocess
 import sys
 import time
 
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-import rl_train_env as E
+from utils.godot_rl import shared_mem_env as E
+from utils.godot_rl.launch import launch_godot, kill_godot
 
-# 复用 rl_train_env 中的路径配置
-GODOT_EXE = E.GODOT_EXE
-PROJECT_DIR = E.PROJECT_DIR
-TRAIN_SCENE = E.TRAIN_SCENE
 GODOT_LOG = os.path.join(E.PROJECT_DIR, "_godot_test_run.log")
 
-CONNECT_TIMEOUT_S = 40.0   # 等待 Godot 创建共享内存/事件的最长时间
-WARMUP_CYCLES = 20         # 丢弃最初若干回合，让渲染/物理稳定（首帧纹理可能还没画）
-MEASURE_SECONDS = 6.0      # 正式测量时长
+CONNECT_TIMEOUT_S = 40.0
+WARMUP_CYCLES = 20
+MEASURE_SECONDS = 6.0
 
-# 取"中间某个环境画面正中央的一条横带"作指纹，物体在此经过，能反映画面随时间变化。
 _SAMPLE_ENV = 20
 _SAMPLE_ROW = E.IMAGE_HEIGHT // 2
-
-
-def launch_godot():
-    env = os.environ.copy()
-    env.pop("RL_STEP_MODE", None)  # 用默认模式(Fixed)
-    log = open(GODOT_LOG, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen([GODOT_EXE, "--path", PROJECT_DIR, TRAIN_SCENE],
-                            stdout=log, stderr=subprocess.STDOUT, env=env)
-    return proc, log
-
-
-def kill(proc):
-    try:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        proc.kill()
 
 
 def main():
@@ -67,8 +38,9 @@ def main():
     print(" Godot <-> Python 同步握手 端到端自动化测试")
     print("=" * 64)
 
-    print(f"[*] 启动 Godot: {TRAIN_SCENE}  (日志 -> {GODOT_LOG})")
-    proc, log = launch_godot()
+    print(f"[*] 启动 Godot: {E.TRAIN_SCENE}  (日志 -> {GODOT_LOG})")
+    log = open(GODOT_LOG, "w", encoding="utf-8", errors="replace")
+    proc = launch_godot(log=log)
 
     zeros_cont = np.zeros((E.NUM_ENVS, E.CONT_DIM), np.float32)
     zeros_disc = np.zeros((E.NUM_ENVS, E.DISC_DIM), np.int32)
@@ -78,9 +50,13 @@ def main():
         except RuntimeError as e:
             print(f"[FAIL] {e}")
             return 1
-        print("[*] 已连接共享内存与握手事件。预热中...")
+        print("[*] 已连接共享内存与握手。预热中（吃掉首帧着色器编译）...")
+        # 软件渲染/Linux 首帧含一次性着色器编译；预热吃掉它。
+        if not envh.warmup(timeout_ms=120000, frames=2):
+            print("[FAIL] 预热未收到渲染帧。")
+            return 1
 
-        # 预热：跑若干回合丢弃（首帧纹理/物理未稳定）。
+        # 预热：再跑若干回合丢弃（物理未稳定）。
         for _ in range(WARMUP_CYCLES):
             if proc.poll() is not None:
                 print("[FAIL] Godot 进程在预热阶段已退出，详见日志。")
@@ -111,9 +87,9 @@ def main():
             if not envh.wait_obs(2000):
                 timeouts += 1
                 continue
-            meta = envh.read_meta()           # (N,5): 帧号/步数/sim_dt/reward/done
-            imgs = envh.read_images()         # (N,H,W,3) uint8
-            envh.send_action(zeros_cont, zeros_disc)   # 立刻发 action，解除 Godot 阻塞
+            meta = envh.read_meta()
+            imgs = envh.read_images()
+            envh.send_action(zeros_cont, zeros_disc)
             cycles += 1
 
             frames = meta[:, E.M_FRAME]
@@ -130,14 +106,12 @@ def main():
 
             if not image_seen_nonzero and imgs.any():
                 image_seen_nonzero = True
-            # 指纹：env20 正中横带（物体经过处），反映画面随时间变化。
             img_fingerprints.add(hash(imgs[_SAMPLE_ENV, _SAMPLE_ROW].tobytes()))
             last_imgs = imgs
 
         elapsed = time.perf_counter() - t0
         envh.close()
 
-        # ---------- 汇总分析 ----------
         recv_fps = cycles / elapsed if elapsed > 0 else 0.0
 
         ids = np.array(frame_ids)
@@ -152,7 +126,6 @@ def main():
         frames_increased = (last_frame_mean is not None and first_frame_mean is not None
                             and last_frame_mean > first_frame_mean)
 
-        # 判定
         test_a = (bytes_per_read == E.TOTAL_IMAGES_BYTES and image_seen_nonzero
                   and frames_increased and len(img_fingerprints) > 1)
         test_b = (max_frame_var == 0.0 and max_steps_var == 0.0)
@@ -192,7 +165,7 @@ def main():
         return 0 if all_pass else 1
 
     finally:
-        kill(proc)
+        kill_godot(proc)
         log.close()
         print("[*] 已关闭 Godot。")
 

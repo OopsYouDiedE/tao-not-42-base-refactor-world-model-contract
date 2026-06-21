@@ -1,8 +1,15 @@
 # Godot Meta RL 项目代码结构与方法调用关系文档
 
-本文档详细梳理并标注了 `godot_meta_rl` 项目中每个代码文件的核心作用、所包含的方法（函数）、各方法的具体说明，以及调用该方法的函数或组件。
+本文档梳理 `godot_meta_rl` 的核心作用、方法说明与调用关系。
 
-> **注**：旧协议文件（`shm_reader.py`、`shm_reader_fast.py`、`SharedMemCommunicator.cs`、`rl_agent_loop.py`、`main.tscn`）已全部删除。所有模块统一使用 `rl_train_env` + `train_main.tscn` 协议。
+> **目录现状**：本文件夹现仅保留 **Godot 引擎侧**资产（`Main.cs`、`model_base.gd`、`mata_envs/env_spotlight_discrete.*`、`train_main.tscn`、`project.godot`、`元学习任务.csproj`、`nuget.config`）。Python 侧编排已按仓库分层规范迁出：
+> - **工厂/可复用基础设施 → `utils/godot_rl/`**：`shared_mem_env.py`（跨平台共享内存驱动 `GodotTrainEnv` + 布局常量 + `shm_path`/`warmup`）、`launch.py`（`launch_godot`/`kill_godot`）、`ppo_factory.py`（`build_model`/`make_buffer`/`extract_small`/`bind_small`）。
+> - **独特不可复用的训练/诊断/测试 → `train/godot_meta_rl/`**：`vec_env.py`（`GodotVecEnv`/`RolloutProgress`）、`train_ppo.py`/`train_ppo_async.py`/`train_ppo_2proc.py`、`smoke.py`、`diag_montage.py`、`async_min.py`、`test_*.py`、`cleanup_workspace.py`。
+> - 下表中的 Python 模块名（`rl_train_env`/`train_ppo`/…）为迁移前旧名，方法说明仍然有效，对应新位置见上。
+>
+> **跨平台**：共享内存改为【文件后端 mmap】+【共享内存内轮询计数器(seqlock)】握手，Win/Linux 自动识别，不再依赖 Windows 命名内核对象。Linux 无头跑通需 Xvfb + GPU/软件 Vulkan(lavapipe) 渲染才能回读到非零像素（`--headless` 哑渲染器不出像素）。
+>
+> **历史**：旧协议文件（`shm_reader.py`、`shm_reader_fast.py`、`SharedMemCommunicator.cs`、`rl_agent_loop.py`、`main.tscn`）已全部删除。
 
 ---
 
@@ -27,11 +34,15 @@
 
 ## 统一协议说明
 
-所有 Python 脚本通过以下固定握手与 Godot 通信：
+所有 Python 脚本通过以下固定握手与 Godot 通信（轮询计数器 seqlock，跨平台）：
 
 ```
 wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 ```
+
+握手计数器：Godot 发布观测后 `ObsSeq+1`；Python `wait_obs` 轮询到 `ObsSeq != 已消费值` 即取帧，`send_action`
+写完动作把 `ActSeq` 置为已消费的 `ObsSeq` 作为应答；Godot 轮询 `ActSeq==ObsSeq` 才步进（收到应答前绝不推进 →
+帧号严格 +1、无丢帧、不发动作即门控停住）。
 
 | 参数 | 规格 |
 |---|---|
@@ -118,10 +129,10 @@ wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 | 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
 | :--- | :--- | :--- |
 | `EnvGet(string k)` | 静态工具方法：获取系统环境变量，用于在启动时覆盖步进参数。 | <li>`Main._Ready()`</li> |
-| `_Ready()` | Godot 生命周期就绪入口。读取并覆盖外部运行配置（步进模式、物理频率），克隆 40 个环境场景并作为子节点挂载，建立共享内存与事件句柄。 | <li>Godot 引擎在节点加载时自动调用</li> |
+| `_Ready()` | Godot 生命周期就绪入口。读取并覆盖外部运行配置（步进模式、物理频率），克隆 40 个环境场景并作为子节点挂载，按 `RL_SHM_PATH`/临时目录创建**文件后端**共享内存并清零握手计数器（ObsSeq/ActSeq）。 | <li>Godot 引擎在节点加载时自动调用</li> |
 | `_Process(double delta)` | Godot 帧更新入口。如果当前不是正在等待 Action 的状态，则先调用 `PublishObservation()`；接着等待并读取 Python 侧写入的 `ActReady` 动作包，按固定或随机步进数分别调用各环境的 `set_action` 和 `step_render`。 | <li>Godot 引擎在每一渲染帧时自动调用</li> |
 | `PublishObservation()` | 图像回读与元数据组装。主线程循环抓取 40 个 SubViewport 的图像和 reward/done 数据，多线程并行将格式转换为 RGB8 并写入共享内存。若有环境 done，则重置之。最后触发 `_obsReady`。 | <li>`Main._Process()`</li> |
-| `_ExitTree()` | 退出生命周期，释放共享内存和事件句柄，防止内存泄漏或锁挂起。 | <li>Godot 引擎在节点销毁时自动调用</li> |
+| `_ExitTree()` | 退出生命周期，释放共享内存映射与后备文件句柄，防止内存泄漏。 | <li>Godot 引擎在节点销毁时自动调用</li> |
 
 ---
 

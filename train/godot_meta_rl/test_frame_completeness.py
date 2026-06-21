@@ -1,57 +1,33 @@
-"""
-帧完整性测试（同步握手版）：证明 Python 一帧不漏，即使消费者很慢。
+"""帧完整性测试（同步握手版）：证明 Python 一帧不漏，即使消费者很慢。
 
-旧的单槽"最新帧寄存器 + 互斥锁轮询"模型，一旦消费者比 Godot 产帧慢，就会丢帧
-（实测慢消费者丢过 ~52%）。改成事件握手后，Godot 在收到 action 前【绝不产下一帧】，
-所以无论消费者多慢，都是 Godot 等消费者，而不是消费者追 Godot —— 天然背压，零丢帧。
-
+握手下 Godot 在收到 action 前【绝不产下一帧】，故无论消费者多慢都是 Godot 等消费者——天然背压、零丢帧。
 本测试在同一次 Godot 运行里跑两种消费者，对比帧号是否连续(+1)：
   A) 快消费者：拿到观测立刻发 action。
   B) 慢消费者：每回合故意 sleep 25ms 再发 action（模拟较重的推理/IO）。
-判定：两者帧号都必须严格 +1（skipped==0）。B 的回合速率会明显下降，但一帧不丢，
-      这正是握手相对旧轮询模型的关键价值。
+判定：两者帧号都必须严格 +1（skipped==0）。
 """
 
 import os
-import subprocess
 import sys
 import time
 
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-import rl_train_env as E
+from utils.godot_rl import shared_mem_env as E
+from utils.godot_rl.launch import launch_godot, kill_godot
 
-# 复用 rl_train_env 中的路径配置
-GODOT_EXE = E.GODOT_EXE
-PROJECT_DIR = E.PROJECT_DIR
-TRAIN_SCENE = E.TRAIN_SCENE
 GODOT_LOG = os.path.join(E.PROJECT_DIR, "_godot_completeness.log")
 
 WARMUP_CYCLES = 15
 MEASURE_S = 5.0
 SLOW_SLEEP_MS = 25
-
-
-def launch_godot():
-    env = os.environ.copy()
-    env.pop("RL_STEP_MODE", None)
-    log = open(GODOT_LOG, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen([GODOT_EXE, "--path", PROJECT_DIR, TRAIN_SCENE],
-                            stdout=log, stderr=subprocess.STDOUT, env=env)
-    return proc, log
-
-
-def kill(proc):
-    try:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        proc.kill()
 
 
 def run_phase(envh, duration, consumer_sleep_ms):
@@ -100,12 +76,13 @@ def report(title, s):
 
 
 def main():
-    E.set_timer_resolution(1)   # 让慢消费者的 25ms sleep 精确
+    E.set_timer_resolution(1)   # 让慢消费者的 25ms sleep 精确（仅 Windows，其它平台空操作）
     print("=" * 68)
     print(" 帧完整性测试（握手版）：Python 能否读到每一个实际帧")
     print("=" * 68)
 
-    proc, log = launch_godot()
+    log = open(GODOT_LOG, "w", encoding="utf-8", errors="replace")
+    proc = launch_godot(log=log)
     zeros_cont = np.zeros((E.NUM_ENVS, E.CONT_DIM), np.float32)
     zeros_disc = np.zeros((E.NUM_ENVS, E.DISC_DIM), np.int32)
     try:
@@ -115,7 +92,10 @@ def main():
             print(f"[FAIL] {e}")
             return 1
 
-        # 预热
+        # 软件渲染/Linux 首帧含一次性着色器编译；预热吃掉它。
+        if not envh.warmup(timeout_ms=120000, frames=2):
+            print("[FAIL] 预热未收到渲染帧。")
+            return 1
         for _ in range(WARMUP_CYCLES):
             if envh.wait_obs(2000):
                 envh.send_action(zeros_cont, zeros_disc)
@@ -128,15 +108,14 @@ def main():
         pa = report("情形 A：快消费者（拿到即发 action）", a)
         pb = report(f"情形 B：慢消费者（发 action 前 sleep {SLOW_SLEEP_MS}ms）", b)
         print("-" * 68)
-        print("结论：握手协议下 Godot 收到 action 前绝不产下一帧，于是【消费者多慢，")
-        print("      Godot 就等多久】——天然背压，零丢帧。慢消费者只让回合速率下降")
-        print(f"      （A {a['fps']:.0f}/s -> B {b['fps']:.0f}/s），但帧号依旧严格 +1。")
-        print("      对比旧单槽轮询模型：同样的慢消费者会直接丢掉一多半帧。")
+        print("结论：握手协议下 Godot 收到 action 前绝不产下一帧，于是【消费者多慢，Godot 就等多久】")
+        print(f"      ——天然背压，零丢帧。慢消费者只让回合速率下降（A {a['fps']:.0f}/s -> B {b['fps']:.0f}/s），")
+        print("      但帧号依旧严格 +1。")
         all_pass = pa and pb
         print(f"总判定: {'[ ALL PASS ]' if all_pass else '[ FAIL ]'}")
         return 0 if all_pass else 1
     finally:
-        kill(proc)
+        kill_godot(proc)
         log.close()
         E.reset_timer_resolution(1)
         print("[*] 已关闭 Godot。")

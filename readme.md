@@ -43,7 +43,14 @@ train/             训练基础设施(只放循环 + 装配)
     minecraft_viz.py    训练面板可视化
   vpt/
     distill_vpt.py      VPT teacher 软 KL 蒸馏
+  godot_meta_rl/     Godot 40 环境 RL 训练/诊断/协议测试(聚光灯瞄准独有,不可复用)
+    vec_env.py          GodotVecEnv(SB3 VecEnv 适配)/ RolloutProgress
+    train_ppo*.py       锁步 / 线程异步 / 双进程 三种 PPO 执行器
+    smoke.py / diag_montage.py / async_min.py / test_*.py  冒烟·诊断·协议测试
 utils/             通用基础设施(data/geometry/losses/matching/nn/probes/visualization/hf_token)
+  godot_rl/          Godot RL 跨平台基础设施:shared_mem_env(文件后端共享内存+轮询握手驱动)/
+                     launch(启停 Godot)/ ppo_factory(build_model/make_buffer/buffer 搬运)
+assets/godot_meta_rl/  Godot 引擎工程(C# Main.cs 编排 + GDScript 环境 + 场景),Python 侧见上
 tools/             离线脚本:oracle_idm(逆动力学上界诊断)/ download_sample_data / vpt_teacher
 tests/             unit/(几何/损失/SIGReg,CPU 可跑)+ integration/(活模型离线冒烟,DI 注入 mock 骨干)
 knowledge/         设计文档:mental_world(愿景)/ code_conventions(代码规范)

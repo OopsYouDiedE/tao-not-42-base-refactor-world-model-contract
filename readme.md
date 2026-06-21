@@ -29,12 +29,9 @@
 
 ```
 blocks/            L1 算子库(PreLNAttn/GatedResidual/SIGReg/ContinuousTimeEncoding/...,I1–I8 焊进实现)
-net/               网络组件
-  world_model.py   MinecraftWorldModel —— Δz-JEPA 活模型(顶层装配)
-  slots.py         SlotBinder / SlotCompetitiveAttn(实体槽绑定)
+net/               网络组件(旧 world_model/slots/heads/world_probe 已退役删除,新基座待补)
   backbone.py      load_backbone(冻结 DINOv2/v3 HF 加载;mock 骨干见 tests/,经依赖注入)
-  heads.py         DecoderHeads(未来动作规划)/ InverseDynamicsHead(逆动力学)
-  world_probe.py   世界探针
+  config.py        结构 schema(纯 dataclass,无 IO)
   vpt_lib/         vendored OpenAI VPT(第三方,见 NOTICE;不受代码规范约束)
 train/             训练域:不同数据集的区分全压在这一层(数据契约 + 循环 + 装配)
   minecraft/         VPT/BASALT 数据集域(旧 train_minecraft/losses/eval 已删,训练循环待新基座补)
@@ -66,8 +63,8 @@ runs/              下载数据 / checkpoints / 日志  [gitignored]
   opencv / numpy / wandb 等)。
 - **开发(测试 + net 前向)**:Windows + CUDA 同样可跑——Mamba 已弃用,不再有平台门槛。
 - DINOv3 权重 **gated**:需 HuggingFace token,经 Colab Secret(`HF_TOKEN`)或仓库根 `.env` 注入
-  (`utils/hf_token.py` 双重加载)。无 token 用 `--config configs/minecraft/dinov2.yaml`(开放权重);
-  离线管线冒烟见 `tests/integration/`。
+  (`utils/io.py` 的 `get_hf_token` 双重加载)。无 token 用开放权重 dinov2 预设;
+  离线管线冒烟见 `tests/`(`test_dinov3_hf` / `download_sample_data`)。
 
 ```bash
 pip install -r requirements.txt
@@ -99,17 +96,11 @@ Colab 端数据准备与一键训练见 `colab_demo.ipynb`(gitignored)。
 
 ```bash
 python -m pytest tests/unit/          # 几何 / 损失 / SIGReg(CPU)
-python -m pytest tests/integration/   # 活模型离线冒烟(mock 骨干,前向+反向+EMA)
+python tests/test_dinov3_hf.py        # DINOv3 骨干下载 + 前向冒烟(需 HF token)
+python tests/download_sample_data.py  # 生成离线合成 VPT 样本(VPTStreamDataset 兼容)
 ```
 
----
-
-## 诊断工具
-
-```bash
-# 逆动力学上界:冻结特征里到底能读出多少动作(钉死瓶颈在编码还是读出)
-python tools/oracle_idm.py --checkpoint runs/mc_ckpt/best.pt
-```
+> 旧 `oracle_idm`(逆动力学上界)与活模型集成冒烟随退役管线删除,新基座诊断/集成测试待补。
 
 ---
 

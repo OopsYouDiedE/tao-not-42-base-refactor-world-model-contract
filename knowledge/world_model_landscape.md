@@ -32,7 +32,7 @@
 - 设计:冻结 **DINOv2 patch 特征** + ViT 转移模型,预测**未来 patch 特征**,**无像素解码器**(可选解码器仅供可视化)。
 - 规划:离线轨迹自监督训练后,推理期用 **MPC(CEM / MPPI)在潜空间最小化"预测潜 → 目标 patch 特征"的 MSE**,把目标特征当预测靶。
 - 结果:零样本在迷宫 / 推物 / 多粒子等 6 个环境完成目标到达,报告优于 DreamerV3 与 IRIS;**不需要预学逆动力学模型**即可规划。
-- **对本项目**:证实"冻结 DINO + ViT 潜预测 + decoder-free"是可行主线。差异有二:① 我们把 patch 进一步压到 **N 个实体槽**——更激进的压缩,换来实体级可控,但有信息瓶颈风险(对应 oracle_idm 触顶的历史观察);② 我们额外有 `c` 闸 + 逆动力学接地(`net/world_model.py` 的 `inv_dyn` 与 `train/minecraft/losses.py:minecraft_inv_dyn_loss`),可视作 DINO-WM 的超集。**最大差异:DINO-WM 在推理期跑 MPC,我们当前不跑(见 §5)。**
+- **对本项目**:证实"冻结 DINO + ViT 潜预测 + decoder-free"是可行主线。差异有二:① 我们把 patch 进一步压到 **N 个实体槽**——更激进的压缩,换来实体级可控,但有信息瓶颈风险(对应 oracle_idm 触顶的历史观察);② 我们(旧 Δz-JEPA 线)额外有 `c` 闸 + 逆动力学接地(原 `net/world_model.py` 的 `inv_dyn` 与 `minecraft_inv_dyn_loss`,已随旧管线退役),可视作 DINO-WM 的超集。**最大差异:DINO-WM 在推理期跑 MPC,我们当前不跑(见 §5)。**
 
 ### 2.2 V-JEPA 2 / V-JEPA 2-AC
 
@@ -68,7 +68,7 @@
 ## 4. 潜动作模型(对北极星"看视频掌握玩法"最相关)
 
 - **Genie 潜动作 / LAPO(arXiv 2410.11758)/ VideoWorld / UniVLA / Co-Evolving LAWM**:用 **IDM + FDM + VQ 瓶颈**从**无标注视频**推断离散"潜动作码",再用少量标注接地到真实控制。
-- **对本项目**:本项目已有真实 22 维动作契约 + 逆动力学头,但北极星的"换一套玩法"目前靠**手写** `domains/minecraft/control_remap.py`。潜动作文献提示一条升级路线:把它从"手指定"改为"**每 episode 可推断的潜动作码**"——在 episode 维加一个被 episodic loss 推动的潜变量,给 in-context 适应一个"可学的钩子",对应 [mental_world.md](mental_world.md) 北极星章节点出的架构缺口(inv-dyn 对 context 全盲 / 单 h 太细 / 缺 use-context 梯度压力)。
+- **对本项目**:本项目已有真实 22 维动作契约 + 逆动力学头,但北极星的"换一套玩法"此前靠**手写**逐 episode 控制重映射(原 `control_remap.py` 已随旧管线退役,待新基座重建)。潜动作文献提示一条升级路线:把它从"手指定"改为"**每 episode 可推断的潜动作码**"——在 episode 维加一个被 episodic loss 推动的潜变量,给 in-context 适应一个"可学的钩子",对应 [mental_world.md](mental_world.md) 北极星章节点出的架构缺口(inv-dyn 对 context 全盲 / 单 h 太细 / 缺 use-context 梯度压力)。
 
 ---
 

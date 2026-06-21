@@ -8,7 +8,7 @@ opencv-python      # cv2:VPT 数据集解码 + 可视化
 matplotlib         # 训练面板 minecraft_viz / train_probe
 transformers       # 视觉骨干 DINOv2/v3(统一走 HF,见 net._load_backbone)+ 任务文本编码 minilm
 wandb              # 远程实验记录(--wandb)
-requests           # 数据下载(tools/oracle_idm.py、colab 数据准备)
+requests           # 数据下载(colab 数据准备)
 pyyaml             # configs/ 结构 yaml 预设读取(utils/config_io)
 
 # DINOv3 权重 gated:需 HF token(Colab Secret HF_TOKEN / 仓库根 .env),见 utils/hf_token.py。

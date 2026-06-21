@@ -19,7 +19,7 @@
 | L2.5 第三方 | `net/dreamer/` | 原样 vendored 的 DreamerV3(NM512/dreamerv3-torch,MIT;见其 `NOTICE`/`LICENSE`)。配套底层算子按分层拆到 `blocks/{distributions,sequence,conv,dynamics(GRUCell)}` 与 `utils/nn`(init/训练胶水),均标"原样照抄"。**类体逐字 1:1,勿为贴 house style 改 vendored 文件体**;升级=重拉上游覆盖(见 knowledge/dreamer.md) | 我们改写的逻辑 |
 | L3 训练域 | `train/<game>/` | 该数据集/游戏的**全部领域逻辑 + 训练**:数据契约(动作编解码、数据集、任务文本)、`losses.py`、`eval.py`、`viz`、循环/装配 `train_*.py`(CLI/main)。**不同数据集的区分全压在这一层**(`train/minecraft/`、`train/godot_meta_rl/` 各自自洽) | 模型定义、跨域可复用算子 |
 | 配置 | `configs/<game>/` | 模型结构 yaml 预设(部件选择 + 超参;如 `base`/`tiny`/`dinov2`,缺键取 `net.config` 默认) | 模型定义、训练逻辑、数据契约 |
-| 测试 / 离线脚本 | `tests/` | **所有** mock、CPU 兼容、离线降级、离线数据生成器(`download_sample_data`)、骨干冒烟(`test_dinov3_hf`)、一次性诊断;`unit/` 与 `integration/` | 生产依赖、大体积产物(→ `runs/`) |
+| 测试 / 离线脚本 | `tests/` | **所有** mock、CPU 兼容、离线降级、离线数据生成器、骨干冒烟、一次性诊断;`unit/` 与 `integration/` | 生产依赖、大体积产物(→ `runs/`) |
 | 文档 | `knowledge/` | 宏观设计意图与"为什么"(中文,SSOT) | 历史活动流水账(→ git log) |
 | 产物 | `runs/` | 数据 / checkpoints / 日志 **[gitignored]** | 任何要入库的源码 |
 

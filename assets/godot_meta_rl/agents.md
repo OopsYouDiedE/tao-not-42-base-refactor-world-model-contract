@@ -4,7 +4,8 @@
 
 > **目录现状**：本文件夹现仅保留 **Godot 引擎侧**资产（`Main.cs`、`model_base.gd`、`mata_envs/env_spotlight_discrete.*`、`train_main.tscn`、`project.godot`、`元学习任务.csproj`、`nuget.config`）。Python 侧编排已按仓库分层规范迁出：
 > - **工厂/可复用基础设施 → `utils/godot_rl/`**：`shared_mem_env.py`（跨平台共享内存驱动 `GodotTrainEnv` + 布局常量 + `shm_path`/`warmup`）、`launch.py`（`launch_godot`/`kill_godot`）、`ppo_factory.py`（`build_model`/`make_buffer`/`extract_small`/`bind_small`）。
-> - **独特不可复用的训练/诊断/测试 → `train/godot_meta_rl/`**：`vec_env.py`（`GodotVecEnv`/`RolloutProgress`）、`train_ppo.py`/`train_ppo_async.py`/`train_ppo_2proc.py`、`smoke.py`、`diag_montage.py`、`async_min.py`、`test_*.py`、`cleanup_workspace.py`。
+> - **独特不可复用的对接桥 → `train/godot_meta_rl/`**：`vec_env.py`（`GodotVecEnv`/`RolloutProgress`，SB3 VecEnv 适配，当前该目录唯一 Python 文件）。
+> - **已于清白重设计清理删除**（退役 PPO 管线 + 诊断/协议测试，见 git 历史）：`train_ppo.py`/`train_ppo_async.py`/`train_ppo_2proc.py`、`smoke.py`、`diag_montage.py`、`async_min.py`、`cleanup_workspace.py`、`test_shm_integration.py`/`test_step_modes.py`/`test_frame_completeness.py`/`test_reader_compare.py`。下文第 1 节方法表的「调用方」列仍列有这些已删脚本，保留作迁移参考；自动化测试一节(原第 4 节)已整体移除。
 > - 下表中的 Python 模块名（`rl_train_env`/`train_ppo`/…）为迁移前旧名，方法说明仍然有效，对应新位置见上。
 >
 > **跨平台**：共享内存改为【文件后端 mmap】+【共享内存内轮询计数器(seqlock)】握手，Win/Linux 自动识别，不再依赖 Windows 命名内核对象。Linux 无头跑通需 Xvfb + GPU/软件 Vulkan(lavapipe) 渲染才能回读到非零像素（`--headless` 哑渲染器不出像素）。
@@ -14,21 +15,14 @@
 ---
 
 ## 目录
-1. [Python 核心与驱动模块](#1-python-核心与驱动模块)
-   - [rl_train_env.py](#rl_train_envpy)
-   - [train_ppo.py](#train_ppopy)
-   - [train_driver.py](#train_driverpy)
-   - [diag_montage.py](#diag_montagepy)
+1. [Python 对接桥与共享内存驱动](#1-python-对接桥与共享内存驱动)
+   - [shared_mem_env.py（GodotTrainEnv 驱动）](#shared_mem_envpy)
+   - [vec_env.py（GodotVecEnv / RolloutProgress）](#vec_envpy)
 2. [Godot C# 编排模块](#2-godot-c-编排模块)
    - [Main.cs](#maincs)
 3. [Godot GDScript 环境与任务逻辑模块](#3-godot-gdscript-环境与任务逻辑模块)
    - [model_base.gd](#model_basegd)
    - [env_spotlight_discrete.gd](#env_spotlight_discretegd)
-4. [自动化测试模块](#4-自动化测试模块)
-   - [test_shm_integration.py](#test_shm_integrationpy)
-   - [test_step_modes.py](#test_step_modespy)
-   - [test_frame_completeness.py](#test_frame_completenesspy)
-   - [test_reader_compare.py](#test_reader_comparepy)
 
 ---
 
@@ -54,10 +48,12 @@ wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 
 ---
 
-## 1. Python 核心与驱动模块
+## 1. Python 对接桥与共享内存驱动
 
-### `rl_train_env.py`
-* **作用**：整个项目的 Python 端统一底层驱动。封装 40 环境的共享内存布局（图像区 + 5字段元数据 + 10连续/30离散动作），通过 Windows 命名事件实现与 `Main.cs` 的 lock-step 握手。同时提供 Windows 计时器精度辅助函数供基准测试使用。
+> 下方方法表的「调用方」列保留了清理前的历史调用脚本（`train_ppo*.py`/`diag_montage.py`/`test_*.py` 等均已删除），仅 `GodotTrainEnv`(在 `utils/godot_rl/shared_mem_env.py`)与 `GodotVecEnv`(在 `vec_env.py`)契约仍然有效。
+
+### `shared_mem_env.py`
+* **作用**：整个项目的 Python 端统一底层驱动 `GodotTrainEnv`（原 `rl_train_env.py`，现迁至 `utils/godot_rl/`）。封装 40 环境的共享内存布局（图像区 + 5字段元数据 + 10连续/30离散动作），通过【文件后端 mmap + 共享内存内轮询计数器(seqlock)】跨平台与 `Main.cs` lock-step 握手；计时器精度辅助函数供基准测试使用。
 * **方法标注与调用关系**：
 
 | 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
@@ -74,8 +70,8 @@ wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 
 ---
 
-### `train_ppo.py`
-* **作用**：使用 Stable-Baselines3 (SB3) PPO 算法对 Godot 瞄准环境进行训练。将 40 并行环境的 lock-step 机制封装成 SB3 兼容的 `VecEnv`，并对图像施加 4 帧堆叠（VecFrameStack）。
+### `vec_env.py`
+* **作用**：把 40 并行环境的 lock-step 机制封装成 SB3 兼容的 `VecEnv`（`GodotVecEnv`）并提供进度回调 `RolloutProgress`，供训练入口调用。下表中以 `main()` 为代表的训练装配行原属已删除的 `train_ppo.py`，保留作接口契约参考。
 * **方法标注与调用关系**：
 
 | 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
@@ -96,27 +92,6 @@ wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 | `GodotVecEnv.env_method(...)` | SB3 `VecEnv` 抽象接口：调用子环境的方法。 | <li>SB3 内部管理器</li> |
 | `GodotVecEnv.env_is_wrapped(...)` | SB3 `VecEnv` 抽象接口：判断环境是否套有指定的 Wrapper。 | <li>SB3 内部管理器</li> |
 | `main()` | 训练主函数：通过 Subprocess 开启 Godot，拼装 SB3 `VecMonitor` 及 `VecFrameStack`，构造并启动 PPO 模型进行训练，训练完后安全关闭 Godot 并保存模型。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
-
----
-
-### `train_driver.py`
-* **作用**：轻量级冒烟与理智检查脚本，不依赖 SB3，使用随机动作驱动 Godot 的 40 并行环境，校验共享内存端到端传输的正确性。
-* **方法标注与调用关系**：
-
-| 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
-| :--- | :--- | :--- |
-| `main()` | 启动 Godot 子进程，连接 `GodotTrainEnv`，循环发送随机离散动作包，统计回合速率、图像非零状态、跨环境方差、无丢帧状态，最后检查指标是否全部 PASS。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
-
----
-
-### `diag_montage.py`
-* **作用**：诊断与可视化模块。使用"零动作"（相机不动）运行 10 仿真秒，将 40 个环境的相机画面拼成一张 `5x8` 的拼图并保存，用来检测聚光灯照亮物体后模型视锥内是否确实有亮物。
-* **方法标注与调用关系**：
-
-| 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
-| :--- | :--- | :--- |
-| `save_png(arr, path)` | 将 RGB 矩阵保存为 PNG 文件。依次尝试导入 `PIL` 或 `imageio`，均失败则保存为 `.npy`。 | <li>`diag_montage.py` -> `main()`</li> |
-| `main()` | 启动 Godot，用零动作推进 10 仿真秒，随后断开并抓取图像拼接生成拼图文件 `montage_10s.png`。判定是否有环境检测到高亮像素以校验聚光灯功能。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
 
 ---
 
@@ -185,64 +160,10 @@ wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 | `_aim_error() -> float` | 精确计算相机当前中央朝向向量与物体方向向量的夹角弧度差（误差）。 | <li>`env_spotlight_discrete.gd` -> `_light_target()`</li><li>`env_spotlight_discrete.gd` -> `_compute_reward()`</li><li>`env_spotlight_discrete.gd` -> `_is_done()`</li><li>`env_spotlight_discrete.gd` -> `_on_standalone_tick()`</li> |
 | `_angular_accel() -> Vector2` | 驱动键值转换。读入 `_disc` 数组前 4 个元素（上/下/左/右），换算得到俯仰和偏航两个轴向的运动角加速度。 | <li>`model_base.gd` -> `physics_step()`</li> |
 | `_compute_reward() -> float` | 稠密差分奖励逻辑：未点亮时奖励为0；点亮后，提供"上一帧夹角误差 - 当前夹角误差"的差分项，额外减去基于当前误差大小及帧时间的积分扣分惩罚项。 | <li>`model_base.gd` -> `step_render()`</li><li>`model_base.gd` -> `_physics_process()`</li> |
-| `_is_done() -> bool` | 判定回合是否中止。准则：当前夹角误差已小于 `HIT_THRESHOLD`（瞄准成功），或灯泡亮起时长已超 `MAX_AIM_SIM` 秒（超时放弃）。 | <li>`model_base.gd` -> `get_info()`</li><li>`model_base.gd` -> `get_done()`</li><li>`model_base.gd` -> `get_reward_done()`</li><li>`env_spotlight_discrete.gd` -> `_on_standalone_tick()`</li> |
+| `_is_done() -> bool` | 判定回合是否中止。准则：当前夹角误差已小于 `deg_to_rad(hit_threshold_deg)`（瞄准成功），或灯泡亮起时长已超 `MAX_AIM_SIM` 秒（超时放弃）。 | <li>`model_base.gd` -> `get_info()`</li><li>`model_base.gd` -> `get_done()`</li><li>`model_base.gd` -> `get_reward_done()`</li><li>`env_spotlight_discrete.gd` -> `_on_standalone_tick()`</li> |
 | `_standalone_input() -> void` | 独立运行模式键盘动作采集。读取方向键，将其压入对应的 `_disc` 方向变量中。 | <li>`model_base.gd` -> `_physics_process()`</li> |
 | `_on_standalone_tick() -> void` | Standalone UI 刷新。累加测试奖励，并构建复杂的 HUD 多行输出文本打印在屏幕上；检测到 Done 时主动执行 reset 以开启下一轮人手测试。 | <li>`model_base.gd` -> `_physics_process()`</li> |
 
 ---
 
-## 4. 自动化测试模块
-
-> 所有测试脚本均使用统一协议：`rl_train_env.GodotTrainEnv` + `train_main.tscn` + 5字段元数据 + cont/disc 双数组动作。
-
-### `test_shm_integration.py`
-* **作用**：端到端同步握手自动化测试，用以校验 Python(接收方) 与 Godot(发送方) 的图像和状态读写通道是否畅通。
-* **方法标注与调用关系**：
-
-| 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
-| :--- | :--- | :--- |
-| `launch_godot()` | 启动 Godot（`train_main.tscn`），重定向日志到 `_godot_test_run.log`。 | <li>`main()`</li> |
-| `kill(proc)` | 安全或强行终止 Godot 测试子进程。 | <li>`main()`</li> |
-| `main()` | 运行端到端测试流程：预热环境，运行 6s 同步回合，检查接收字节、图像是否全零、画面是否在变，检测 40 环境一致性以及无丢帧（严格+1），输出 A/B/C 三项判定矩阵。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
-
----
-
-### `test_step_modes.py`
-* **作用**：对 Fixed（固定物理步数）与 Decoupled（解耦随机物理步数）两种运行步进机制，验证其在 lock-step 事件门控及无丢帧状态下的正常表现。
-* **方法标注与调用关系**：
-
-| 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
-| :--- | :--- | :--- |
-| `launch(mode, fixed_steps, max_steps, log_path)` | 携带对应步进模式环境变量启动 Godot（`train_main.tscn`）并开启重定向日志。 | <li>`run_mode()`</li> |
-| `kill(proc)` | 结束 Godot 进程。 | <li>`run_mode()`</li> |
-| `run_mode(...)` | 执行单独一种模式测试：不发 action 验证 Godot 是否卡住（门控校验），连续同步 240 回合，检查步数是否符合 Fixed（恒为 X）或 Decoupled（范围 [1, Max]），以及多环境步数方差是否为 0。 | <li>`main()`</li> |
-| `main()` | 分别执行 Fixed 和 Decoupled 两种模式的跑测，并输出总体的测试判定。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
-
----
-
-### `test_frame_completeness.py`
-* **作用**：帧完整性测试，证明 lock-step 握手协议下 Python（消费者）能 100% 毫无遗漏地捕获每一帧图像，即使它运行得非常慢。
-* **方法标注与调用关系**：
-
-| 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
-| :--- | :--- | :--- |
-| `launch_godot()` | 以默认设置拉起 Godot（`train_main.tscn`）测试进程。 | <li>`main()`</li> |
-| `kill(proc)` | 关闭进程。 | <li>`main()`</li> |
-| `run_phase(envh, duration, consumer_sleep_ms)` | 执行设定时间段的驱动，`consumer_sleep_ms > 0` 时在发 action 前睡眠，记录所有帧号序列并分析丢帧情况。 | <li>`main()`</li> |
-| `report(title, s)` | 整理输出当前测试情形下的结果报表，表明帧号是否严格 +1（即无丢帧）。 | <li>`main()`</li> |
-| `main()` | 分别模拟"快消费者"(不休眠)和"慢消费者"(发动作前强制休眠 25ms)，对比展现握手背压下的零丢帧特性。使用 `E.set_timer_resolution(1)` 提高计时精度。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
-
----
-
-### `test_reader_compare.py`
-* **作用**：握手吞吐性能基准测试。测试不同模拟推理时长下的回合吞吐性能及帧完整性，验证没有轮询开销下的高频无损表现。
-* **方法标注与调用关系**：
-
-| 方法/函数名 | 方法说明 | 调用该方法的函数/组件 |
-| :--- | :--- | :--- |
-| `launch_godot()` | 启动 Godot（`train_main.tscn`）进程并产生日志文件。 | <li>`main()`</li> |
-| `kill(proc)` | 关闭进程。 | <li>`main()`</li> |
-| `busy_infer(ms)` | 通过 `time.sleep` 方式模拟网络模型前向推理在不同时值下的占用开销。 | <li>`run_load()`</li><li>`main()` (预热)</li> |
-| `run_load(envh, duration, infer_ms)` | 执行吞吐测试段，返回每回合均值时间、每秒回合数及帧号无偏跳号判定。 | <li>`main()`</li> |
-| `fmt_row(name, s)` | 格式化吞吐测试结果行。 | <li>`main()`</li> |
-| `main()` | 遍历测试 0ms、5ms、20ms 模拟网络负载情况下的吞吐并格式化输出判定表。使用 `E.set_timer_resolution(1)` 提高计时精度。 | <li>Python 脚本入口 `if __name__ == "__main__"` 执行</li> |
+> 自动化测试模块（`test_shm_integration.py`/`test_step_modes.py`/`test_frame_completeness.py`/`test_reader_compare.py`：共享内存协议握手 / 步进模式 / 帧完整性 / 吞吐基准）已于清白重设计清理中整体删除；如需回归请基于 `utils/godot_rl/shared_mem_env.py` 的 `GodotTrainEnv` 契约重建。

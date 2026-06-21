@@ -23,14 +23,18 @@ const ACT_YAW_RIGHT := 3
 
 const N_TARGETS := 6
 const TARGET_RADIUS := 6.0
-const PITCH_SAFE_DEG := 50.0          # 目标俯仰落在 ±50°，确保在 ±60° 内可被瞄到
 const ACCEL := 5.0                    # 离散按键给的角加速度 (rad/s^2)
-const HIT_THRESHOLD := deg_to_rad(3.0)
 const TRIGGER_MIN := 0.1               # 聚光灯触发时间下限（仿真秒）—— 物体很快出现
 const TRIGGER_MAX := 0.4               # 上限：0.1~0.4s 内照亮某物体，从此刻开始计奖励
 const MAX_AIM_SIM := 10.0              # 亮起后最多给 10 仿真秒，超时算放弃→回合结束（保证回合有界）
 const REWARD_SCALE := 1.0             # 差分缩放=1（弧度）：整局累计奖励 = 初始视角差 - 最终视角差
 const ERR_PENALTY := 0.5             # 稠密项：每仿真秒按当前误差扣分，打破"不动=0"的局部最优
+
+# === 任务难度旋钮（不写死,可在检视器/环境变量里覆盖)===
+@export var easy_mode := false              # 一键易学预设:收窄目标范围+放宽命中阈,保证开局目标即在 70° 视野内
+@export var target_yaw_range_deg := 180.0   # 目标偏航随机范围 ±该值(度)。满 180° 时约 80% 回合开局目标在画面外
+@export var target_pitch_range_deg := 50.0  # 目标俯仰随机范围 ±该值(度,须 ≤60 才可瞄到)
+@export var hit_threshold_deg := 3.0        # 命中阈值(度):瞄准误差小于它即命中结束
 
 # tscn 中的固定节点
 @onready var _cam: Camera3D = $SubViewport/Camera3D
@@ -160,7 +164,7 @@ func _dir_from(yaw: float, pitch: float) -> Vector3:
 func _reposition_targets() -> void:
 	for m in _targets:
 		var yaw := _rng.randf_range(-PI, PI)
-		var pitch := deg_to_rad(_rng.randf_range(-PITCH_SAFE_DEG, PITCH_SAFE_DEG))
+		var pitch := deg_to_rad(_rng.randf_range(-target_pitch_range_deg, target_pitch_range_deg))
 		m.position = _dir_from(yaw, pitch) * TARGET_RADIUS
 
 
@@ -233,7 +237,7 @@ func _compute_reward() -> float:
 func _is_done() -> bool:
 	if not _lit:
 		return false
-	return _aim_error() < HIT_THRESHOLD or _lit_elapsed >= MAX_AIM_SIM   # 命中 或 超时放弃
+	return _aim_error() < deg_to_rad(hit_threshold_deg) or _lit_elapsed >= MAX_AIM_SIM   # 命中 或 超时放弃
 
 
 # ---- 独立运行：方向键 = 四个离散加速键，便于人工验证 ----

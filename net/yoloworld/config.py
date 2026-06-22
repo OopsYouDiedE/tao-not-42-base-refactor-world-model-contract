@@ -120,9 +120,9 @@ class YoloWorldConfig:
     disc_lambda: float = 0.95
     value_decay: float = 0.02
     actor_entropy: float = 3e-3
-    cls_scale: float = 1.0
-    plan_scale: float = 1.0
-    align_scale: float = 1.0
+    plan_scale: float = 1.0      # 主信号 L_actor(λ-return PG)权重
+    cls_scale: float = 0.1       # 二级:选择一致性蒸馏
+    align_scale: float = 0.3     # 二级:YOLOE 嵌入对齐(供推理期点乘选序列)
     div_scale: float = 0.1
     load_scale: float = 0.01
 

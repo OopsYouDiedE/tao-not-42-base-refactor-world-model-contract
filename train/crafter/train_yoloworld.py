@@ -226,7 +226,7 @@ def main():
                         f"ep_rew={np.mean(rr):6.3f} | ach/ep={np.mean(aa):4.2f} | "
                         f"wm={m['wm_total']:7.1f}(img={m['image']:6.1f} "
                         f"rew={m['reward']:.2f} ach={m['ach']:.3f} kl_d={m['kl_dyn']:.2f}) | "
-                        f"cls={bm['cls']:.3f} plan={bm['plan']:+.3f} algn={bm['align']:.3f} "
+                        f"actor={bm['actor']:+.3f} cls={bm['cls']:.3f} algn={bm['align']:.3f} "
                         f"val={bm['value']:.2f} ent={bm['entropy']:.2f} Rbest={bm['ret_best']:+.3f}"
                     )
 

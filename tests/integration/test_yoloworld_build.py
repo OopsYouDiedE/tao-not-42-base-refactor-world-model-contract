@@ -65,7 +65,7 @@ def test_behavior_dual_head_cpu():
     agent.zero_grad(set_to_none=True)
     loss, m = agent.behavior.loss(start, task_emb, agent.proposal, agent.world_model)
     assert torch.isfinite(loss)
-    assert {"cls", "plan", "align", "value", "div", "load"} <= set(m)
+    assert {"cls", "actor", "align", "value", "div", "load"} <= set(m)
     loss.backward()
     assert agent.world_model.encoder.layers[0].weight.grad is None  # WM 未收到梯度
     assert agent.proposal.query.grad is not None                    # 小头收到梯度

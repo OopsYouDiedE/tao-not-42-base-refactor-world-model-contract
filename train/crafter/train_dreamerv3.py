@@ -107,7 +107,9 @@ def main():
     iteration = 0
     while total_steps < args.total_steps:
         iteration += 1
-        prefilling = len(replay) < args.prefill
+        # prefill 以环境步计(total_steps),而非回放行数(len(replay) 每迭代 +1,= total_steps/n_envs);
+        # 二者差 n_envs 倍,若用行数会让随机预填超采样 n_envs 倍。
+        prefilling = total_steps < args.prefill
 
         # ── 选动作 ──────────────────────────────────────────────────────────
         if prefilling:

@@ -108,9 +108,14 @@ class WorldModel(nn.Module):
             self.preprocess_image(obs)).mean()
         reward_loss = -self.reward_dist(feat).log_prob(reward.unsqueeze(-1)).mean()
         cont_loss = -self.cont_dist(feat).log_prob(cont.unsqueeze(-1)).mean()
-        # 成就头:多标签 BCE(I3:走 logits + BCEWithLogits,数值稳定)
+        # 成就头:多标签 BCE(I3:走 logits + BCEWithLogits,数值稳定)。
+        # Crafter 成就稀疏,无权重 BCE 会让 ψ 退化为全 0 → ρ^g=w·ψ≈0 → 目标条件奖励消失。
+        # 按 batch 逐成就的负正比设 pos_weight(钳 [1,50]),把正样本梯度抬回来。
+        pos = ach.sum(dim=(0, 1))                                # [U]
+        neg = ach[..., 0].numel() - pos
+        pos_weight = (neg / (pos + 1.0)).clamp(1.0, 50.0)
         ach_loss = nn.functional.binary_cross_entropy_with_logits(
-            self.ach(feat), ach)
+            self.ach(feat), ach, pos_weight=pos_weight)
         kl_loss, kl_dyn, kl_rep = self.dynamics.kl_loss(
             post, prior, self.cfg.kl_free,
             self.cfg.kl_dyn_scale, self.cfg.kl_rep_scale)

@@ -152,7 +152,11 @@ class DualHeadBehavior(nn.Module):
             disc = gamma ** torch.arange(H, device=device, dtype=r.dtype)
             ret = (disc * r).sum(-1) + gamma ** H * val[:, -1]       # [N·R]
             ret = ret.reshape(N, R)
-            t_soft = torch.softmax(ret / cfg.teacher_temp, dim=-1)  # [N, R] 老师信念
+            # 老师信念用 z 标准化回报(相对排序),使 cls 在绝对回报很小时仍有梯度;
+            # 否则 t 近均匀 → KL(t‖α) 退化为常数 log(R),双头一致性学不到东西。
+            ret_z = (ret - ret.mean(dim=1, keepdim=True)) / (
+                ret.std(dim=1, keepdim=True) + 1e-4)
+            t_soft = torch.softmax(ret_z / cfg.teacher_temp, dim=-1)  # [N, R] 老师信念
             # 老师计划嵌入 ê = normalize(Σ γ^{τ-1} Eᵀ ψ_τ)
             e_g = torch.einsum("rhu,h->ru", psi, disc) @ self.ach_embed
             ehat = F.normalize(e_g, dim=-1).reshape(N, R, -1)        # [N, R, d_g]
@@ -164,9 +168,10 @@ class DualHeadBehavior(nn.Module):
                 target[:, h] = acc
             slow = self.slow_value_dist(
                 feats, te_rep[:, None, :].expand(-1, H, -1)).mode().squeeze(-1)
-            # 群体基线优势(标准化,I1 下界)
-            adv = ret - ret.mean(dim=1, keepdim=True)
-            adv = adv / (ret.std(dim=1, keepdim=True) + 1e-4)       # [N, R]
+            # 群体基线优势:仅去均值,**不**除 per-batch std。除 std 会在候选难分(std≈0)时
+            # 把噪声放大到单位尺度 → 策略被噪声推着走、熵坍缩。去均值后优势幅度与真实回报差
+            # 同尺度:无信号时 adv≈0(策略不动、保熵),有信号时才推。
+            adv = ret - ret.mean(dim=1, keepdim=True)               # [N, R]
 
         # ── L_cls:KL(t ‖ α)(YOLOv10 一致性) ──────────────────────────
         sel_alpha = torch.gather(alpha_logits, 1, cand_idx)         # [N, R]

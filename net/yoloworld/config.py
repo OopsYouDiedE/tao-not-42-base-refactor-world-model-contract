@@ -112,14 +112,14 @@ class YoloWorldConfig:
     n_rollout: int = 32
     n_explore: int = 8
     n_start: int = 0
-    teacher_temp: float = 1.0
+    teacher_temp: float = 0.5
     select_beta: float = 1.0
 
     # actor-critic
     discount: float = 0.997
     disc_lambda: float = 0.95
     value_decay: float = 0.02
-    actor_entropy: float = 3e-4
+    actor_entropy: float = 3e-3
     cls_scale: float = 1.0
     plan_scale: float = 1.0
     align_scale: float = 1.0

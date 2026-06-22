@@ -78,6 +78,33 @@ Hafner 等《Dreamer 4: Training Agents Inside of Scalable World Models》(2025)
 - **日志缓冲**:`nohup … > log` 重定向时 Python stdout 默认全缓冲,进度日志长时间不落盘会让进程
   看似卡死;`train_dreamerv3` 已在 `main()` 开头设 stdout 行缓冲(等价 `python -u`)。
 
+### 吞吐瓶颈与优化(L4,small 配置实测)
+
+逐项计时定位瓶颈(单次世界模型更新 = 编码 + RSSM observe + 解码 + reward/cont + KL + 反向):
+
+| 部件 | 耗时(B=16,T=64) | 性质 |
+|---|---|---|
+| Crafter env 步进(8 env/iter) | 19 ms | **非瓶颈**(416 env-步/s) |
+| encoder | 18 ms | flop-bound,随 batch 线性 |
+| **RSSM observe(T=64)** | **363 ms** | **沿 T 逐步、overhead-bound**(与 batch 几乎无关:B=16 与 B=96 同为 ~370 ms) |
+| decoder image_dist | 61 ms | flop-bound,随 batch×T 线性 |
+| reward+cont dist | 1 ms | — |
+| behavior.loss(H=15) | 109 ms | 随 B×T 线性 |
+
+关键结论:**瓶颈是 RSSM 沿时间维的逐步 Python 循环(observe),不是 GPU flop、不是环境**;
+batch=16 时 GPU 处于"饥饿"态(每步张量太小,固定的 per-step 开销主导)。三项优化(均落 `_enable_fast_math()`
+与默认配置,不动 `net/`):
+
+1. **关 `torch.distributions` 参数校验**:observe 每步构造 `Independent(OneHotDist)` 时的 simplex/有限性
+   校验是纯 CPU 开销 ⇒ observe **363→166 ms(2.2×)**,单行全局开关,数值不变(只跳过输入校验)。
+2. **TF32 + cudnn.benchmark**:加速 flop-bound 的编/解码器(固定形状)。
+3. **大 batch + 短 seq**:observe overhead-bound ⇒ 加大 batch 近乎免费地多喂数据,缩短 seq 线性减时间。
+
+三者叠加把单更新吞吐从 **1304 → 4412 帧/s(≈3.4×)**(B=16,T=64 → B=96,T=32)。综合(env 可忽略、
+按 train ratio 折算)wall-clock 约 **3–6×** 提速。默认配置已切到 `batch=48, seq=32, updates_per=2,
+train_every=1`(ratio=384)。显存:B=64,T=48 峰值 ~20 GB,B≤64,T≤32 安全(<14 GB);
+seq/batch×T 是显存与解码/想象成本的主因。进一步可选 torch.compile 编/解码器(未做,收益次于上述)。
+
 ## 3. 升级/借鉴关系
 
 - DreamerV3 的随机隐变量(离散 32×32)是本仓统一世界基座里 ξ 思想的来源(见 mental_world)。

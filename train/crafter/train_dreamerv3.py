@@ -45,11 +45,13 @@ def parse_args():
     p.add_argument("--total-steps", type=int, default=200_000, help="总环境交互步数")
     p.add_argument("--n-envs", type=int, default=8)
     p.add_argument("--prefill", type=int, default=2000, help="随机策略预填步数")
-    p.add_argument("--train-every", type=int, default=8,
+    p.add_argument("--train-every", type=int, default=1,
                    help="每 train_every 次迭代做一次梯度更新")
-    p.add_argument("--updates-per", type=int, default=1, help="每次训练触发的梯度步数")
-    p.add_argument("--batch-size", type=int, default=16)
-    p.add_argument("--seq-len", type=int, default=64)
+    p.add_argument("--updates-per", type=int, default=2, help="每次训练触发的梯度步数")
+    # L4 吞吐优化默认:大 batch 喂饱 GPU、短 seq 摊薄 RSSM 沿 T 的逐步开销
+    # (见 knowledge/dreamer.md §2.5)。train ratio = updates_per×batch×seq/(train_every×n_envs)。
+    p.add_argument("--batch-size", type=int, default=48)
+    p.add_argument("--seq-len", type=int, default=32)
     p.add_argument("--capacity", type=int, default=0,
                    help="每 env 回放容量;0 = ceil(total_steps/n_envs)")
     p.add_argument("--model-lr", type=float, default=1e-4)
@@ -61,11 +63,25 @@ def parse_args():
     return p.parse_args()
 
 
+def _enable_fast_math():
+    """训练侧吞吐优化(只在训练入口设全局开关,net/ 保持纯净不设)。
+
+    - 关闭 torch.distributions 参数校验:RSSM observe 沿 T 步反复构造 OneHot 分布,
+      默认的 simplex/有限性校验是纯 CPU 开销,占 observe 大头(实测 T=64 observe 363→166 ms)。
+    - 开 TF32 + cudnn.benchmark:加速 flop-bound 的卷积编/解码器(固定形状下 benchmark 选最优 kernel)。
+    """
+    torch.distributions.Distribution.set_default_validate_args(False)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+
+
 def main():
     args = parse_args()
     # 行缓冲:重定向到文件(nohup ... > log)时 Python stdout 默认全缓冲会让进度日志
     # 长时间不落盘、看似卡死;改行缓冲后日志实时可见(等价于 python -u)。
     sys.stdout.reconfigure(line_buffering=True)
+    _enable_fast_math()
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)

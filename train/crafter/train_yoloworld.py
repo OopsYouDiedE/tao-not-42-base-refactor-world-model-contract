@@ -61,6 +61,8 @@ def parse_args():
                    help="每 env 回放容量;0 = ceil(total_steps/n_envs)")
     p.add_argument("--model-lr", type=float, default=1e-4)
     p.add_argument("--beh-lr", type=float, default=3e-5)
+    p.add_argument("--actor-entropy", type=float, default=None,
+                   help="覆盖计划熵正则 λ_H(策略钉在最大熵=随机时调小;坍缩时调大);None=用预设")
     p.add_argument("--task-encoder", choices=["minilm", "mock"], default="minilm")
     p.add_argument("--log-interval", type=int, default=50)
     p.add_argument("--save-interval", type=int, default=20000)
@@ -109,9 +111,12 @@ def main():
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # ── 模型 ────────────────────────────────────────────────────────────────
+    overrides = dict(SIZE_PRESETS[args.size])
+    if args.actor_entropy is not None:
+        overrides["actor_entropy"] = args.actor_entropy
     agent = build_yoloworld(device=str(device), num_actions=N_ACTIONS,
                             obs_shape=(3, 64, 64), n_achievements=N_ACHIEVEMENTS,
-                            n_start=args.n_start, **SIZE_PRESETS[args.size])
+                            n_start=args.n_start, **overrides)
     n_params = sum(p.numel() for p in agent.parameters())
     print(f"YoloWorld[{args.size}] 参数量: {n_params:,}")
 

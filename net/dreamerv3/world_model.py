@@ -79,8 +79,8 @@ class WorldModel(nn.Module):
 
         Args:
             obs:      [B, T, C, H, W] float ∈ [0, 1]。
-            action:   [B, T, num_actions] float(one-hot)。
-            reward:   [B, T] float。
+            action:   [B, T, num_actions] float(one-hot);action[t] = 在 obs[t] 处执行的动作。
+            reward:   [B, T] float;reward[t] = 在 obs[t] 执行 action[t] 所得奖励。
             cont:     [B, T] float(1 = 延续,0 = 终止)。
             is_first: [B, T] float(1 = 轨迹起点)。
 
@@ -90,7 +90,12 @@ class WorldModel(nn.Module):
             metrics: dict[str, float] 各分项标量。
         """
         embed = self.encoder(self.preprocess_image(obs))
-        post, prior = self.dynamics.observe(embed, action, is_first)
+        # RSSM 因果对齐:obs[t] 的先验由 (state[t-1], 进入 obs[t] 的动作) 推出,即 action[t-1]。
+        # 故喂入右移一位的 prev_action(序列首步补零);序列中段的 episode 重置由 obs_step
+        # 据 is_first 把 prev_action 清零处理。这与想象 img_step(state, departing_action) 的因果方向一致。
+        prev_action = torch.cat(
+            [torch.zeros_like(action[:, :1]), action[:, :-1]], dim=1)
+        post, prior = self.dynamics.observe(embed, prev_action, is_first)
         feat = self.dynamics.get_feat(post)
 
         image_loss = -self.image_dist(feat).log_prob(

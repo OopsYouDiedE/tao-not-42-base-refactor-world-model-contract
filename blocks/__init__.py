@@ -13,6 +13,7 @@ from blocks.attention import (PreLNAttn, ProtoDecode, SlotCompetitiveAttn,
 from blocks.conv import Conv2dSamePad, ImgChLayerNorm
 from blocks.encoder import ConvEncoder
 from blocks.decoder import ConvDecoder
+from blocks.mlp import MLP
 from blocks.sequence import static_scan, static_scan_for_lambda_return, lambda_return
 from blocks.quantization import VectorQuantizer
 from blocks.distributions import (
@@ -23,7 +24,7 @@ from blocks.distributions import (
 __all__ = [
     "ConvGRUCell",
     "GatedResidual", "FiLM", "PreLNAttn", "PositionalEmbed", "ProtoDecode",
-    "SlotCompetitiveAttn", "Mamba2Block", "MHABlock", "ConvEncoder", "ConvDecoder",
+    "SlotCompetitiveAttn", "Mamba2Block", "MHABlock", "ConvEncoder", "ConvDecoder", "MLP",
     "StochLatent", "SIGReg", "BoundedActivation", "Accumulator", "DiscreteRouter",
     "ContinuousTimeEncoding", "SpatialPosEmbed", "sinusoidal_time_encoding",
     "VectorQuantizer",

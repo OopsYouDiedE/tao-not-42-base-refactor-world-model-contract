@@ -32,8 +32,12 @@ blocks/            L1 算子库(PreLNAttn/GatedResidual/SIGReg/ContinuousTimeEnc
 net/               网络组件(旧 world_model/slots/heads/world_probe 已退役删除,新基座待补)
   backbone.py      load_backbone(冻结 DINOv2/v3 HF 加载;mock 骨干见 tests/,经依赖注入)
   config.py        结构 schema(纯 dataclass,无 IO)
+  ppo_ad/          Crafter PPO + Achievement Distillation actor-critic
+  dreamerv3/       DreamerV3 世界模型(从 blocks 清白重建:RSSM + 编解码 + 想象 actor-critic;可训练)
+  dreamer4/        Dreamer4 可扩展 Transformer 世界模型(从 blocks 组装:tokenizer + 时空 Transformer + shortcut forcing;仅构建)
   vpt_lib/         vendored OpenAI VPT(第三方,见 NOTICE;不受代码规范约束)
 train/             训练域:不同数据集的区分全压在这一层(数据契约 + 循环 + 装配)
+  crafter/           Crafter 域:env / 回放 / PPO+AD(train_ppo_ad)/ DreamerV3(train_dreamerv3 + dreamer_buffer)
   minecraft/         VPT/BASALT 数据集域(旧 train_minecraft/losses/eval 已删,训练循环待新基座补)
     vpt_action.py    动作 ↔ 张量契约 + mu-law 相机分箱(SSOT)
     vpt_dataset.py   VPTStreamDataset(流式 uint8 加载 / 可变帧跨度采样)

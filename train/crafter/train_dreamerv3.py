@@ -12,6 +12,7 @@
 """
 import argparse
 import os
+import sys
 import time
 
 import numpy as np
@@ -62,6 +63,9 @@ def parse_args():
 
 def main():
     args = parse_args()
+    # 行缓冲:重定向到文件(nohup ... > log)时 Python stdout 默认全缓冲会让进度日志
+    # 长时间不落盘、看似卡死;改行缓冲后日志实时可见(等价于 python -u)。
+    sys.stdout.reconfigure(line_buffering=True)
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)

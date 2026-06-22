@@ -55,6 +55,29 @@ Hafner 等《Dreamer 4: Training Agents Inside of Scalable World Models》(2025)
 与 DreamerV3 差异大,需要单独的训练域实现;当前阶段先把结构按 blocks 分层落地、跑通 shape 契约
 (`tests/integration/test_dreamer_build.py` 覆盖连续/VQ 两种 tokenizer 的前向),训练循环后续按需补。
 
+## 2.5 训练实践笔记(Crafter + L4)
+
+落盘的操作性经验(原理性、可复用,非活动流水账):
+
+- **吞吐受环境步进主导,GPU 呈突发利用**:Crafter 在 CPU 上顺序步进 n_envs 个实例(纯 Python
+  世界生成,`VecCrafterEnv` 为 Colab 兼容不用多进程),env 步进是 wall-clock 瓶颈;单次世界模型
+  前向+反向(small=6.7M 参数、batch 16×64)很快,故 GPU 利用率是**突发**的——
+  单次 `nvidia-smi` 快照常落在两次突发之间的 env 步进间隙,读到偏低甚至 0,需多次采样看均值
+  (实测 small 配置约 20–80% 突发、显存 ~5.8/23 GB)。
+- **抬高 GPU 利用率 / 样本效率的旋钮是 train ratio**:即 `updates_per`(每次环境迭代的梯度步数),
+  其次是 batch/seq/模型规模。本仓 train ratio = `updates_per × batch × seq /(train_every × n_envs)`。
+  DreamerV3 原版经典 train ratio ≈ 512(回放帧 / 环境步);`updates_per=4, train_every=1, batch=16,
+  seq=64, n_envs=8` ⇒ 512,正好对齐。更大的 train ratio 提样本效率与 GPU 占用,但增 wall-clock。
+- **回放放 CPU、采样转 GPU**:`SequenceReplay` 以 uint8 在 CPU 存 obs(节省显存),采样的小批量
+  才转设备;容量 non-wrapping,按 `total_steps/n_envs` 预留,用尽即停止写入(避免环形窗口跨写指针)。
+- **想象 rollout 全程 `no_grad`**:reinforce 策略梯度不需沿 rollout 的路径梯度(actor 仅由显式
+  logπ·advantage 接收梯度,critic 在 detach 特征上回归),切断 rollout 图省显存且不改学习信号。
+- **RSSM 因果对齐**:训练 `observe` 必须喂右移一位的 `prev_action`(进入 obs[t] 的动作 = action[t-1]),
+  与想象 `img_step(state, departing_action)` 的因果方向一致;否则训练用"离开当前帧的动作"预测当前状态、
+  与想象不一致,会污染想象 rollout 动力学、损害策略学习(见 world_model.py 注释与 git fix)。
+- **日志缓冲**:`nohup … > log` 重定向时 Python stdout 默认全缓冲,进度日志长时间不落盘会让进程
+  看似卡死;`train_dreamerv3` 已在 `main()` 开头设 stdout 行缓冲(等价 `python -u`)。
+
 ## 3. 升级/借鉴关系
 
 - DreamerV3 的随机隐变量(离散 32×32)是本仓统一世界基座里 ξ 思想的来源(见 mental_world)。

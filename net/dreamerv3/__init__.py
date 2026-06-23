@@ -15,8 +15,9 @@ from net.dreamerv3.rssm import RSSM
 from net.dreamerv3.world_model import WorldModel
 from net.dreamerv3.behavior import ImagBehavior
 from net.dreamerv3.agent import DreamerV3, build_dreamerv3
+from net.dreamerv3.planner import Planner
 
 __all__ = [
     "DreamerV3Config", "RSSM", "WorldModel", "ImagBehavior",
-    "DreamerV3", "build_dreamerv3",
+    "DreamerV3", "build_dreamerv3", "Planner",
 ]

@@ -6,6 +6,8 @@
 注: Crafter 使用 gym(非 gymnasium)接口,step 返回 (obs, rew, done, info)。
 obs 归一化: uint8 (H,W,C) → float32 (C,H,W) [0,1]。
 """
+import copy
+
 import numpy as np
 import torch
 import crafter
@@ -32,10 +34,15 @@ class VecCrafterEnv:
     OBS_H, OBS_W = 64, 64
 
     def __init__(self, n_envs: int, device: str = "cuda", seed: int = 0,
-                 max_history: int = 128):
+                 max_history: int = 128, state_cache=None, p_resume: float = 0.0):
         self.n_envs = n_envs
         self.device = device
         self.max_history = max_history
+        # Go-Explore 课程(可选):done 时以 p_resume 从 state_cache 空降存档点而非 fresh reset;
+        # 解锁新成就时把当前状态存档。state_cache=None ⇒ 永远 fresh(评测 env 用)。
+        self.state_cache = state_cache
+        self.p_resume = p_resume
+        self._rng = np.random.RandomState(seed + 9973)
 
         self.envs = [crafter.Env() for _ in range(n_envs)]
 
@@ -62,6 +69,27 @@ class VecCrafterEnv:
             self._hist_obs[i].clear()
             self._hist_act[i].clear()
         return torch.stack(obs_list).to(self.device)
+
+    # ── Go-Explore 快照 / 恢复 ────────────────────────────────────────────────
+    def snapshot(self, i: int) -> dict:
+        """深拷贝 env i 的当前世界状态为存档 bundle(独立于后续步进)。"""
+        cur = self._prev_ach[i]
+        unlocked = {a for a in ACHIEVEMENTS if cur.get(a, 0) > 0}
+        return {
+            "env": copy.deepcopy(self.envs[i]),
+            "obs": self._cur_obs[i].clone(),
+            "prev_ach": dict(cur),
+            "unlocked": unlocked,
+        }
+
+    def restore(self, i: int, bundle: dict) -> torch.Tensor:
+        """把 env i 恢复到 bundle 存档点(深拷贝避免多次恢复别名),返回该处 obs(CPU tensor)。"""
+        self.envs[i] = copy.deepcopy(bundle["env"])
+        self._prev_ach[i] = dict(bundle["prev_ach"])
+        self._hist_obs[i].clear()
+        self._hist_act[i].clear()
+        self._cur_obs[i] = bundle["obs"].clone()
+        return self._cur_obs[i]
 
     def step(self, actions):
         """执行一步。
@@ -101,6 +129,7 @@ class VecCrafterEnv:
             # 检测新解锁成就
             cur_ach = info.get("achievements", {})
             prev = self._prev_ach[i]
+            had_new = False
             for ach in ACHIEVEMENTS:
                 if cur_ach.get(ach, 0) > 0 and prev.get(ach, 0) == 0:
                     new_achievements.append((
@@ -108,16 +137,30 @@ class VecCrafterEnv:
                         list(hist_o),   # 已含 demo_len 步的 prev_obs
                         list(hist_a),
                     ))
+                    had_new = True
             self._prev_ach[i] = dict(cur_ach)
 
             if done:
-                raw_obs = env.reset()
-                proc = self._proc(raw_obs)
-                self._prev_ach[i] = {}
-                self._hist_obs[i].clear()
-                self._hist_act[i].clear()
+                # Go-Explore:以 p_resume 从存档点空降续探,否则 fresh reset。
+                bundle = None
+                if (self.state_cache is not None and len(self.state_cache) > 0
+                        and self._rng.rand() < self.p_resume):
+                    bundle = self.state_cache.sample()
+                if bundle is not None:
+                    proc = self.restore(i, bundle)
+                    info["resumed_unlocked"] = set(bundle["unlocked"])
+                else:
+                    raw_obs = env.reset()
+                    proc = self._proc(raw_obs)
+                    self._prev_ach[i] = {}
+                    self._hist_obs[i].clear()
+                    self._hist_act[i].clear()
 
             self._cur_obs[i] = proc
+            # 解锁新成就且未结束 ⇒ 存档"刚踏入新阶段"那一刻(不存终止/死亡态)。
+            if self.state_cache is not None and had_new and not done:
+                snap = self.snapshot(i)
+                self.state_cache.push(snap, len(snap["unlocked"]))
             obs_list.append(proc)
             rew_list.append(float(rew))
             done_list.append(float(done))

@@ -77,3 +77,19 @@ class DreamerV3Config:
     actor_grad: str = "reinforce"
     value_decay: float = 0.02
     reward_bins: int = 255
+
+    # ── 文本目标条件化 + 稀疏/密集规划(默认全关 ⇒ vanilla DreamerV3 不变)──────
+    # use_goal:        启用 goal 条件化 actor(文本点乘动作打分)。
+    # goal_text_dim:   目标文本嵌入维(MiniLM = 384)。
+    # goal_dim:        点乘空间维度;0 = 用 units。
+    # plan_candidates: 稀疏规划器候选动作序列数 N(Phase 2)。
+    # plan_horizon:    候选序列长度 L(Phase 2)。
+    # goal_align_coef: 候选打分里 goal 对齐项权重 α(Phase 2)。
+    # distill_coef:    规划器选中动作蒸回密集 actor 的损失权重(Phase 2)。
+    use_goal: bool = False
+    goal_text_dim: int = 384
+    goal_dim: int = 0
+    plan_candidates: int = 64
+    plan_horizon: int = 8
+    goal_align_coef: float = 1.0
+    distill_coef: float = 0.0

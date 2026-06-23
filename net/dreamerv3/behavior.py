@@ -11,9 +11,46 @@ import copy
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from blocks import MLP, OneHotDist, DiscDist, lambda_return, static_scan
 from net.dreamerv3.config import DreamerV3Config
+
+
+class GoalActorHead(nn.Module):
+    """文本目标条件化的动作打分头(YOLOE 文本-动作对齐:文本点乘判定动作概率)。
+
+    actor 主干把状态特征投到点乘空间 s∈R^gd;每个动作有可学嵌入 A∈R^{A×gd};
+    目标文本嵌入经 task_proj + L2 归一得 g∈R^gd。动作 logit_i = ⟨s, A_i ⊙ g⟩
+    —— 目标向量逐元素门控动作嵌入后与状态嵌入点乘,故"用文本乘输出判定动作概率"。
+
+    Args:
+        feat_dim:    世界状态特征维。
+        num_actions: 离散动作数。
+        gd:          点乘空间维度。
+        text_dim:    目标文本嵌入维(MiniLM = 384)。
+        hidden/layers: 主干 MLP 宽度/层数。
+    """
+
+    def __init__(self, feat_dim, num_actions, gd, text_dim, hidden, layers):
+        super().__init__()
+        self.trunk = MLP(feat_dim, gd, hidden=hidden, layers=layers)
+        self.task_proj = nn.Linear(text_dim, gd)
+        self.action_emb = nn.Parameter(torch.randn(num_actions, gd) / gd ** 0.5)
+        # 可学温度(CLIP/YOLOE 式):cos 相似度 ∈[-1,1] 太平,乘 exp(scale) 给可学锐度。
+        self.logit_scale = nn.Parameter(torch.log(torch.tensor(10.0)))
+
+    def forward(self, feat, goal_emb):
+        """feat[..., feat_dim], goal_emb[..., text_dim] → logits[..., num_actions]。
+
+        YOLOE/CLIP 式对齐:状态嵌入 s 与"目标门控的动作嵌入"各自 L2 归一做余弦相似,
+        乘可学温度 exp(logit_scale)。目标 g 逐元素门控动作嵌入 ⇒ 文本乘判定动作概率。
+        """
+        s = F.normalize(self.trunk(feat), dim=-1)               # [..., gd]
+        g = F.normalize(self.task_proj(goal_emb), dim=-1)       # [..., gd]
+        gated = F.normalize(self.action_emb * g.unsqueeze(-2), dim=-1)   # [..., A, gd]
+        cos = (s.unsqueeze(-2) * gated).sum(-1)                 # [..., A] ∈[-1,1]
+        return self.logit_scale.exp() * cos
 
 
 class RewardEMA:
@@ -44,8 +81,14 @@ class ImagBehavior(nn.Module):
     def __init__(self, cfg: DreamerV3Config, feat_dim: int):
         super().__init__()
         self.cfg = cfg
-        self.actor = MLP(feat_dim, cfg.num_actions, hidden=cfg.units,
-                         layers=cfg.mlp_layers)
+        self.use_goal = cfg.use_goal
+        if cfg.use_goal:
+            gd = cfg.goal_dim or cfg.units
+            self.actor = GoalActorHead(feat_dim, cfg.num_actions, gd,
+                                       cfg.goal_text_dim, cfg.units, cfg.mlp_layers)
+        else:
+            self.actor = MLP(feat_dim, cfg.num_actions, hidden=cfg.units,
+                             layers=cfg.mlp_layers)
         self.value = MLP(feat_dim, cfg.reward_bins, hidden=cfg.units,
                          layers=cfg.mlp_layers)
         self.slow_value = copy.deepcopy(self.value)
@@ -55,9 +98,13 @@ class ImagBehavior(nn.Module):
         self.register_buffer("ema_vals", torch.zeros(2))
 
     # ── 分布封装 ────────────────────────────────────────────────────────────
-    def actor_dist(self, feat):
-        """feat → 离散动作 OneHot 分布(unimix + 直通梯度)。"""
-        return OneHotDist(self.actor(feat).float(), unimix_ratio=self.cfg.unimix_ratio)
+    def actor_dist(self, feat, goal=None):
+        """feat(+goal) → 离散动作 OneHot 分布(unimix + 直通梯度)。
+
+        use_goal 时 goal 为文本嵌入 [..., goal_text_dim],走文本点乘头。
+        """
+        logits = self.actor(feat, goal) if self.use_goal else self.actor(feat)
+        return OneHotDist(logits.float(), unimix_ratio=self.cfg.unimix_ratio)
 
     def value_dist(self, feat):
         """feat → two-hot symexp 价值分布(在线 critic)。"""
@@ -70,12 +117,14 @@ class ImagBehavior(nn.Module):
         return DiscDist(logits, device=logits.device)
 
     # ── 想象 ────────────────────────────────────────────────────────────────
-    def imagine(self, start, dynamics):
+    def imagine(self, start, dynamics, goal=None):
         """从后验起点状态做 H 步先验 rollout(动作由当前 actor 采样)。
 
         Args:
             start: 后验状态 dict,字段首维 B、次维 T;内部展平成 B·T 条想象起点。
             dynamics: RSSM(提供 get_feat / img_step)。
+            goal: use_goal 时为 [B·T, goal_text_dim] 文本嵌入(每条想象起点一个目标,
+                  rollout 全程恒定);否则 None。
 
         Returns:
             feats:   [H, B·T, feat_dim] 各步状态特征。
@@ -87,7 +136,7 @@ class ImagBehavior(nn.Module):
         def step(prev, _):
             st = prev[0]
             feat = dynamics.get_feat(st)
-            action = self.actor_dist(feat.detach()).sample()
+            action = self.actor_dist(feat.detach(), goal).sample()
             succ = dynamics.img_step(st, action)
             return succ, feat, action
 
@@ -96,19 +145,23 @@ class ImagBehavior(nn.Module):
         return feats, actions
 
     # ── 损失 ──────────────────────────────────────────────────────────────────
-    def loss(self, start, world_model):
+    def loss(self, start, world_model, goal=None):
         """想象轨迹上的 actor + critic 损失(世界模型不接收梯度)。
+
+        Args:
+            goal: use_goal 时为 [B, T, goal_text_dim] 文本嵌入(每条起点的目标);否则 None。
 
         Returns:
             actor_loss, value_loss: 标量。
             metrics: dict[str, float]。
         """
         dynamics = world_model.dynamics
+        goal_flat = goal.reshape(-1, goal.shape[-1]) if goal is not None else None
         # 想象 rollout 与回报目标全程 no_grad:reinforce 不需要沿 rollout 的路径梯度
         # (actor 仅由显式 logπ·advantage 接收梯度,critic 在 detach 特征上回归),
         # 故切断 rollout 图既省显存又不改学习信号。
         with torch.no_grad():
-            feats, actions = self.imagine(start, dynamics)
+            feats, actions = self.imagine(start, dynamics, goal_flat)
             reward = world_model.reward_dist(feats).mode()              # [H, N, 1]
             cont = world_model.cont_dist(feats).mean                    # [H, N, 1] ∈(0,1)
             discount = self.cfg.discount * cont
@@ -120,7 +173,9 @@ class ImagBehavior(nn.Module):
                 torch.cat([torch.ones_like(discount[:1]), discount[:-1]], 0), 0)
             offset, scale = self.reward_ema(target, self.ema_vals)
             adv = ((target - offset) / scale) - ((value[:-1] - offset) / scale)
-        policy = self.actor_dist(feats.detach())
+        goal_h = (goal_flat.unsqueeze(0).expand(feats.shape[0], -1, -1)
+                  if goal_flat is not None else None)
+        policy = self.actor_dist(feats.detach(), goal_h)
         logpi = policy.log_prob(actions.detach())[:-1].unsqueeze(-1)    # [H-1, N, 1]
         entropy = policy.entropy()[:-1].unsqueeze(-1)
         actor_loss = -(logpi * adv.detach() + self.cfg.actor_entropy * entropy)

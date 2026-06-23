@@ -38,13 +38,15 @@ class SequenceReplay:
         self.reward = torch.zeros(capacity, n_envs, dtype=torch.float32)
         self.cont = torch.zeros(capacity, n_envs, dtype=torch.float32)
         self.is_first = torch.zeros(capacity, n_envs, dtype=torch.float32)
+        # 每步活动的目标 id(goal 条件化用;vanilla 路径恒为 0,内存可忽略)。
+        self.goal = torch.zeros(capacity, n_envs, dtype=torch.int16)
         self._ptr = 0
         self._full = False
 
     def __len__(self):
         return self.capacity if self._full else self._ptr
 
-    def add(self, obs, action_onehot, reward, cont, is_first):
+    def add(self, obs, action_onehot, reward, cont, is_first, goal_ids=None):
         """追加一步(全 env)。
 
         Args:
@@ -53,6 +55,7 @@ class SequenceReplay:
             reward:        [n_envs] float。
             cont:          [n_envs] float(1 = 延续,0 = 终止)。
             is_first:      [n_envs] float。
+            goal_ids:      [n_envs] long/int 该步目标 id;None = 0(vanilla)。
         """
         if self._ptr >= self.capacity:
             self._full = True
@@ -63,6 +66,8 @@ class SequenceReplay:
         self.reward[t] = reward.cpu()
         self.cont[t] = cont.cpu()
         self.is_first[t] = is_first.cpu()
+        if goal_ids is not None:
+            self.goal[t] = goal_ids.to(torch.int16).cpu()
         self._ptr += 1
 
     def can_sample(self, seq_len):
@@ -88,6 +93,7 @@ class SequenceReplay:
         reward = torch.empty(batch_size, seq_len)
         cont = torch.empty(batch_size, seq_len)
         is_first = torch.empty(batch_size, seq_len)
+        goal = torch.empty(batch_size, seq_len, dtype=torch.int16)
         for i, (s, e) in enumerate(zip(starts, envs)):
             sl = slice(s, s + seq_len)
             obs[i] = self.obs[sl, e]
@@ -95,6 +101,7 @@ class SequenceReplay:
             reward[i] = self.reward[sl, e]
             cont[i] = self.cont[sl, e]
             is_first[i] = self.is_first[sl, e]
+            goal[i] = self.goal[sl, e]
 
         return (
             obs.to(device).float() / 255.0,
@@ -102,4 +109,5 @@ class SequenceReplay:
             reward.to(device),
             cont.to(device),
             is_first.to(device),
+            goal.to(device).long(),
         )

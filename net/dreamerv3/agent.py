@@ -29,19 +29,16 @@ class DreamerV3(nn.Module):
         self.behavior = ImagBehavior(cfg, self.world_model.feat_dim)
 
     @torch.no_grad()
-    def policy(self, obs, state, is_first, training=True):
-        """单步递归策略(环境交互用)。
+    def encode_latent(self, obs, state, is_first):
+        """观测 → 当前后验 latent(策略与规划器共用的 obs_step 部分)。
 
         Args:
             obs:      [B, C, H, W] float ∈ [0, 1]。
             state:    (latent dict, prev_action [B, A]) 或 None(轨迹起点)。
             is_first: [B] float(1 = 该 env 刚 reset)。
-            training: True 采样,False 取众数(贪心评估)。
 
         Returns:
-            action_idx:   [B] long(供环境 step)。
-            action_onehot:[B, A] float。
-            state:        更新后的 (latent, action_onehot),喂回下一步。
+            latent: 后验状态 dict(字段首维 B)。
         """
         wm = self.world_model
         B = obs.shape[0]
@@ -51,11 +48,29 @@ class DreamerV3(nn.Module):
             prev_action = torch.zeros(B, self.cfg.num_actions, device=device)
         else:
             latent, prev_action = state
-
         embed = wm.encoder(wm.preprocess_image(obs))
         latent, _ = wm.dynamics.obs_step(latent, prev_action, embed, is_first)
-        feat = wm.dynamics.get_feat(latent)
-        dist = self.behavior.actor_dist(feat)
+        return latent
+
+    @torch.no_grad()
+    def policy(self, obs, state, is_first, training=True, goal=None):
+        """单步递归策略(环境交互用)。
+
+        Args:
+            obs:      [B, C, H, W] float ∈ [0, 1]。
+            state:    (latent dict, prev_action [B, A]) 或 None(轨迹起点)。
+            is_first: [B] float(1 = 该 env 刚 reset)。
+            training: True 采样,False 取众数(贪心评估)。
+            goal:     use_goal 时为 [B, goal_text_dim] 文本嵌入;否则 None。
+
+        Returns:
+            action_idx:   [B] long(供环境 step)。
+            action_onehot:[B, A] float。
+            state:        更新后的 (latent, action_onehot),喂回下一步。
+        """
+        latent = self.encode_latent(obs, state, is_first)
+        feat = self.world_model.dynamics.get_feat(latent)
+        dist = self.behavior.actor_dist(feat, goal)
         action_onehot = dist.sample() if training else dist.mode()
         action_idx = action_onehot.argmax(dim=-1)
         return action_idx, action_onehot, (latent, action_onehot)

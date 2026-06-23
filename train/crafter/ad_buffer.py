@@ -86,3 +86,17 @@ class AchievementBuffer:
     def coverage(self) -> int:
         """有至少一个示范的成就数。"""
         return sum(1 for v in self._obs.values() if v)
+
+    def covered_names(self) -> list:
+        """已解锁(有示范)的成就名,按 ACHIEVEMENTS 固定顺序。"""
+        return [a for a in ACHIEVEMENTS if self._obs[a]]
+
+
+# 科技树"硬墙"成就:都有前置依赖,解锁它们才算越过 vanilla DreamerV3 卡死的易成就层。
+# make_wood_pickaxe 是第一道闸(需木头+工作台),其后逐级解锁石/煤/铁/钻石链。
+HARD_ACHIEVEMENTS = [
+    "make_wood_pickaxe", "collect_stone", "place_stone", "make_wood_sword",
+    "make_stone_pickaxe", "make_stone_sword", "place_furnace", "collect_coal",
+    "collect_iron", "make_iron_pickaxe", "make_iron_sword", "collect_diamond",
+    "eat_plant",
+]

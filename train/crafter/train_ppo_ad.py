@@ -16,8 +16,8 @@ import torch
 
 from net.ppo_ad.actor_critic import ActorCritic
 from net.ppo_ad.config import PPOADConfig
-from train.crafter.ad_buffer import AchievementBuffer
-from train.crafter.env import VecCrafterEnv
+from train.crafter.ad_buffer import AchievementBuffer, HARD_ACHIEVEMENTS
+from train.crafter.env import VecCrafterEnv, SubprocVecCrafterEnv
 from train.crafter.ppo_loss import ppo_loss
 from train.crafter.rollout import RolloutBuffer
 
@@ -32,6 +32,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ad-coef", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--run-dir", default="runs/crafter_ppo_ad")
+    p.add_argument("--vec", choices=["serial", "subproc"], default="subproc",
+                   help="subproc: 多 env 分摊到子进程并行(高吞吐);serial: 单进程串行。")
+    p.add_argument("--n-workers", type=int, default=0,
+                   help="subproc 子进程数(0=自动 min(n_envs,cpu-2))。")
     return p.parse_args()
 
 
@@ -68,7 +72,15 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, eps=1e-5)
 
     # ── 环境、缓冲区 ──────────────────────────────────────────────────────────
-    envs = VecCrafterEnv(n_envs=cfg.n_envs, device=str(device), seed=args.seed)
+    if args.vec == "subproc":
+        envs = SubprocVecCrafterEnv(
+            n_envs=cfg.n_envs, device=str(device), seed=args.seed,
+            n_workers=(args.n_workers or None), demo_len=cfg.demo_len)
+        print(f"向量环境: SubprocVecCrafterEnv "
+              f"({cfg.n_envs} env / {envs.n_workers} 子进程并行)")
+    else:
+        envs = VecCrafterEnv(n_envs=cfg.n_envs, device=str(device), seed=args.seed)
+        print(f"向量环境: VecCrafterEnv (单进程串行)")
     rollout = RolloutBuffer(
         n_envs=cfg.n_envs,
         n_steps=cfg.n_steps,
@@ -174,12 +186,15 @@ def main():
             sps = int(total_steps / (time.time() - start_time + 1e-6))
             recent = finished_ep_rewards[-100:] if finished_ep_rewards else [0.0]
             recent_len = finished_ep_lens[-100:] if finished_ep_lens else [0]
+            covered = ad_buf.covered_names()
+            hard = [a for a in covered if a in HARD_ACHIEVEMENTS]
             print(
                 f"upd={update:5d} | steps={total_steps:>9,} | sps={sps:>5,} | "
                 f"ep_rew={np.mean(recent):6.3f} | ep_len={int(np.mean(recent_len)):>5} | "
                 f"pg={np.mean(pg_losses):+.4f} | vf={np.mean(v_losses):.4f} | "
                 f"ent={np.mean(ents):.4f} | ad={np.mean(ad_losses):.4f} | "
-                f"ad_cov={ad_buf.coverage()}/{22} | ad_steps={ad_buf.total_steps()}"
+                f"ad_cov={ad_buf.coverage()}/22 | hard={len(hard)}/{len(HARD_ACHIEVEMENTS)} "
+                f"{hard if hard else ''}"
             )
 
         # ── Checkpoint ────────────────────────────────────────────────────────
@@ -205,6 +220,7 @@ def main():
     print(f"\n训练完成。最终模型: {final_path}")
     if finished_ep_rewards:
         print(f"最近 100 ep 平均奖励: {np.mean(finished_ep_rewards[-100:]):.4f}")
+    envs.close()
 
 
 if __name__ == "__main__":

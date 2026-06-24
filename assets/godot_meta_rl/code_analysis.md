@@ -1,16 +1,10 @@
-# Godot Meta RL 项目代码结构与方法调用关系文档
+# Godot Meta RL 代码结构与方法调用图
 
-本文档梳理 `godot_meta_rl` 的核心作用、方法说明与调用关系。
+本文档梳理 Godot 子系统各模块的方法说明与调用关系。子系统概览、通信协议与运行方式见 [README.md](README.md)，开发规范见 [AGENTS.md](AGENTS.md)。
 
-> **目录现状**：本文件夹现仅保留 **Godot 引擎侧**资产（`Main.cs`、`model_base.gd`、`mata_envs/env_spotlight_discrete.*`、`train_main.tscn`、`project.godot`、`元学习任务.csproj`、`nuget.config`）。Python 侧编排已按仓库分层规范迁出：
-> - **工厂/可复用基础设施 → `utils/godot_rl/`**：`shared_mem_env.py`（跨平台共享内存驱动 `GodotTrainEnv` + 布局常量 + `shm_path`/`warmup`）、`launch.py`（`launch_godot`/`kill_godot`）、`ppo_factory.py`（`build_model`/`make_buffer`/`extract_small`/`bind_small`）。
-> - **独特不可复用的对接桥 → `train/godot_meta_rl/`**：`vec_env.py`（`GodotVecEnv`/`RolloutProgress`，SB3 VecEnv 适配，当前该目录唯一 Python 文件）。
-> - **已在重构清理中删除**（退役 PPO 管线 + 诊断/协议测试，见 git 历史）：`train_ppo.py`/`train_ppo_async.py`/`train_ppo_2proc.py`、`smoke.py`、`diag_montage.py`、`async_min.py`、`cleanup_workspace.py`、`test_shm_integration.py`/`test_step_modes.py`/`test_frame_completeness.py`/`test_reader_compare.py`。下文第 1 节方法表的「调用方」列仍列有这些已删脚本，保留作迁移参考；自动化测试一节(原第 4 节)已整体移除。
-> - 下表中的 Python 模块名（`rl_train_env`/`train_ppo`/…）为迁移前旧名，方法说明仍然有效，对应新位置见上。
->
-> **跨平台**：共享内存改为【文件后端 mmap】+【共享内存内轮询计数器(seqlock)】握手，Win/Linux 自动识别，不再依赖 Windows 命名内核对象。Linux 无头运行需 Xvfb + GPU/软件 Vulkan(lavapipe) 渲染才能回读到非零像素（`--headless` 哑渲染器不出像素）。
->
-> **历史**：旧协议文件（`shm_reader.py`、`shm_reader_fast.py`、`SharedMemCommunicator.cs`、`rl_agent_loop.py`、`main.tscn`）已全部删除。
+模块分布：Python 驱动 `GodotTrainEnv` 在 `utils/godot_rl/shared_mem_env.py`，SB3 适配 `GodotVecEnv` 在 `train/godot_meta_rl/vec_env.py`，引擎侧在本文件夹（`Main.cs`、`model_base.gd`、`mata_envs/env_spotlight_discrete.gd`）。
+
+> 下方方法表的「调用方」列仍列有清理前的历史调用脚本（`train_ppo*.py`/`diag_montage.py`/`test_*.py` 等均已删除），保留作调用关系参考；当前有效的契约只有 `GodotTrainEnv` 与 `GodotVecEnv`。
 
 ---
 
@@ -26,31 +20,7 @@
 
 ---
 
-## 统一协议说明
-
-所有 Python 脚本通过以下固定握手与 Godot 通信（轮询计数器 seqlock，跨平台）：
-
-```
-wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
-```
-
-握手计数器：Godot 发布观测后 `ObsSeq+1`；Python `wait_obs` 轮询到 `ObsSeq != 已消费值` 即取帧，`send_action`
-写完动作把 `ActSeq` 置为已消费的 `ObsSeq` 作为应答；Godot 轮询 `ActSeq==ObsSeq` 才步进（收到应答前绝不推进 →
-帧号严格 +1、无丢帧、不发动作即门控停住）。
-
-| 参数 | 规格 |
-|---|---|
-| 图像观测 | `(40, 128, 128, 3)` uint8 |
-| 元数据 | `(40, 5)` float32: `[frameCount, steps, sim_dt, reward, done]` |
-| 连续动作 | `(40, 10)` float32 |
-| 离散动作 | `(40, 30)` int32 |
-| Godot 场景 | `train_main.tscn` -> `Main.cs` |
-
----
-
 ## 1. Python 对接桥与共享内存驱动
-
-> 下方方法表的「调用方」列保留了清理前的历史调用脚本（`train_ppo*.py`/`diag_montage.py`/`test_*.py` 等均已删除），仅 `GodotTrainEnv`(在 `utils/godot_rl/shared_mem_env.py`)与 `GodotVecEnv`(在 `vec_env.py`)契约仍然有效。
 
 ### `shared_mem_env.py`
 * **作用**：Python 端底层驱动 `GodotTrainEnv`（原 `rl_train_env.py`，现迁至 `utils/godot_rl/`）。封装 40 环境的共享内存布局（图像区 + 5字段元数据 + 10连续/30离散动作），通过【文件后端 mmap + 共享内存内轮询计数器(seqlock)】跨平台与 `Main.cs` lock-step 握手；计时器精度辅助函数供基准测试使用。

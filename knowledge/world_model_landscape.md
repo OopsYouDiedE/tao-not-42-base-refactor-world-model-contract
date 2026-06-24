@@ -2,7 +2,7 @@
 
 > **文档性质**：对近年世界模型 / 像素生成世界模型 / 游戏通用操作模型的外部调研，以及对本项目设计选择的对照与说明。
 > 不描述本仓库的微观实现（归代码与 [mental_world.md](mental_world.md)）；只做外部参照、设计原理对比与可选方向记录。
-> 本项目定位见 [mental_world.md](mental_world.md)：Δz-JEPA、冻结 DINOv3、潜空间预测 Δz、EMA 目标、逆动力学接地可控闸 `c`、有限持久潜槽、Transformer。
+> 本项目定位见 [mental_world.md](mental_world.md)：冻结 DINOv3、潜空间预测、EMA 目标、逆动力学接地可控闸 `c`、有限持久潜槽、Transformer。（Δz-JEPA 是已退役的第一版实现；当前可训练的世界模型是 Crafter 上的 DreamerV3，见 [dreamer.md](dreamer.md)。）
 
 ---
 
@@ -40,14 +40,14 @@
 - 设计：1.2B 编码器，**action-free** JEPA 在 >100 万小时视频上预训练；预测在表征空间，**EMA 目标 + stop-grad** 防坍缩（JEPA 标志做法）。
 - **V-JEPA 2-AC**：300M、24 层 transformer 的动作条件预测器，仅用 **<62 小时** Droid 机器人数据后训练；**冻结编码器，只训预测器**。
 - 规划：**想象候选动作 → 按潜空间到目标距离打分 → MPC 重规划**，无像素解码、无奖励；Franka 抓放零样本成功率 65–80%。
-- **对本项目**：① 两阶段范式（海量 action-free 表征预训练 → 小样本动作条件后训练）对应本项目"看视频 → in-context 适应"；② "冻结大表征 + 训练薄动作预测器"的切分，可对照本项目 `inv_dyn_ctx`（FiLM-on-h，`net/world_model.py`）；③ EMA + stop-grad 双重防坍缩，与本项目 EMA 目标编码器（`encode_target`）方向一致。
+- **对本项目**：① 两阶段范式（海量 action-free 表征预训练 → 小样本动作条件后训练）对应本项目"看视频 → in-context 适应"；② "冻结大表征 + 训练薄动作预测器"的切分，对应本项目"冻结骨干 + 训练逆动力学头读 context"的设计（退役 Δz-JEPA 线曾有 `inv_dyn_ctx` 实现，待新基座重建）；③ EMA + stop-grad 双重防坍缩，与本项目 EMA 目标编码器方向一致。
 
 ### 2.3 DreamerV3 —— 鲁棒性配方可直接借鉴
 
 - 来源：arXiv 2301.04104，Nature 2025；`github.com/danijar/dreamerv3` 开源。
 - 设计：**RSSM = 确定性递归状态 h + 随机离散 latent**，**含解码器（重构式）**；在潜空间想象 rollout 上做 actor-critic；首个从零（无人类数据 / 课程）拿到 Minecraft 钻石。
 - 鲁棒性配方：symlog、two-hot 回报、**free-bits KL**、跨 150+ 任务**单一超参**。变体 MuDreamer 去掉重构。
-- **对本项目**：① RSSM 的"确定性 h + 随机 latent"对应本项目 `h + ξ`（`net/world_model.py` 的 `d_xi` 隐变量）；② **free-bits KL 可直接用到 `train/minecraft/losses.py:kl_diag_gauss` 防后验坍塌**；③ Dreamer 的经验显示**离散 latent 在视觉游戏中更稳**，可评估把 ξ 的连续高斯补 / 换成离散类别；④ symlog / two-hot 适用于有界回归。
+- **对本项目**：① RSSM 的"确定性 h + 随机 latent"对应本项目"h + ξ"思想；本仓 `net/dreamerv3/` 已直接复用该结构（离散 32×32 隐变量）；② **free-bits KL** 在 `net/dreamerv3/rssm.py` 已实现，统一基座的连续 ξ 也可借鉴以防后验坍塌；③ Dreamer 的经验显示**离散 latent 在视觉游戏中更稳**，可评估把 ξ 的连续高斯换成离散类别；④ symlog / two-hot 适用于有界回归。
 
 ---
 
@@ -61,7 +61,7 @@
 - **Cosmos**（NVIDIA, arXiv 2501.03575）：世界基础模型平台，tokenizer（连续 + 离散）+ 扩散与自回归两族，4–14B，**开放权重**；定位"基础 WFM → 下游 fine-tune"。
 - **Genie 3**（DeepMind, 2025-08）：实时 24fps / 720p，分钟级一致性；Genie 2 = 自回归潜扩散（因果 transformer 预测下一潜 + 扩散头渲染）。**非开放权重**。
 
-**可参考的教训**：这些模型说明 Minecraft 类动力学从 VPT 类数据**可以学到**，但也暴露了**漂移 / 长程记忆丢失 / "看着像对 ≠ 状态正确"**（像素相似不等于状态正确）等问题。这是本项目选择潜空间、选**有限持久潜槽**（结构性的长程记忆，对冲漂移）、选 JEPA（不在无关视觉细节上耗费容量）的原因。**评测口径坚持潜空间预测度量**（pred_move / persistence 基线，见 `train/minecraft/eval.py`）而非视觉相似度。
+**可参考的教训**：这些模型说明 Minecraft 类动力学从 VPT 类数据**可以学到**，但也暴露了**漂移 / 长程记忆丢失 / "看着像对 ≠ 状态正确"**（像素相似不等于状态正确）等问题。这是本项目选择潜空间、选**有限持久潜槽**（结构性的长程记忆，对冲漂移）、选 JEPA（不在无关视觉细节上耗费容量）的原因。**评测口径坚持潜空间预测度量**（如 persistence 基线下的预测精度）而非视觉相似度。
 
 ---
 
@@ -82,7 +82,7 @@
 
 **对本项目的印证**：readme 的"世界模型退到训练期、推理期不在控制环跑 rollout"**与 DreamerV3 的选择一致**（实时制约下的合理做法）；本项目 plan-as-vector 行动头读 `h` 本身就是 amortized 反应策略，已在实时友好的一端，无需在"慢 MPC vs 无规划"之间二选。北极星同样不要求推理期探索：**"看"= 更新持久潜 `h`（廉价 forward），"动"= 反应头读 `h`（廉价 forward）**，in-context = **h 条件化**而非 MPC，高成本付在训练期。
 
-**措辞建议**（供 mental_world / readme 后续修订）："退到训练期" = *不在控制环跑 online 探索*，**并非** *永不做多步潜想象*。`train/minecraft/eval.py:rollout_probe` 的演化方向是**训练期 imagination 信号**，不是推理期控制器；若 `h` 条件化不足，备选方案是**每 K 帧的有界 online refinement**（receding horizon 保持廉价），而非全程 MPC。
+**措辞建议**："退到训练期" = *不在控制环跑 online 探索*，**并非** *永不做多步潜想象*。离线 rollout 诊断的演化方向是**训练期 imagination 信号**（DreamerV3 的想象 actor-critic 即此类，见 [dreamer.md](dreamer.md)），不是推理期控制器；若 `h` 条件化不足，备选方案是**每 K 帧的有界 online refinement**（receding horizon 保持廉价），而非全程 MPC。
 
 ---
 
@@ -95,9 +95,9 @@
 | 3 | "自回归"分像素与潜空间两义；潜 rollout 必需且兼容 | 全体 | §1 的轴 A / 轴 B 区分，建议写进 mental_world / readme |
 | 4 | 两阶段：海量 action-free 预训练 → 小样本动作条件后训练 | V-JEPA 2 / Cosmos | "冻结大表征 + 薄动作预测器"切分，对照 `inv_dyn_ctx` |
 | 5 | 潜动作码可从无标注视频推断（IDM + FDM + VQ） | Genie / LAPO | `control_remap` → 每 episode 可学潜动作码 |
-| 6 | free-bits KL 防后验坍塌；离散 latent 在视觉游戏中更稳 | DreamerV3 | `kl_diag_gauss` 加 free-bits；评估 ξ 离散化 |
+| 6 | free-bits KL 防后验坍塌；离散 latent 在视觉游戏中更稳 | DreamerV3 | `net/dreamerv3/rssm.py` 已用 free-bits KL + 离散 latent；统一基座 ξ 可借鉴 |
 | 7 | 像素模型漂移 / 长程记忆丢失 → 潜 + 持久槽是结构性的应对方案 | Oasis / MineWorld | 坚持潜空间评测口径；持久槽对照像素漂移论证 |
-| 8 | anti-collapse 是潜世界模型的硬约束（EMA + stop-grad + 方差正则） | V-JEPA 2 / LeWorldModel | 维持 `SIGReg`（`blocks/regularization.py`）+ `slot_diversity_loss`；对照检查 EMA 目标稳定性 |
+| 8 | anti-collapse 是潜世界模型的硬约束（EMA + stop-grad + 方差正则） | V-JEPA 2 / LeWorldModel | 维持 `SIGReg`（`blocks/regularization.py`）+ 槽多样性约束；对照检查 EMA 目标稳定性 |
 
 ---
 
@@ -105,10 +105,10 @@
 
 以下为调研引出的可选改进，本轮不实施，留待后续指令逐项评估：
 
-1. **`kl_diag_gauss` 加 free-bits 下限**（Dreamer 配方）：防 ξ 后验坍塌。低风险，与现路线兼容。
+1. **统一基座 ξ 加 free-bits KL 下限**（Dreamer 配方，`net/dreamerv3` 已有参照实现）：防后验坍塌。低风险。
 2. **评估 ξ 离散化**：连续高斯 → 离散类别 latent，参 Dreamer 在视觉游戏的稳定性观察。
-3. **`control_remap` 可学化**：手写重映射 → episode 级可推断潜动作码，受 episodic loss 驱动（§4）。
-4. **`rollout_probe` → 训练期 imagination loss**：把离线诊断升级为训练期多步想象监督（§5），而非推理期控制器。
+3. **控制重映射可学化**：手写重映射 → episode 级可推断潜动作码，受 episodic loss 驱动（§4）。
+4. **离线 rollout 诊断 → 训练期 imagination loss**：把离线诊断升级为训练期多步想象监督（§5），而非推理期控制器。
 5. **轴 A / 轴 B 区分写入 mental_world / readme**：澄清"非自回归"的精确含义（§1）。
 
 ---

@@ -110,3 +110,63 @@ seq/batch×T 是显存与解码/想象成本的主因。进一步可选 torch.co
 - DreamerV3 的随机隐变量（离散 32×32）是本仓统一世界基座里 ξ 思想的来源（见 mental_world）。
 - 两个模型共享 `blocks/` 的同一批算子（GRU/卷积/分布/序列/注意力/MLP），互为对照：
   DreamerV3 用 GRU 递归 + 离散 RSSM，Dreamer4 用时空 Transformer + 连续 token + 流匹配生成。
+
+## 4. Crafter 训练手册（L4 实测）
+
+权威来源是代码（`train/crafter/`、`net/dreamerv3/`）；本节补充可复用的运行方法与一轮观测结果。
+
+### 4.1 从零开始训练（任意 Linux + CUDA 平台）
+
+```bash
+# 0) 进入项目根目录，后续命令均从根目录执行
+cd <repo>
+
+# 1) 安装依赖。requirements.txt 不含 crafter，需单独安装（会附带 opensimplex / ruamel.yaml）
+pip install -r requirements.txt
+pip install crafter
+
+# 2) 检查 GPU
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+# 3) 冒烟测试（tiny，约 4k 步，几分钟，验证整条链路无 NaN）
+python -m train.crafter.train_dreamerv3 --size tiny --total-steps 4000 \
+    --prefill 500 --run-dir runs/crafter_smoke
+# 看到 wm/img 损失下降、有 upd= 日志、最后打印"训练完成"即通过
+
+# 4) 正式训练（small，后台运行 + 行缓冲日志）
+nohup python -m train.crafter.train_dreamerv3 --size small --total-steps 200000 \
+    --run-dir runs/crafter_dreamerv3 > runs/crafter_dreamerv3/train.log 2>&1 &
+
+# 5) 观测
+tail -f runs/crafter_dreamerv3/train.log              # 指标
+watch -n1 nvidia-smi                                  # GPU（利用率有突发，需多次采样看均值）
+```
+
+效率开关（`net/` 不变，仅在训练入口 `_enable_fast_math()` 设置）已默认开启：TF32 + `cudnn.benchmark` + 关闭 `torch.distributions` 参数校验。默认大 batch 短序列：`batch=48 seq=32 updates_per=2 train_every=1`（train ratio 384）。优化的原理见 §2.5。
+
+### 4.2 一轮训练结论（small，跑到 75.8k / 200k 步后手动停止）
+
+- **世界模型：正常收敛**。`wm_total 240 → ~35`、`image 237 → ~26`，单调下降后趋于平台，无 NaN。说明训练管线运行正常、世界模型在学习。
+- **策略：40k 步到峰后回落**。`ep_rew` 从约 1.0 升到峰值约 2.4（@40k），随后回落至约 1.8（@75k）；`ach/ep` 峰值约 3.3（@40k）回落至约 2.7。actor 熵从约 2.3 降至约 1.0，策略逐渐收窄，在有限预算内没有突破更难的成就。
+- **最佳检查点：`checkpoints/ckpt_00040000.pt`**（不是最新的）。评测、可视化、热启续训均建议使用此检查点。
+- **参照尺度**：Crafter 原生奖励 = 每首次解锁成就 +1，加生命值 ±0.1 塑形。随机基线约 2.1；DreamerV3 在完整 1M 步预算下约 10–11（成就 8–9）。本轮 200k 步是完整预算的 1/5，加之 40k 后策略退化，绝对分偏低属正常。
+
+### 4.3 并行环境数（n_envs）与 GPU / CPU 的关系
+
+`VecCrafterEnv` 在单进程内顺序步进 n_envs 个 Crafter 实例。Crafter 世界生成是纯 Python，受 GIL 约束，因此串行 env 步进的墙钟时间与 n_envs 成正比，增加 CPU 核数不会自动加速。`env.py` 另提供 `SubprocVecCrafterEnv`（子进程并行，`train_ppo_ad` 默认启用）；`train_dreamerv3` 当前仍用串行 `VecCrafterEnv`。
+
+| 资源 | 负责 | 受什么主导 |
+|---|---|---|
+| **CPU** | 环境步进（串行）+ RSSM `observe` 沿 T 的逐步调度 | n_envs、seq_len；是实际吞吐上限（overhead-bound） |
+| **GPU** | 世界模型前向/反向 + 想象 actor-critic | batch × seq × updates_per；与 n_envs 无关 |
+| 关系纽带 | `train ratio = updates_per × batch × seq /(train_every × n_envs)` | 调此值平衡数据供给与墙钟时间 |
+
+**n_envs 建议**：
+- **当前串行 env（train_dreamerv3）**：`n_envs=8` 较优（配合 train ratio ≈ 384/512）。超过 16 基本只会更慢，不建议。
+- **更强 GPU（A100/H100）**：优先增大 batch（48→64–96，RSSM overhead 与 batch 几乎无关），或把 `--size` 从 `small` 改为 `default`；n_envs 仍保持 8–16。显存参考：B=64、T=48 峰值约 20GB（24GB 卡安全上限），B≤64、T≤32 < 14GB。
+- **利用多核 CPU**：改用子进程并行 env（`SubprocVecCrafterEnv`），n_envs ≈ 物理核数，env 吞吐可接近线性扩展。
+
+### 4.4 评测 / 续训
+
+- **评测**：`ckpt_00040000.pt` 含 `{"total_steps", "model_state", "ep_rewards"}`；用 `net.dreamerv3.build_dreamerv3(..., **SIZE_PRESETS["small"])` 重建模型后 `load_state_dict(ckpt["model_state"])`，再用 `agent.policy()` 在 `VecCrafterEnv` 上跑 rollout 渲染帧或统计成就。
+- **续训**：训练脚本目前**没有 `--resume` 入口**（只存检查点，不读取）。两条路：① `--total-steps 1000000` 从头重训（L4 约 1 天，建议更强的卡 + 更大 batch）；② 给 `train_dreamerv3.py` 增加加载检查点的 `--resume`，从 `ckpt_00040000.pt` 热启（需改代码）。针对策略退化，可提高 actor 熵正则系数或调 `--ac-lr` 缓解熵过早塌缩。

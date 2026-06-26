@@ -131,19 +131,6 @@ all = [
 Homepage = "https://github.com/OopsYouDiedE/tao-not-42"
 Documentation = "https://github.com/OopsYouDiedE/tao-not-42#快速安装"
 
-# ────────────────────────────────────────────────────────────────
-# Tool: uv（依赖管理器配置）
-# ────────────────────────────────────────────────────────────────
-[tool.uv]
-# Python 版本控制
-python-version = "3.11"
-
-# 允许 Python 3.12 / 3.13 运行（Colab 环境）
-python-versions = ">=3.11,<3.14"
-
-# 并行下载和依赖解决
-# uv 默认已启用，这里只是显式声明
-# index = ["https://pypi.org/simple"]
 
 # ────────────────────────────────────────────────────────────────
 # Tool: pytest（测试配置）

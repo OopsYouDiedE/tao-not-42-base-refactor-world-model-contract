@@ -21,13 +21,18 @@ from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
 class MinecraftCraftgroundEnv:
     """单个 Minecraft Craftground 环境，兼容 gym 接口。"""
 
-    def __init__(self, seed: int = 0, max_steps: int = 1000):
+    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000):
         self.seed = seed
         self.max_steps = max_steps
         self.episode_step = 0
 
         config = InitialEnvironmentConfig()
-        self.env = CraftGroundEnvironment(config)
+        self.env = CraftGroundEnvironment(
+            config,
+            port=port,
+            find_free_port=True,  # 自动分配可用端口（多环境必需）
+            verbose=False,
+        )
 
     def reset(self) -> np.ndarray:
         """重置环境，返回 (H, W, C) uint8 观测。"""
@@ -74,12 +79,20 @@ class CraftgroundVecEnv:
         nproc: int = 1,
         device: str = "cuda",
         max_episode_steps: int = 1000,
+        base_port: int = 8000,
     ):
         self.nproc = nproc
         self.device = device
         self.max_episode_steps = max_episode_steps
 
-        self.envs = [MinecraftCraftgroundEnv(seed=i, max_steps=max_episode_steps) for i in range(nproc)]
+        self.envs = [
+            MinecraftCraftgroundEnv(
+                seed=i,
+                max_steps=max_episode_steps,
+                port=base_port + i * 10,  # 每个环境的基础端口不同（find_free_port 会找到可用的）
+            )
+            for i in range(nproc)
+        ]
 
         self.episode_rewards = np.zeros(nproc)
         self.episode_lengths = np.zeros(nproc, dtype=np.int32)

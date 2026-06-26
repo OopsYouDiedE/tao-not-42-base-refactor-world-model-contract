@@ -1,0 +1,5 @@
+# RL 工具集依赖
+-r base.txt
+
+gymnasium>=0.29
+envpool

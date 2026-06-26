@@ -11,6 +11,34 @@
 
 ---
 
+## 快速安装
+
+本项目支持**模块化可选依赖** — 只装你需要的功能：
+
+```bash
+# 仅核心依赖
+pip install -e .
+
+# Crafter PPO+AD 训练
+pip install -e .[ppo-ad]
+
+# DreamerV3 世界模型
+pip install -e .[dreamer]
+
+# 全部（包括开发工具）
+pip install -e .[all]
+```
+
+或者用传统的 `-r` 方式：
+```bash
+pip install -r requirements/ppo-ad.txt      # PPO+AD
+pip install -r requirements/all.txt         # 全部
+```
+
+详见 **[INSTALL.md](INSTALL.md)** — 完整的安装指南与环境配置。
+
+---
+
 ## 设计原则
 
 - **JEPA 潜空间预测**：不解码回像素，预测潜表征**增量** Δz；persistence（预测 0）= 1.0 基线。

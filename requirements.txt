@@ -1,16 +1,37 @@
-# 运行时依赖:只列代码实际 import 的包。
-# 2026-06 瘦身:移除 legacy(rhythm/yolo/procgen/mamba 时代)且全仓无 import 的
-# tensorflow / tensorflow-datasets / h5py / ultralytics / scipy / mamba-ssm。
+# ⚠️ 本文件已弃用！
+#
+# 项目已改为使用 setup.py 的模块化可选依赖。
+# 请参考 INSTALL.md 了解详细使用方法。
+#
+# 推荐方式（按需安装）：
+#   pip install -e .             # 仅核心依赖
+#   pip install -e .[crafter]    # Crafter 训练
+#   pip install -e .[ppo-ad]     # PPO+AD 算法
+#   pip install -e .[dreamer]    # DreamerV3
+#   pip install -e .[all]        # 全部
+#
+# 如果必须用 -r requirements.txt 形式安装，请改用：
+#   pip install -r requirements/all.txt
+#
+# ─────────────────────────────────────────────────────────────
+# 核心依赖（总是需要）
 torch
-torchvision        # utils/visualization.py
+torchvision
 numpy
-opencv-python      # cv2:VPT 数据集解码 + 可视化
-matplotlib         # 训练面板 minecraft_viz / train_probe
-transformers       # 视觉骨干 DINOv2/v3(统一走 HF,见 net._load_backbone)+ 任务文本编码 minilm
-wandb              # 远程实验记录(--wandb)
-requests           # 数据下载(colab 数据准备)
-pyyaml             # configs/ 结构 yaml 预设读取(utils/config_io)
-crafter            # Crafter 环境(PPO+AD 训练域)
+opencv-python
+matplotlib
+transformers
+wandb
+requests
+pyyaml
 
-# DINOv3 权重 gated:需 HF token(Colab Secret HF_TOKEN / 仓库根 .env),见 utils/hf_token.py。
-# 旧 torch.hub 路径已废弃 ⇒ 不再需要 xformers(DINOv2 SwiGLU 加速);transformers 自带 SDPA。
+# 条件依赖（按需）—— 见 setup.py extras_require
+# - crafter            # 用于 [crafter] / [ppo-ad] / [dreamer]
+# - pot                # 用于 [ppo-ad]（最优传输）
+# - scikit-optimize    # 用于 [ppo-ad]
+# - tensorflow         # 用于 [dreamer]（基线对比）
+# - minerl             # 用于 [minecraft]
+# - pillow             # 用于 [minecraft]
+# - gymnasium          # 用于 [rl]
+# - envpool            # 用于 [rl]
+# - pytest / black     # 用于 [dev]

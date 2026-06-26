@@ -1,0 +1,211 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tao-not-42"
+version = "0.1.0"
+description = "World model and RL training framework"
+authors = [{name = "OopsYouDiedE", email = "oopsyoudied88@gmail.com"}]
+readme = "readme.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+# 核心依赖
+dependencies = [
+    "numpy",
+    "torch>=2.0",
+    "torchvision",
+    "opencv-python",
+    "matplotlib",
+    "transformers>=4.30",
+    "wandb",
+    "requests",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# ────────────────────────────────────────────────────────────────
+# 可选模块（按需安装）
+# ────────────────────────────────────────────────────────────────
+
+crafter = [
+    "crafter",
+    "ray[tune]>=2.0",
+]
+
+ppo-ad = [
+    "crafter",
+    "pot",
+    "scikit-optimize",
+]
+
+dreamer = [
+    "crafter",
+    "tensorflow>=2.13",
+]
+
+craftground = [
+    # craftground 的 Python 包（假设存在）
+    "craftground>=0.1.0",
+    # 需要 Java 21（系统依赖，见 install_env.py）
+]
+
+minecraft = [
+    "minerl",
+    "pillow>=9.0",
+]
+
+rl = [
+    "gymnasium>=0.29",
+    "envpool",
+]
+
+# ────────────────────────────────────────────────────────────────
+# 环境特定的依赖
+# ────────────────────────────────────────────────────────────────
+
+# Colab 环境特定：虚拟显示 + 依赖
+colab = [
+    "pyvirtualdisplay",
+]
+
+# Godot 环境特定：C# 支持（系统依赖在 install_env.py 处理）
+godot = [
+    "godot-python>=0.5.0",  # 假设包名
+]
+
+# ────────────────────────────────────────────────────────────────
+# 开发工具
+# ────────────────────────────────────────────────────────────────
+
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "isort",
+    "flake8",
+    "mypy",
+]
+
+# ────────────────────────────────────────────────────────────────
+# 组合组（便利）
+# ────────────────────────────────────────────────────────────────
+
+# Crafter 体验完整版
+crafter-full = [
+    "crafter",
+    "ray[tune]>=2.0",
+    "pot",
+    "scikit-optimize",
+    "tensorflow>=2.13",
+]
+
+# Colab 标准配置（Crafter + Colab 虚拟显示）
+colab-crafter = [
+    "crafter",
+    "ray[tune]>=2.0",
+    "pyvirtualdisplay",
+]
+
+# Colab PPO+AD 配置
+colab-ppo-ad = [
+    "crafter",
+    "pot",
+    "scikit-optimize",
+    "pyvirtualdisplay",
+]
+
+# Godot RL 完整配置
+godot-full = [
+    "godot-python>=0.5.0",
+    "gymnasium>=0.29",
+    "envpool",
+]
+
+# 完整安装（所有模块 + 工具）
+all = [
+    "crafter",
+    "pot",
+    "scikit-optimize",
+    "tensorflow>=2.13",
+    "craftground>=0.1.0",
+    "minerl",
+    "pillow>=9.0",
+    "gymnasium>=0.29",
+    "envpool",
+    "pyvirtualdisplay",
+    "godot-python>=0.5.0",
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "isort",
+    "flake8",
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/OopsYouDiedE/tao-not-42"
+Documentation = "https://github.com/OopsYouDiedE/tao-not-42#快速安装"
+
+# ────────────────────────────────────────────────────────────────
+# Tool: uv（依赖管理器配置）
+# ────────────────────────────────────────────────────────────────
+[tool.uv]
+# Python 版本控制
+python-version = "3.11"
+
+# 允许 Python 3.12 / 3.13 运行（Colab 环境）
+python-versions = ">=3.11,<3.14"
+
+# 并行下载和依赖解决
+# uv 默认已启用，这里只是显式声明
+# index = ["https://pypi.org/simple"]
+
+# ────────────────────────────────────────────────────────────────
+# Tool: pytest（测试配置）
+# ────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v --tb=short"
+
+# ────────────────────────────────────────────────────────────────
+# Tool: black（代码格式化）
+# ────────────────────────────────────────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # 目录
+  \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | runs
+)/
+'''
+
+# ────────────────────────────────────────────────────────────────
+# Tool: isort（import 排序）
+# ────────────────────────────────────────────────────────────────
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+known_first_party = ["blocks", "net", "train", "utils"]
+
+# ────────────────────────────────────────────────────────────────
+# Tool: mypy（类型检查）
+# ────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # 可选：改为 true 启用严格类型检查
+ignore_missing_imports = true

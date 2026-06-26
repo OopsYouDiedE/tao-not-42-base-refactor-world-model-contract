@@ -1,0 +1,9 @@
+# 开发工具依赖
+-r base.txt
+
+pytest>=7.0
+pytest-cov
+black
+isort
+flake8
+mypy

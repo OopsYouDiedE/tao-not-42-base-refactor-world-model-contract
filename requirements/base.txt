@@ -1,0 +1,10 @@
+# 核心依赖（所有用户都需要）
+numpy
+torch
+torchvision
+opencv-python
+matplotlib
+transformers
+wandb
+requests
+pyyaml

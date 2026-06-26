@@ -1,0 +1,5 @@
+# PPO + Achievement Distillation 依赖
+-r crafter.txt
+
+pot
+scikit-optimize

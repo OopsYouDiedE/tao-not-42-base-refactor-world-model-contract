@@ -10,18 +10,20 @@
     OBS_SHAPE, NUM_ACTIONS, NUM_ACHIEVEMENTS, ENCODER_CONFIG
 """
 
-# 观测空间（Craftground 原生分辨率：640x360）
-OBS_SHAPE = (3, 360, 640)  # RGB 图像，640x360（原生）
+# 观测空间（Craftground 原生分辨率：640x360 → 填充到 384x640 以兼容 YOLO）
+OBS_SHAPE_NATIVE = (3, 360, 640)  # 原生 Craftground 输出
+OBS_SHAPE = (3, 384, 640)  # 填充后的形状（384 = 最小的 ≥360 的 32 倍数）
 OBS_DTYPE = "float32"  # [0, 1] 归一化
 
 # 图像编码器配置
 ENCODER_CONFIG = {
     "type": "YOLO26s",
-    "backbone": "YOLO26s",  # 目标检测预训练权重
+    "backbone": "YOLO26s",  # YOLOv8-s（目标检测预训练）
     "fusion": "multi_scale",  # P3, P4, P5 多尺度融合
     "fusion_method": "weighted",  # 学习权重的融合
     "output_dim": 512,  # 编码后的特征维度
     "total_params": "~12M",  # YOLO26s backbone (~11.2M) + fusion head
+    "input_resolution": (384, 640),  # (H, W)，兼容 YOLO 的 32 倍数要求
 }
 
 # 动作空间（Minecraft Java 版的离散动作）

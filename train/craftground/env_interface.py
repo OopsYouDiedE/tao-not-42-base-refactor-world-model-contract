@@ -9,6 +9,7 @@
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from typing import Tuple, Dict, Optional
 from train.craftground.env import MinecraftCraftgroundEnv, CraftgroundVecEnv
 from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
@@ -231,8 +232,33 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
             env.close()
 
     @staticmethod
-    def _to_obs(raw: np.ndarray) -> torch.Tensor:
-        """[N,H,W,C] uint8 → [N,C,H,W] float32 [0,1]。"""
+    def _to_obs(raw: np.ndarray, target_h: int = 384, target_w: int = 640) -> torch.Tensor:
+        """[N,H,W,C] uint8 → [N,C,H,W] float32 [0,1]。
+
+        并自动填充到目标分辨率（兼容 YOLO 的 32 倍数要求）。
+
+        Args:
+            raw: 原始观测 (B, H, W, 3)
+            target_h: 目标高度（默认 384，= ceil(360 / 32) * 32）
+            target_w: 目标宽度（默认 640）
+
+        Returns:
+            观测张量 (B, 3, H, W)，填充到目标大小
+        """
         if raw.ndim == 3:
             raw = raw[np.newaxis, ...]
-        return torch.from_numpy(raw.transpose(0, 3, 1, 2).astype(np.float32) / 255.0)
+
+        # 转换为 torch 张量并转移到 [0, 1]
+        obs = torch.from_numpy(raw.transpose(0, 3, 1, 2).astype(np.float32) / 255.0)
+
+        # 填充到目标分辨率（如果需要）
+        if obs.shape[2] != target_h or obs.shape[3] != target_w:
+            # 使用 bottom-right 填充（保持图像在左上角）
+            pad_h = max(0, target_h - obs.shape[2])
+            pad_w = max(0, target_w - obs.shape[3])
+
+            if pad_h > 0 or pad_w > 0:
+                # pad: (left, right, top, bottom)
+                obs = F.pad(obs, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
+
+        return obs

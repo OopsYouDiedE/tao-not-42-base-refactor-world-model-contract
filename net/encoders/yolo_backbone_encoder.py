@@ -68,14 +68,21 @@ class YoloBackboneEncoder(nn.Module):
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            obs: (B, C, H, W) float32, 值域 [0, 1]
+            obs: (B, C, H, W) float32, 值域 [0, 1] 或 uint8 [0, 255]
+                 分辨率可以是任意的，会自动调整到 384×640
 
         Returns:
             state: (B, output_dim) 状态表征
         """
-        # YOLO 期望输入 [0, 255]，需要转换
-        if obs.max() <= 1.0:
-            obs = (obs * 255).to(torch.uint8).float()
+        # 确保值域在 [0, 1]
+        if obs.dtype == torch.uint8:
+            obs = obs.float() / 255.0
+        elif obs.max() > 1.0:
+            obs = obs / 255.0
+
+        # 调整到目标分辨率 384×640
+        if obs.shape[2:] != (384, 640):
+            obs = F.interpolate(obs, size=(384, 640), mode="bilinear", align_corners=False)
 
         # 通过 YOLO backbone 提取多尺度特征
         try:

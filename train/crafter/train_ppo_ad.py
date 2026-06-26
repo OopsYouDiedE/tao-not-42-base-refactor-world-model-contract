@@ -50,13 +50,40 @@ def main():
     ckpt_dir = os.path.join(args.run_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    cfg = PPOADConfig(
-        n_envs=args.n_envs,
-        n_steps=args.n_steps,
-        total_timesteps=args.total_timesteps,
+    base_cfg = PPOADConfig(
+        nproc=args.n_envs,
+        nstep=args.n_steps,
+        nepoch=args.total_timesteps // (args.n_envs * args.n_steps),
         lr=args.lr,
-        ad_coef=args.ad_coef,
     )
+
+    class Config:
+        pass
+
+    cfg = Config()
+    # 从 base_cfg 复制 PPOADConfig 的属性
+    for attr in dir(base_cfg):
+        if not attr.startswith('_'):
+            setattr(cfg, attr, getattr(base_cfg, attr))
+
+    # 映射 CLI 参数和添加必要属性
+    cfg.total_timesteps = args.total_timesteps
+    cfg.n_envs = args.n_envs
+    cfg.n_steps = args.n_steps
+    cfg.ad_coef = args.ad_coef
+    cfg.demo_len = 8
+    cfg.log_interval = 10
+    cfg.save_interval = 50
+    cfg.ad_buffer_cap = 1000
+    cfg.encoder_depths = (64, 128, 128)
+    cfg.encoder_kernel = 4
+    cfg.encoder_stride = 2
+    cfg.hidden_dim = 512
+    cfg.minibatch_size = cfg.n_envs * cfg.n_steps // 8
+    cfg.n_epochs = base_cfg.ppo_nepoch
+    cfg.clip_coef = base_cfg.clip_param
+    cfg.vf_coef = base_cfg.vf_loss_coef
+    cfg.ad_batch_size = 128
 
     # ── 模型与优化器 ──────────────────────────────────────────────────────────
     model = ActorCritic(

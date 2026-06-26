@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 """
-环境检测和自动依赖安装脚本。
+智能依赖安装脚本 — 自动适配平台和环境。
 
-功能：
-  1. 检测运行环境（本机 / Colab / Godot）
-  2. 检测 Python 版本（要求 >= 3.11）
-  3. 自动安装系统依赖（apt-get）
-  4. 推荐相应的 Python 包组合
-  5. 使用 uv 进行高效安装
+核心原则：
+  - 用户指定「功能模块」（ppo-ad, dreamer, godot）
+  - 脚本自动检测「运行平台」（Colab, 本机, 服务器）
+  - 根据模块 + 平台组合，自动装相应的系统依赖和 Python 包
 
 使用方法：
-  python install_env.py                    # 交互式配置
-  python install_env.py --colab            # 跳过检测，按 Colab 配置
-  python install_env.py --godot            # Godot 环境
-  python install_env.py --craftground      # 启用 craftground
-  python install_env.py --full             # 安装所有可选依赖
+  python install_env.py                  # 交互式
+  python install_env.py --ppo-ad         # 指定 PPO+AD（自动适配平台）
+  python install_env.py --dreamer        # DreamerV3
+  python install_env.py --godot          # Godot RL
+  python install_env.py --craftground    # Craftground
+  python install_env.py --ppo-ad --dev   # 组合多个模块
+  python install_env.py --full           # 全部
 """
 
 import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Tuple
+
+
+# ────────────────────────────────────────────────────────────────
+# 平台检测
+# ────────────────────────────────────────────────────────────────
 
 
 def is_colab() -> bool:
@@ -38,6 +43,16 @@ def is_in_venv() -> bool:
     return hasattr(sys, "real_prefix") or (
         hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
     )
+
+
+def is_headless() -> bool:
+    """检测是否是无图形界面环境（Colab 或 SSH）。"""
+    if is_colab():
+        return True
+    # 可以通过其他方式检测 SSH / 服务器环境
+    # 例如检查 DISPLAY 环境变量
+    import os
+    return os.environ.get("DISPLAY") is None
 
 
 def check_python_version() -> bool:
@@ -75,9 +90,14 @@ def install_uv():
         return False
 
 
-def install_system_deps_colab():
-    """在 Colab 中安装系统依赖。"""
-    print("📦 [Colab] 安装系统依赖...")
+# ────────────────────────────────────────────────────────────────
+# 系统依赖安装（按模块）
+# ────────────────────────────────────────────────────────────────
+
+
+def install_system_deps_for_headless():
+    """为 Headless 环境安装虚拟显示依赖。"""
+    print("📦 [Headless] 安装虚拟显示依赖...")
     deps = [
         "libgl1-mesa-dev",
         "libegl1-mesa-dev",
@@ -88,33 +108,21 @@ def install_system_deps_colab():
         "xvfb",  # 虚拟显示
     ]
     try:
-        subprocess.run(
-            ["apt-get", "update"],
-            check=True,
-        )
-        subprocess.run(
-            ["apt-get", "install", "-y"] + deps,
-            check=True,
-        )
-        print("✅ Colab 系统依赖安装成功")
+        subprocess.run(["apt-get", "update"], check=True)
+        subprocess.run(["apt-get", "install", "-y"] + deps, check=True)
+        print("✅ 虚拟显示依赖安装成功")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"⚠️ 系统依赖安装部分失败: {e}")
+        print(f"⚠️ 虚拟显示依赖安装部分失败: {e}")
         return False
 
 
-def install_system_deps_craftground():
-    """安装 craftground 的系统依赖（Java 21）。"""
-    print("📦 [Craftground] 安装系统依赖...")
+def install_system_deps_for_craftground():
+    """为 Craftground 安装 Java 21。"""
+    print("📦 [Craftground] 安装 Java 21...")
     try:
-        subprocess.run(
-            ["apt-get", "update"],
-            check=True,
-        )
-        subprocess.run(
-            ["apt-get", "install", "-y", "openjdk-21-jdk"],
-            check=True,
-        )
+        subprocess.run(["apt-get", "update"], check=True)
+        subprocess.run(["apt-get", "install", "-y", "openjdk-21-jdk"], check=True)
         print("✅ Java 21 安装成功")
         return True
     except subprocess.CalledProcessError as e:
@@ -122,38 +130,111 @@ def install_system_deps_craftground():
         return False
 
 
-def install_system_deps_godot():
-    """安装 Godot C# 的系统依赖（Mono / dotnet SDK）。"""
-    print("📦 [Godot] 安装系统依赖...")
+def install_system_deps_for_godot():
+    """为 Godot 安装 Mono（C# 运行时）。"""
+    print("📦 [Godot] 安装 Mono...")
     try:
-        subprocess.run(
-            ["apt-get", "update"],
-            check=True,
-        )
-        # Mono（通用 .NET 运行时）
-        subprocess.run(
-            ["apt-get", "install", "-y", "mono-complete"],
-            check=True,
-        )
-        # .NET SDK（可选，用于 C# 开发）
-        # subprocess.run(
-        #     ["apt-get", "install", "-y", "dotnet-sdk-8.0"],
-        #     check=True,
-        # )
+        subprocess.run(["apt-get", "update"], check=True)
+        subprocess.run(["apt-get", "install", "-y", "mono-complete"], check=True)
         print("✅ Mono 安装成功")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"⚠️ Godot 系统依赖安装部分失败: {e}")
+        print(f"⚠️ Mono 安装部分失败: {e}")
         return False
+
+
+# ────────────────────────────────────────────────────────────────
+# 依赖组合和 Python 包安装
+# ────────────────────────────────────────────────────────────────
+
+
+def resolve_extras(
+    modules: Set[str], platform: str
+) -> Tuple[Set[str], Set[str]]:
+    """
+    根据指定的功能模块和平台，自动解析 Python 和系统依赖。
+
+    Args:
+        modules: 用户指定的模块集合（ppo-ad, dreamer, godot 等）
+        platform: 检测到的平台（colab, headless, godot, local）
+
+    Returns:
+        (py_extras, sys_deps) — Python extras 和系统依赖
+    """
+    py_extras = set()
+    sys_deps = set()
+
+    # ──────────────────────────────────────────────────────────
+    # Python 依赖逻辑
+    # ──────────────────────────────────────────────────────────
+
+    # PPO+AD
+    if "ppo-ad" in modules:
+        py_extras.add("ppo-ad")
+        print("✅ 将安装 PPO+AD")
+
+    # DreamerV3
+    if "dreamer" in modules:
+        py_extras.add("dreamer")
+        print("✅ 将安装 DreamerV3")
+
+    # Craftground（待确认包名和依赖）
+    if "craftground" in modules:
+        py_extras.add("craftground")
+        sys_deps.add("craftground")  # 需要 Java 21
+        print("✅ 将安装 Craftground（需要 Java 21）")
+        print("   注意：craftground 包的可用性待确认，可能需要手动安装或自编译")
+
+    # Minecraft
+    if "minecraft" in modules:
+        py_extras.add("minecraft")
+        print("✅ 将安装 Minecraft（VPT 数据处理）")
+
+    # RL 工具
+    if "rl" in modules:
+        py_extras.add("rl")
+        print("✅ 将安装 RL 工具集")
+
+    # Godot（仅装 Mono，Python binding 待确认）
+    if "godot" in modules:
+        py_extras.add("godot")
+        sys_deps.add("godot")  # 需要 Mono（C# 运行时）
+        print("✅ 将安装 Godot 环境（Mono C# 支持）")
+        print("   注意：Python binding（godot-python）包名待确认，当前仅装 Mono 系统依赖")
+
+    # 开发工具
+    if "dev" in modules:
+        py_extras.add("dev")
+        print("✅ 将安装开发工具")
+
+    # Crafter（如果指定了依赖 crafter 的模块，自动添加）
+    if any(m in modules for m in ["ppo-ad", "dreamer"]) and "crafter" not in py_extras:
+        py_extras.add("crafter")
+
+    # ──────────────────────────────────────────────────────────
+    # 平台特定的依赖
+    # ──────────────────────────────────────────────────────────
+
+    if platform == "colab":
+        sys_deps.add("headless")  # 虚拟显示
+        py_extras.add("headless")
+        print("✅ Colab 环境：自动添加虚拟显示支持")
+
+    elif platform == "headless":
+        # 服务器或无显示的环境（但不是 Colab）
+        # 可选：询问用户是否需要虚拟显示
+        pass
+
+    return py_extras, sys_deps
 
 
 def install_python_deps(extras: List[str]) -> bool:
     """使用 uv 安装 Python 依赖。"""
     if not extras:
-        print("⚠️ 未指定任何依赖组")
+        print("⚠️ 未指定任何 Python 依赖")
         return False
 
-    extras_str = ",".join(extras)
+    extras_str = ",".join(sorted(extras))
     print(f"📦 使用 uv 安装 Python 依赖: [{extras_str}]...")
 
     try:
@@ -161,138 +242,133 @@ def install_python_deps(extras: List[str]) -> bool:
             ["uv", "pip", "install", "-e", f".[{extras_str}]"],
             check=True,
         )
-        print(f"✅ Python 依赖安装成功")
+        print("✅ Python 依赖安装成功")
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ 安装失败: {e}")
         return False
 
 
-def interactive_setup() -> tuple[Set[str], Set[str]]:
-    """交互式询问用户的配置。"""
-    sys_deps = set()
-    py_extras = set()
+# ────────────────────────────────────────────────────────────────
+# 交互式配置
+# ────────────────────────────────────────────────────────────────
+
+
+def interactive_setup() -> Set[str]:
+    """交互式询问用户要安装的模块。"""
+    modules = set()
 
     print("\n" + "=" * 60)
-    print("🎯 环境检测和配置")
+    print("🎯 模块选择")
     print("=" * 60)
 
-    is_in_colab = is_colab()
-    print(f"\n📍 运行环境: {'Colab' if is_in_colab else '本机/服务器'}")
+    # 检测平台
+    if is_colab():
+        print("\n📍 环境: Google Colab（自动检测）")
+    elif is_headless():
+        print("\n📍 环境: Headless / 服务器")
+    else:
+        print("\n📍 环境: 本地桌面环境")
 
-    # 询问是否在 Colab
-    if not is_in_colab:
-        colab_resp = input("\n你在 Colab 中运行吗？(y/n) [n]: ").strip().lower()
-        if colab_resp == "y":
-            is_in_colab = True
-
-    if is_in_colab:
-        sys_deps.add("colab")
-        py_extras.add("colab")
-        print("✅ 将安装 Colab 虚拟显示依赖")
-
-    # 询问是否使用 Crafter
+    # Crafter 相关模块
     crafter_resp = input("\n是否使用 Crafter 环境？(y/n) [y]: ").strip().lower()
     if crafter_resp != "n":
-        py_extras.add("crafter")
-        print("✅ 将安装 Crafter")
-
-        # PPO+AD 或 DreamerV3
         algo_resp = (
-            input("\n选择算法: (1) PPO+AD, (2) DreamerV3, (3) 两者, (4) 跳过 [1]: ")
+            input(
+                "\n选择算法:\n"
+                "  (1) PPO+AD\n"
+                "  (2) DreamerV3\n"
+                "  (3) 两者都装\n"
+                "  (4) 跳过\n"
+                "[1]: "
+            )
             .strip()
             .lower()
         )
         if algo_resp in ("1", ""):
-            py_extras.add("ppo-ad")
-            print("✅ 将安装 PPO+AD")
+            modules.add("ppo-ad")
         elif algo_resp == "2":
-            py_extras.add("dreamer")
-            print("✅ 将安装 DreamerV3")
+            modules.add("dreamer")
         elif algo_resp == "3":
-            py_extras.add("ppo-ad")
-            py_extras.add("dreamer")
-            print("✅ 将同时安装 PPO+AD 和 DreamerV3")
+            modules.add("ppo-ad")
+            modules.add("dreamer")
 
-    # 询问是否使用 Craftground
-    craftground_resp = input("\n是否使用 Craftground 环境？(y/n) [n]: ").strip().lower()
-    if craftground_resp == "y":
-        sys_deps.add("craftground")
-        py_extras.add("craftground")
-        print("✅ 将安装 Craftground（需要 Java 21）")
+    # 其他环境
+    if (
+        input("\n是否使用 Craftground 游戏环境？(y/n) [n]: ").strip().lower()
+        == "y"
+    ):
+        modules.add("craftground")
 
-    # 询问是否使用 Godot
-    godot_resp = input("\n是否使用 Godot 环境？(y/n) [n]: ").strip().lower()
-    if godot_resp == "y":
-        sys_deps.add("godot")
-        py_extras.add("godot")
-        print("✅ 将安装 Godot C# 支持（需要 Mono）")
+    if (
+        input("\n是否使用 Minecraft / VPT 数据处理？(y/n) [n]: ").strip().lower()
+        == "y"
+    ):
+        modules.add("minecraft")
 
-    # 询问是否安装开发工具
-    dev_resp = input("\n是否安装开发工具（pytest, black, mypy）？(y/n) [n]: ").strip().lower()
-    if dev_resp == "y":
-        py_extras.add("dev")
-        print("✅ 将安装开发工具")
+    if input("\n是否使用 Godot RL 环境？(y/n) [n]: ").strip().lower() == "y":
+        modules.add("godot")
 
-    return sys_deps, py_extras
+    if input("\n是否使用通用 RL 工具（gymnasium, envpool）？(y/n) [n]: ").strip().lower() == "y":
+        modules.add("rl")
+
+    # 开发工具
+    if (
+        input(
+            "\n是否安装开发工具（pytest, black, mypy）？(y/n) [n]: "
+        )
+        .strip()
+        .lower()
+        == "y"
+    ):
+        modules.add("dev")
+
+    return modules
+
+
+# ────────────────────────────────────────────────────────────────
+# 主程序
+# ────────────────────────────────────────────────────────────────
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="环境检测和自动安装脚本",
+        description="智能依赖安装脚本 — 自动适配平台和环境",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例：
-  python install_env.py                    # 交互式配置
-  python install_env.py --colab            # Colab 标准配置
-  python install_env.py --colab --ppo-ad   # Colab + PPO+AD
-  python install_env.py --full             # 安装全部
+  python install_env.py                  # 交互式配置
+  python install_env.py --ppo-ad         # 安装 PPO+AD（自动适配平台）
+  python install_env.py --ppo-ad --dev   # 组合安装
+  python install_env.py --full           # 安装全部
+
+支持的模块：
+  --ppo-ad          PPO + Achievement Distillation（需要 Crafter）
+  --dreamer         DreamerV3 世界模型（需要 Crafter）
+  --craftground     Craftground 游戏环境
+  --minecraft       Minecraft VPT 数据处理
+  --godot           Godot RL 环境支持
+  --rl              通用 RL 工具（gymnasium, envpool）
+  --dev             开发工具（pytest, black, mypy）
+  --full            全部（包括所有可选）
         """,
     )
-    parser.add_argument(
-        "--colab",
-        action="store_true",
-        help="跳过检测，按 Colab 配置",
-    )
-    parser.add_argument(
-        "--godot",
-        action="store_true",
-        help="启用 Godot 环境支持",
-    )
-    parser.add_argument(
-        "--craftground",
-        action="store_true",
-        help="启用 Craftground 环境",
-    )
-    parser.add_argument(
-        "--ppo-ad",
-        action="store_true",
-        help="安装 PPO+AD",
-    )
-    parser.add_argument(
-        "--dreamer",
-        action="store_true",
-        help="安装 DreamerV3",
-    )
-    parser.add_argument(
-        "--crafter",
-        action="store_true",
-        help="安装 Crafter",
-    )
-    parser.add_argument(
-        "--dev",
-        action="store_true",
-        help="安装开发工具",
-    )
-    parser.add_argument(
-        "--full",
-        action="store_true",
-        help="安装所有可选依赖",
-    )
+
+    # 功能模块选项（不涉及平台）
+    parser.add_argument("--ppo-ad", action="store_true", help="安装 PPO+AD")
+    parser.add_argument("--dreamer", action="store_true", help="安装 DreamerV3")
+    parser.add_argument("--craftground", action="store_true", help="安装 Craftground")
+    parser.add_argument("--minecraft", action="store_true", help="安装 Minecraft")
+    parser.add_argument("--godot", action="store_true", help="安装 Godot RL")
+    parser.add_argument("--rl", action="store_true", help="安装 RL 工具")
+    parser.add_argument("--dev", action="store_true", help="安装开发工具")
+    parser.add_argument("--full", action="store_true", help="安装全部")
+
+    # 控制选项
     parser.add_argument(
         "--skip-system-deps",
         action="store_true",
-        help="跳过系统依赖安装（仅 apt）",
+        help="跳过系统依赖安装",
     )
     parser.add_argument(
         "--skip-python-deps",
@@ -303,87 +379,118 @@ def main():
     args = parser.parse_args()
 
     # ─── 检查 Python 版本 ──────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("🔍 环境检查")
+    print("=" * 60 + "\n")
+
     if not check_python_version():
         sys.exit(1)
 
-    # ─── 确定配置 ──────────────────────────────────────────────
+    # ─── 确定运行平台 ──────────────────────────────────────────
+    is_in_colab = is_colab()
+    is_in_headless = is_headless() and not is_in_colab
+
+    if is_in_colab:
+        platform = "colab"
+        print("📍 环境: Google Colab")
+    elif is_in_headless:
+        platform = "headless"
+        print("📍 环境: Headless / 服务器")
+    else:
+        platform = "local"
+        print("📍 环境: 本地桌面")
+
+    # ─── 确定要安装的模块 ──────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("📦 模块选择")
+    print("=" * 60)
+
     if args.full:
-        # 全部安装
-        sys_deps = {"colab", "craftground", "godot"}
-        py_extras = {"crafter", "ppo-ad", "dreamer", "craftground", "godot", "dev"}
-    elif any(vars(args).values()):
+        modules = {"ppo-ad", "dreamer", "craftground", "minecraft", "godot", "rl", "dev"}
+        print("\n🚀 全部安装模式")
+    elif any(vars(args).get(m) for m in ["ppo_ad", "dreamer", "craftground", "minecraft", "godot", "rl", "dev"]):
         # 命令行参数指定
-        sys_deps = set()
-        py_extras = set()
-
-        if args.colab:
-            sys_deps.add("colab")
-            py_extras.add("colab")
-        if args.godot:
-            sys_deps.add("godot")
-            py_extras.add("godot")
-        if args.craftground:
-            sys_deps.add("craftground")
-            py_extras.add("craftground")
-
-        if args.crafter or args.ppo_ad or args.dreamer:
-            py_extras.add("crafter")
+        modules = set()
         if args.ppo_ad:
-            py_extras.add("ppo-ad")
+            modules.add("ppo-ad")
         if args.dreamer:
-            py_extras.add("dreamer")
+            modules.add("dreamer")
+        if args.craftground:
+            modules.add("craftground")
+        if args.minecraft:
+            modules.add("minecraft")
+        if args.godot:
+            modules.add("godot")
+        if args.rl:
+            modules.add("rl")
         if args.dev:
-            py_extras.add("dev")
+            modules.add("dev")
+        print(f"\n✅ 模块: {', '.join(sorted(modules))}")
     else:
         # 交互式询问
-        sys_deps, py_extras = interactive_setup()
+        modules = interactive_setup()
+
+    # ─── 解析依赖 ──────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("🔧 依赖解析")
+    print("=" * 60 + "\n")
+
+    py_extras, sys_deps = resolve_extras(modules, platform)
+
+    if not py_extras and not sys_deps:
+        print("⚠️ 未指定任何模块")
+        return
 
     # ─── 检查 uv ──────────────────────────────────────────────
     if not check_uv_installed():
         print("\n⚠️ uv 未安装，正在安装...")
         if not install_uv():
-            print("❌ 无法安装 uv，尝试使用 pip...")
+            print("❌ 无法自动安装 uv，请手动运行: pip install uv")
+            return
 
     # ─── 安装系统依赖 ──────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("🔧 安装系统依赖")
+    print("🔨 系统依赖安装")
     print("=" * 60)
 
     if not args.skip_system_deps:
-        if "colab" in sys_deps:
-            install_system_deps_colab()
+        if "headless" in sys_deps:
+            install_system_deps_for_headless()
         if "craftground" in sys_deps:
-            install_system_deps_craftground()
+            install_system_deps_for_craftground()
         if "godot" in sys_deps:
-            install_system_deps_godot()
+            install_system_deps_for_godot()
     else:
         print("⏭️ 跳过系统依赖安装")
 
     # ─── 安装 Python 依赖 ──────────────────────────────────────
     print("\n" + "=" * 60)
-    print("🐍 安装 Python 依赖")
-    print("=" * 60)
+    print("🐍 Python 依赖安装")
+    print("=" * 60 + "\n")
 
-    if py_extras and not args.skip_python_deps:
+    if not args.skip_python_deps:
         install_python_deps(sorted(py_extras))
-    elif args.skip_python_deps:
-        print("⏭️ 跳过 Python 依赖安装")
     else:
-        print("⚠️ 未指定任何 Python 依赖，仅安装核心包...")
-        install_python_deps([])
+        print("⏭️ 跳过 Python 依赖安装")
 
     # ─── 完成 ──────────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("✅ 安装完成！")
     print("=" * 60)
-    print(f"\n已安装模块: {', '.join(sorted(py_extras))}")
-    print("\n接下来:")
-    if "ppo-ad" in py_extras:
-        print("  python -m train.crafter.train_ppo_ad --n-envs 16")
-    if "dreamer" in py_extras:
+    print(f"\n🎯 已安装模块: {', '.join(sorted(modules))}")
+    print(f"📍 平台: {platform}")
+
+    print("\n📝 接下来:")
+    if "ppo-ad" in modules:
+        print("  python -m train.crafter.train_ppo_ad --n-envs 16 --total-timesteps 3000000")
+    if "dreamer" in modules:
         print("  python -m train.crafter.train_dreamerv3")
-    if "craftground" in py_extras:
+    if "godot" in modules:
+        print("  # 打开 Godot 编辑器进行 RL 实验...")
+    if "craftground" in modules:
         print("  # Craftground 环境已就绪")
+
+    print("\n🔗 查看完整文档: INSTALL.md")
 
 
 if __name__ == "__main__":

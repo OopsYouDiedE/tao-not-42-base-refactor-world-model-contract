@@ -5,36 +5,37 @@
 ## 🚀 最简快速开始
 
 ### 方法 1：自动配置（推荐）
+脚本**自动检测平台**（Colab / 本机 / 服务器），按需添加系统依赖。
+
 ```bash
-# 交互式问答，自动检测环境并安装
+# 交互式问答
 python install_env.py
+
+# 直接指定模块（脚本自动适配平台）
+python install_env.py --ppo-ad              # PPO+AD（自动装虚拟显示，如果在 Colab）
+python install_env.py --dreamer             # DreamerV3
+python install_env.py --ppo-ad --dev        # 组合多个模块
+python install_env.py --full                # 全部
 ```
 
-### 方法 2：指定环境
-```bash
-# Colab 环境 + PPO+AD
-python install_env.py --colab --ppo-ad
+**核心特点**：
+- ✅ 自动检测 Colab / 本机 / 服务器环境
+- ✅ 自动安装系统依赖（apt-get）
+- ✅ 自动添加平台特定的 Python 包（如虚拟显示）
+- ✅ 用户只需指定**功能模块**，平台差异由脚本处理
 
-# 本机 Crafter + DreamerV3
-python install_env.py --crafter --dreamer
-
-# 启用 Godot 环境
-python install_env.py --godot
-
-# 启用 Craftground（需要 Java 21）
-python install_env.py --craftground
-
-# 安装全部
-python install_env.py --full
-```
-
-### 方法 3：手动安装（传统 pip 方式）
+### 方法 2：手动安装（高级用户）
 ```bash
 # 仅核心依赖
 pip install -e .
 
-# 或使用 uv（更快）
-uv pip install -e .
+# 指定模块
+uv pip install -e .[ppo-ad]           # 快速，使用 uv
+pip install -e .[ppo-ad]              # 传统方式
+
+# 组合多个模块
+uv pip install -e .[ppo-ad,dev]
+uv pip install -e .[crafter,ppo-ad,dreamer]  # 完整 Crafter
 ```
 
 ---

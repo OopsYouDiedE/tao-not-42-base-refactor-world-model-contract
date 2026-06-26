@@ -147,7 +147,80 @@ helper 下沉到二者的公共下游。
 
 ---
 
-## 11. 已知技术债（待清，不阻塞）
+## 11. 安装与环境约束
+
+### 11.1 安装系统设计原则
+
+核心原则：**用户指定功能模块，脚本自动适配平台**。
+
+```
+用户层面：python install_env.py --ppo-ad --dev
+                                    ↓
+脚本检测层：is_colab() / is_headless() / is_local()
+                                    ↓
+平台适配层：自动选择 sys_deps（apt-get）和 py_extras
+                                    ↓
+安装层：uv pip install -e .[py_extras] + apt-get install [sys_deps]
+```
+
+**禁止暴露平台前缀**：
+- ❌ 不要 `--colab`, `--godot` 这样的平台参数
+- ✅ 只有功能参数：`--ppo-ad`, `--dreamer`, `--godot`（Godot 是功能，不是平台）
+
+### 11.2 新增模块的扩展方式
+
+**添加新游戏环境 / 算法**（如 Minecraft RL）：
+
+1. 在 `pyproject.toml` 的 `[project.optional-dependencies]` 添加分组
+   ```toml
+   minecraft-rl = ["minerl", "specific-lib"]
+   ```
+
+2. 在 `install_env.py` 的 `resolve_extras()` 添加对应逻辑
+   ```python
+   if "minecraft-rl" in modules:
+       py_extras.add("minecraft-rl")
+       print("✅ 将安装 Minecraft RL")
+   ```
+
+3. 脚本自动处理平台：若在 Colab，自动加虚拟显示；若在 Godot 服务器，自动加 Mono
+
+**添加新平台支持**（如 Docker / 云 IDE）：
+
+1. 在 `install_env.py` 的顶部添加检测函数
+   ```python
+   def is_docker() -> bool:
+       return os.path.exists("/.dockerenv")
+   ```
+
+2. 在 `resolve_extras()` 中根据平台添加系统/Python 依赖
+   ```python
+   if platform == "docker":
+       sys_deps.add("...")
+   ```
+
+### 11.3 依赖分组指导
+
+| 分组 | 类别 | 包含内容 | 备注 |
+|------|------|--------|------|
+| `crafter` | 环境 | Crafter 游戏引擎 + ray 并行 | 被 ppo-ad / dreamer 依赖 |
+| `ppo-ad` | 算法 | crafter + 最优传输 + 优化工具 | 游戏探索 |
+| `dreamer` | 算法 | crafter + 深度学习框架 | 世界模型 |
+| `craftground` | 环境 | Craftground Java 游戏 | 需要系统依赖：Java 21 |
+| `minecraft` | 数据 | Minecraft VPT 数据集处理 | 异步独立使用 |
+| `godot` | 环境 | Godot RL 绑定（待确认包名） | 需要系统依赖：Mono |
+| `rl` | 工具 | gymnasium + envpool | 通用 RL 基础 |
+| `headless` | 环境适配 | pyvirtualdisplay | 自动在 Colab / 无显示服务器添加 |
+| `dev` | 开发 | pytest / black / mypy / isort | 仅开发用 |
+
+### 11.4 已知不确定的依赖
+
+- **`godot-python`**：GitHub 存在但 PyPI 包名和版本需确认；Godot 4 推荐用 C# + Mono，Python binding 可选
+- **`craftground`**：假设存在且可通过 pip 安装；待验证真实包名和版本
+
+---
+
+## 12. 已知技术债（待清，不阻塞）
 
 - `utils/__init__.py` 若仍用 `from .x import *` 桶导出，按 §9.5 应改显式 re-export 或删桶。
 - `train/minecraft/vpt_dataset.py` 等文件头若仍保留成段设计叙事，按 §9.3 应逐步下沉到 `knowledge/`，代码留指针。

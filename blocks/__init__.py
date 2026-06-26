@@ -14,6 +14,9 @@ from blocks.conv import Conv2dSamePad, ImgChLayerNorm
 from blocks.encoder import ConvEncoder
 from blocks.decoder import ConvDecoder
 from blocks.mlp import MLP
+from blocks.impala import FanInInitReLULayer, ImpalaCNN
+from blocks.rl_heads import (FanInMLP, CategoricalActionHead, NormalizeEwma,
+                             ScaledMSEHead)
 from blocks.sequence import static_scan, static_scan_for_lambda_return, lambda_return
 from blocks.quantization import VectorQuantizer
 from blocks.distributions import (
@@ -25,6 +28,8 @@ __all__ = [
     "ConvGRUCell",
     "GatedResidual", "FiLM", "PreLNAttn", "PositionalEmbed", "ProtoDecode",
     "SlotCompetitiveAttn", "Mamba2Block", "MHABlock", "ConvEncoder", "ConvDecoder", "MLP",
+    "FanInInitReLULayer", "ImpalaCNN", "FanInMLP", "CategoricalActionHead",
+    "NormalizeEwma", "ScaledMSEHead",
     "StochLatent", "SIGReg", "BoundedActivation", "Accumulator", "DiscreteRouter",
     "ContinuousTimeEncoding", "SpatialPosEmbed", "sinusoidal_time_encoding",
     "VectorQuantizer",

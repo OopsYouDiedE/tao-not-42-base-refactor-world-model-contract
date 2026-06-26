@@ -1,68 +1,83 @@
 """PPO + Achievement Distillation 超参数配置 schema (net/ppo_ad/config.py)。
 
 对外接口:
-    PPOADConfig — 纯 dataclass,涵盖网络结构、PPO、AD 与训练超参。
+    PPOADConfig — 纯 dataclass,涵盖 IMPALA 模型结构、PPO 与 AD 辅助阶段、训练流程超参。
+
+默认值 1:1 对齐 snu-mllab/Achievement-Distillation 的 configs/ppo_ad.yaml(NeurIPS 2023)。
 """
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Dict, Tuple
+
+
+def _impala_kwargs() -> Dict:
+    return {"chans": (64, 128, 128), "outsize": 256, "nblock": 2, "post_pool_groups": 1}
+
+
+def _init_norm_kwargs() -> Dict:
+    # 卷积层:GroupNorm(1),不用 BatchNorm(I7)
+    return {"batch_norm": False, "group_norm_groups": 1}
+
+
+def _dense_init_norm_kwargs() -> Dict:
+    # dense/MLP 层:LayerNorm
+    return {"layer_norm": True}
 
 
 @dataclass
 class PPOADConfig:
-    """PPO + Achievement Distillation 的全量超参数配置。
+    """PPO + Achievement Distillation 全量超参数。
 
     Attributes:
-        encoder_depths: ConvEncoder 各级输出通道数，长度决定下采样级数。
-        encoder_kernel: 卷积核大小。
-        encoder_stride: 每级步长(同时也是 ConvDecoder 上采样倍率)。
-        hidden_dim:     Actor/Critic MLP 隐藏层宽度。
-        n_envs:         并行环境数。
-        n_steps:        每次 rollout 每个 env 收集的步数。
-        n_epochs:       每次 rollout 数据的 PPO 更新轮次。
-        minibatch_size: PPO minibatch 大小(= n_envs × n_steps 的因子)。
-        gamma:          折扣因子。
-        gae_lambda:     GAE λ。
-        clip_coef:      PPO clip 系数 ε。
-        ent_coef:       熵奖励系数。
-        vf_coef:        价值函数损失系数。
-        lr:             Adam 学习率。
-        max_grad_norm:  梯度裁剪范数上界。
-        demo_len:       成就解锁前保留多少步作为 AD 示范。
-        ad_buffer_cap:  每个成就最多存储的(obs, action)步数。
-        ad_batch_size:  每次 AD BC 损失采样的步数。
-        ad_coef:        AD BC 损失在总损失中的权重。
-        total_timesteps: 总环境交互步数。
-        log_interval:   每隔多少次 update 打印一次日志。
-        save_interval:  每隔多少次 update 保存一次 checkpoint。
+        obs_shape:   观测形状 (C, H, W)。
+        num_actions: 离散动作数(Crafter=17)。
+        hidsize:     编码器投影 / memory state 维度。
+        impala_kwargs / init_norm_kwargs / dense_init_norm_kwargs: 见 net.ppo_ad.model。
+        temperature: InfoNCE 温度。
+        use_memory:  是否启用成就 memory 拼接。
+        nstep:       每次 rollout 每 env 步数。
+        nproc:       并行环境数。
+        nepoch:      训练轮数(总步数 = nstep×nproc×nepoch)。
+        gamma / gae_lambda: 折扣与 GAE λ(Crafter 调参:0.95 / 0.65)。
+        ppo_nepoch:  每轮 PPO 更新遍数。
+        ppo_nbatch:  PPO minibatch 划分数(每 minibatch = nstep×nproc/ppo_nbatch)。
+        clip_param / vf_loss_coef / ent_coef: PPO 损失系数。
+        lr / max_grad_norm: 优化器与梯度裁剪。
+        aux_freq:    每多少次 PPO 更新跑一次辅助蒸馏阶段。
+        aux_nepoch:  辅助阶段遍数。
+        pi_dist_coef / vf_dist_coef: 辅助阶段对 old-model 的 KL/MSE 蒸馏正则系数。
+        save_freq:   每多少 epoch 存一次 checkpoint。
     """
-    # 网络结构
-    encoder_depths: Tuple[int, ...] = (16, 32, 48, 64)
-    encoder_kernel: int = 3
-    encoder_stride: int = 2
-    hidden_dim: int = 256
+    # 模型结构
+    obs_shape: Tuple[int, ...] = (3, 64, 64)
+    num_actions: int = 17
+    hidsize: int = 1024
+    impala_kwargs: Dict = field(default_factory=_impala_kwargs)
+    init_norm_kwargs: Dict = field(default_factory=_init_norm_kwargs)
+    dense_init_norm_kwargs: Dict = field(default_factory=_dense_init_norm_kwargs)
+    temperature: float = 0.1
+    use_memory: bool = True
 
-    # PPO 收集
-    n_envs: int = 4
-    n_steps: int = 512
+    # rollout / 折扣
+    nstep: int = 512
+    nproc: int = 8
+    nepoch: int = 250
+    gamma: float = 0.95
+    gae_lambda: float = 0.65
 
     # PPO 更新
-    n_epochs: int = 4
-    minibatch_size: int = 256
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    clip_coef: float = 0.2
+    ppo_nepoch: int = 3
+    ppo_nbatch: int = 8
+    clip_param: float = 0.2
+    vf_loss_coef: float = 0.5
     ent_coef: float = 0.01
-    vf_coef: float = 0.5
-    lr: float = 3e-4
+    lr: float = 3.0e-4
     max_grad_norm: float = 0.5
 
-    # Achievement Distillation
-    demo_len: int = 64
-    ad_buffer_cap: int = 100
-    ad_batch_size: int = 32
-    ad_coef: float = 1.0
+    # 辅助蒸馏阶段
+    aux_freq: int = 8
+    aux_nepoch: int = 6
+    pi_dist_coef: float = 1.0
+    vf_dist_coef: float = 1.0
 
     # 训练流程
-    total_timesteps: int = 1_000_000
-    log_interval: int = 10
-    save_interval: int = 100
+    save_freq: int = 50

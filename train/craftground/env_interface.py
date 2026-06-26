@@ -236,6 +236,7 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         """[N,H,W,C] uint8 → [N,C,H,W] float32 [0,1]。
 
         并自动填充到目标分辨率（兼容 YOLO 的 32 倍数要求）。
+        使用上下对称零填充以保持图像在中心。
 
         Args:
             raw: 原始观测 (B, H, W, 3)
@@ -253,12 +254,18 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
 
         # 填充到目标分辨率（如果需要）
         if obs.shape[2] != target_h or obs.shape[3] != target_w:
-            # 使用 bottom-right 填充（保持图像在左上角）
             pad_h = max(0, target_h - obs.shape[2])
             pad_w = max(0, target_w - obs.shape[3])
 
             if pad_h > 0 or pad_w > 0:
+                # 上下对称填充，左右对称填充
+                pad_h_top = pad_h // 2
+                pad_h_bottom = pad_h - pad_h_top
+                pad_w_left = pad_w // 2
+                pad_w_right = pad_w - pad_w_left
+
                 # pad: (left, right, top, bottom)
-                obs = F.pad(obs, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
+                obs = F.pad(obs, (pad_w_left, pad_w_right, pad_h_top, pad_h_bottom),
+                           mode="constant", value=0.0)
 
         return obs

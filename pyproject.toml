@@ -31,7 +31,7 @@ dependencies = [
 
 crafter = [
     "crafter",
-    "ray[tune]>=2.0",
+    "ray",  # 子进程并行向量环境（可选）
 ]
 
 ppo-ad = [
@@ -42,22 +42,21 @@ ppo-ad = [
 
 dreamer = [
     "crafter",
-    "tensorflow>=2.13",
+    "tensorflow",  # 仅用于比对基线（可选）
 ]
 
 craftground = [
-    # craftground 的 Python 包（假设存在）
-    "craftground>=0.1.0",
+    "craftground",  # Minecraft RL 环境
     # 需要 Java 21（系统依赖，见 install_env.py）
 ]
 
 minecraft = [
     "minerl",
-    "pillow>=9.0",
+    "pillow",
 ]
 
 rl = [
-    "gymnasium>=0.29",
+    "gymnasium",  # 标准 RL 环境接口
     "envpool",
 ]
 

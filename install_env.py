@@ -55,13 +55,6 @@ def is_headless() -> bool:
     return os.environ.get("DISPLAY") is None
 
 
-def has_conda() -> bool:
-    """检测是否有 conda/mamba。"""
-    try:
-        subprocess.run(["conda", "--version"], check=True, capture_output=True)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
 
 
 def check_python_version() -> bool:
@@ -105,7 +98,7 @@ def install_uv():
 
 
 def install_system_deps_for_headless():
-    """为 Headless 环境安装虚拟显示依赖。"""
+    """为 Headless 环境安装虚拟显示依赖（Colab）。"""
     print("📦 [Headless] 安装虚拟显示依赖...")
     deps = [
         "libgl1-mesa-dev",
@@ -117,8 +110,8 @@ def install_system_deps_for_headless():
         "xvfb",  # 虚拟显示
     ]
     try:
-        subprocess.run(["apt-get", "update"], check=True)
-        subprocess.run(["apt-get", "install", "-y"] + deps, check=True)
+        subprocess.run(["sudo", "apt-get", "update"], check=True)
+        subprocess.run(["sudo", "apt-get", "install", "-y"] + deps, check=True)
         print("✅ 虚拟显示依赖安装成功")
         return True
     except subprocess.CalledProcessError as e:
@@ -127,62 +120,32 @@ def install_system_deps_for_headless():
 
 
 def install_system_deps_for_craftground():
-    """为 Craftground 安装 Java 21（优先用 conda，无需 sudo）。"""
+    """为 Craftground 安装 Java 21（apt-get + sudo）。"""
     print("📦 [Craftground] 安装 Java 21...")
-
-    # 方式 1：优先用 conda（无需 sudo，更可靠）
-    if has_conda():
-        print("   使用 conda 安装 OpenJDK（无需 sudo）...")
-        try:
-            subprocess.run(
-                ["conda", "install", "-c", "conda-forge", "openjdk=21", "-y"],
-                check=True,
-            )
-            print("✅ Java 21（conda）安装成功")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"⚠️  conda 安装失败，尝试 apt-get: {e}")
-
-    # 方式 2：降级到 apt-get（需要 sudo）
-    print("   尝试用 apt-get 安装（需要 sudo）...")
+    print("   使用 apt-get 安装 OpenJDK 21（需要 sudo，请输入密码）...")
     try:
-        subprocess.run(["apt-get", "update"], check=True)
-        subprocess.run(["apt-get", "install", "-y", "openjdk-21-jdk"], check=True)
-        print("✅ Java 21（apt）安装成功")
+        subprocess.run(["sudo", "apt-get", "update"], check=True)
+        subprocess.run(["sudo", "apt-get", "install", "-y", "openjdk-21-jdk"], check=True)
+        print("✅ Java 21 安装成功")
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ Java 21 安装失败: {e}")
-        print("   手动安装: conda install -c conda-forge openjdk=21")
+        print("   手动安装: sudo apt-get install openjdk-21-jdk")
         return False
 
 
 def install_system_deps_for_godot():
-    """为 Godot 安装 Mono（C# 运行时，优先用 conda）。"""
+    """为 Godot 安装 Mono（C# 运行时，apt-get + sudo）。"""
     print("📦 [Godot] 安装 Mono...")
-
-    # 方式 1：优先用 conda（无需 sudo）
-    if has_conda():
-        print("   使用 conda 安装 Mono（无需 sudo）...")
-        try:
-            subprocess.run(
-                ["conda", "install", "-c", "conda-forge", "mono", "-y"],
-                check=True,
-            )
-            print("✅ Mono（conda）安装成功")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"⚠️  conda 安装失败，尝试 apt-get: {e}")
-
-    # 方式 2：降级到 apt-get（需要 sudo）
-    print("   尝试用 apt-get 安装（需要 sudo）...")
+    print("   使用 apt-get 安装 Mono（需要 sudo，请输入密码）...")
     try:
-        subprocess.run(["apt-get", "update"], check=True)
-        subprocess.run(["apt-get", "install", "-y", "mono-complete"], check=True)
-        print("✅ Mono（apt）安装成功")
+        subprocess.run(["sudo", "apt-get", "update"], check=True)
+        subprocess.run(["sudo", "apt-get", "install", "-y", "mono-complete"], check=True)
+        print("✅ Mono 安装成功")
         return True
     except subprocess.CalledProcessError as e:
         print(f"⚠️ Mono 安装部分失败: {e}")
-        print("   手动安装: conda install -c conda-forge mono")
+        print("   手动安装: sudo apt-get install mono-complete")
         return False
 
 

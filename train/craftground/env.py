@@ -15,6 +15,43 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
+from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
+
+
+class MinecraftCraftgroundEnv:
+    """单个 Minecraft Craftground 环境，兼容 gym 接口。"""
+
+    def __init__(self, seed: int = 0, max_steps: int = 1000):
+        self.seed = seed
+        self.max_steps = max_steps
+        self.episode_step = 0
+
+        config = InitialEnvironmentConfig()
+        self.env = CraftGroundEnvironment(config)
+
+    def reset(self) -> np.ndarray:
+        """重置环境，返回 (H, W, C) uint8 观测。"""
+        self.episode_step = 0
+        return self.env.reset()
+
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
+        """执行一步，返回 (obs, reward, done, info)。"""
+        result = self.env.step(action)
+
+        if len(result) == 5:
+            obs, rew, done, truncated, info = result
+            done = done or truncated
+        else:
+            obs, rew, done, info = result
+
+        self.episode_step += 1
+        if self.episode_step >= self.max_steps:
+            done = True
+
+        return obs, float(rew), done, info
+
+    def close(self):
+        self.env.close()
 
 
 class CraftgroundVecEnv:
@@ -38,49 +75,68 @@ class CraftgroundVecEnv:
         device: str = "cuda",
         max_episode_steps: int = 1000,
     ):
-        # 注：实际实现需要根据 craftground 的真实 API 调整
-        # 这里先是框架代码，待 craftground 安装后填充具体细节
         self.nproc = nproc
         self.device = device
         self.max_episode_steps = max_episode_steps
-        self.step_count = [0] * nproc
 
-        # TODO: 初始化 craftground 环境
-        # from craftground.env import CraftgroundEnv
-        # self.envs = [CraftgroundEnv(...) for _ in range(nproc)]
+        self.envs = [MinecraftCraftgroundEnv(seed=i, max_steps=max_episode_steps) for i in range(nproc)]
+
+        self.episode_rewards = np.zeros(nproc)
+        self.episode_lengths = np.zeros(nproc, dtype=np.int32)
 
     def reset(self) -> torch.Tensor:
         """重置所有环境，返回初始观测。
 
         Returns:
-            obs: (nproc, C, H, W) float32 [0,1]（观测）
+            obs: (nproc, C, H, W) float32 [0,1]
         """
-        # TODO: 实现重置逻辑
-        raise NotImplementedError("待 craftground 完全集成")
+        obs_list = [env.reset() for env in self.envs]
+        self.episode_rewards.fill(0)
+        self.episode_lengths.fill(0)
+        return self._to_obs(np.array(obs_list))
 
     def step(self, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict]:
-        """步进所有环境。
+        """步进所有环境（顺序执行，待优化为真正的并行）。
 
         Args:
-            actions: (nproc,) long — 动作 ID
+            actions: (nproc,) long
 
         Returns:
             obs: (nproc, C, H, W) float32 [0,1]
             rewards: (nproc, 1) float32
             dones: (nproc, 1) float32
-            infos: dict with keys:
-                - 'achievements': (nproc, n_achievements) int32
-                - 'successes': (nproc, n_achievements) int32（achievements > 0）
-                - 'episode_lengths': (nproc,) int32（仅 done 时有效）
-                - 'episode_rewards': (nproc,) float32（仅 done 时有效）
+            infos: dict
         """
-        # TODO: 实现 step 逻辑
-        raise NotImplementedError("待 craftground 完全集成")
+        obs_list, rewards, dones = [], [], []
+        infos = {"episode_lengths": [], "episode_rewards": []}
+
+        for i, (env, action) in enumerate(zip(self.envs, actions.cpu().numpy())):
+            obs, rew, done, info = env.step(int(action))
+
+            self.episode_rewards[i] += rew
+            self.episode_lengths[i] += 1
+
+            if done:
+                infos["episode_lengths"].append(self.episode_lengths[i])
+                infos["episode_rewards"].append(self.episode_rewards[i])
+                self.episode_rewards[i] = 0
+                self.episode_lengths[i] = 0
+                obs, _ = env.reset(), None
+
+            obs_list.append(obs)
+            rewards.append(rew)
+            dones.append(done)
+
+        return (
+            self._to_obs(np.array(obs_list)),
+            torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1),
+            torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1),
+            infos,
+        )
 
     def close(self):
-        """关闭所有环境。"""
-        # TODO: 实现关闭逻辑
-        pass
+        for env in self.envs:
+            env.close()
 
     @staticmethod
     def _to_obs(raw: np.ndarray) -> torch.Tensor:

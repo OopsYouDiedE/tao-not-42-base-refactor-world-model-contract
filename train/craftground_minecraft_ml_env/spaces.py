@@ -1,17 +1,28 @@
 """Minecraft RL 环境的观测、动作、成就空间定义。
 
 定义了：
-  - ObservationSpace: (C=3, H=64, W=64) RGB 图像
+  - ObservationSpace: (C=3, H=360, W=640) RGB 图像（Craftground 原生分辨率）
   - ActionSpace: 27 维离散动作（Minecraft 标准）
   - AchievementSpace: 成就向量（Binary）
+  - Encoder: YOLO26s Backbone + 多尺度融合
 
 对外接口：
-    OBS_SHAPE, NUM_ACTIONS, NUM_ACHIEVEMENTS
+    OBS_SHAPE, NUM_ACTIONS, NUM_ACHIEVEMENTS, ENCODER_CONFIG
 """
 
-# 观测空间
-OBS_SHAPE = (3, 64, 64)  # RGB 图像，64x64
+# 观测空间（Craftground 原生分辨率：640x360）
+OBS_SHAPE = (3, 360, 640)  # RGB 图像，640x360（原生）
 OBS_DTYPE = "float32"  # [0, 1] 归一化
+
+# 图像编码器配置
+ENCODER_CONFIG = {
+    "type": "YOLO26s",
+    "backbone": "YOLO26s",  # 目标检测预训练权重
+    "fusion": "multi_scale",  # P3, P4, P5 多尺度融合
+    "fusion_method": "weighted",  # 学习权重的融合
+    "output_dim": 512,  # 编码后的特征维度
+    "total_params": "~12M",  # YOLO26s backbone (~11.2M) + fusion head
+}
 
 # 动作空间（Minecraft Java 版的离散动作）
 # 基础动作：前后左右、跳跃、看上看下、潜行、冲刺等

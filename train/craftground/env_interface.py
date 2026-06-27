@@ -10,7 +10,9 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from collections import deque
 from typing import Tuple, Dict, Optional
+from craftground.screen_encoding_modes import ScreenEncodingMode
 from train.craftground.env import MinecraftCraftgroundEnv, CraftgroundVecEnv
 from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
 
@@ -21,8 +23,10 @@ class CraftgroundEnvWithTerrainCheck(MinecraftCraftgroundEnv):
     初始化时自动检测地形，如果不利就重新启动。
     """
 
-    def __init__(self, seed: int = 0, max_steps: int = 1000):
-        super().__init__(seed=seed, max_steps=max_steps)
+    def __init__(self, seed: int = 0, max_steps: int = 1000,
+                 screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.RAW):
+        super().__init__(seed=seed, max_steps=max_steps,
+                         screen_encoding_mode=screen_encoding_mode)
         self.favorable_biomes = {"forest", "plains", "taiga", "birch_forest"}
         self.unfavorable_biomes = {"ocean", "deep_ocean", "stone_shore"}
 
@@ -58,25 +62,30 @@ class CraftgroundEnvWithTerrainCheck(MinecraftCraftgroundEnv):
         Returns:
             是否地形合适
         """
-        if obs.dtype == np.uint8:
-            obs_norm = obs.astype(np.float32) / 255.0
+        # obs 可能是 numpy (RAW) 或 CUDA torch.Tensor (ZEROCOPY)，统一取出
+        # 三通道均值的 python float，避免对 tensor 直接做布尔运算。
+        if isinstance(obs, torch.Tensor):
+            x = obs.float()
+            if x.max() > 1.0:
+                x = x / 255.0
+            r = float(x[..., 0].mean())
+            g = float(x[..., 1].mean())
+            b = float(x[..., 2].mean())
         else:
-            obs_norm = obs
+            obs_norm = obs.astype(np.float32) / 255.0 if obs.dtype == np.uint8 else obs
+            r = float(obs_norm[..., 0].mean())
+            g = float(obs_norm[..., 1].mean())
+            b = float(obs_norm[..., 2].mean())
 
-        # 计算颜色直方图
-        r = obs_norm[..., 0].mean()
-        g = obs_norm[..., 1].mean()
-        b = obs_norm[..., 2].mean()
+        # 启发式判断（宽松：只排除明显的海洋/水面出生点）。
+        # 注意：旧判据 g-r-b>0.05 对任何真实画面几乎恒为 False（绿通道均值
+        # 不可能高过 红+蓝 之和），导致每次 reset 都白跑满 5 次重启再强制接受，
+        # 既没真正筛地形又制造海量 Minecraft 重启 + RAM 抖动。现改为：
+        # 蓝色明显主导（b 比 g 高出阈值）才判为水面/海洋 → 重试；其余陆地直接接受。
+        blue_dominance = b - g  # 蓝色相对绿色的优势（水面/海洋偏高）
+        is_ocean = blue_dominance > 0.10
 
-        # 启发式判断
-        # 好地形：绿色成分高（草、树）
-        # 坏地形：蓝色成分高（水）或灰色成分高（石头）
-        green_score = g - r - b  # 绿色优势
-        blue_score = b - g  # 蓝色优势
-
-        is_good = (green_score > 0.05) and (blue_score < 0.2)
-
-        return is_good
+        return not is_ocean
 
 
 class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
@@ -95,6 +104,7 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         max_episode_steps: int = 1000,
         use_terrain_check: bool = True,
         seed: Optional[int] = None,
+        screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.RAW,
     ):
         """初始化向量化环境。
 
@@ -114,7 +124,8 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         env_class = CraftgroundEnvWithTerrainCheck if use_terrain_check else MinecraftCraftgroundEnv
 
         self.envs = [
-            env_class(seed=seed + i if seed is not None else i, max_steps=max_episode_steps)
+            env_class(seed=seed + i if seed is not None else i, max_steps=max_episode_steps,
+                      screen_encoding_mode=screen_encoding_mode)
             for i in range(nproc)
         ]
 
@@ -123,6 +134,9 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         self.achievement_names = ALL_ACHIEVEMENTS
         self.current_achievements = np.zeros((nproc, self.n_achievements), dtype=np.int32)
         self.episode_achievements = [set() for _ in range(nproc)]
+        # 每个**完成**的 episode 解锁了哪些成就（索引集合），滑窗保留最近若干个，
+        # 用于算 per-episode 成功率（替代"曾解锁"的弱指标）。
+        self.completed_episode_ach = deque(maxlen=300)
 
     def reset(self) -> torch.Tensor:
         """重置所有环境。
@@ -135,7 +149,7 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         for i in range(self.nproc):
             self.episode_achievements[i].clear()
 
-        return self._to_obs(np.array(obs_list))
+        return self._to_obs(obs_list)
 
     def step(
         self, actions: torch.Tensor
@@ -169,8 +183,9 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
             ach_reward = self._process_achievements(i, info)
             ach_reward_list.append(ach_reward)
 
-            # 如果 done，重置成就追踪
+            # 如果 done，先把本 episode 解锁的成就快照进滑窗，再重置追踪
             if done:
+                self.completed_episode_ach.append(set(self.episode_achievements[i]))
                 self.episode_achievements[i].clear()
                 obs, _ = env.reset(), None
                 obs_list[-1] = obs
@@ -188,7 +203,7 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         }
 
         return (
-            self._to_obs(np.array(obs_list)),
+            self._to_obs(obs_list),
             torch.tensor(reward_list, dtype=torch.float32, device=self.device).unsqueeze(1),
             torch.tensor(done_list, dtype=torch.float32, device=self.device).unsqueeze(1),
             infos,
@@ -226,46 +241,64 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         """
         return torch.tensor(self.current_achievements, dtype=torch.int32, device=self.device)
 
+    def get_episode_success_rates(self) -> Tuple[Dict[int, float], int]:
+        """基于最近完成的 episode，返回每个成就的 per-episode 成功率。
+
+        这是比"曾解锁(current_achievements)"强得多的指标：它衡量智能体
+        **能否稳定复现**某成就，而非历史上撞到过一次。
+
+        Returns:
+            (rates, n): rates[成就索引] = 最近 n 个完成 episode 中解锁该成就的比例；
+                        n = 统计用的已完成 episode 数（0 表示还没有 episode 结束）。
+        """
+        n = len(self.completed_episode_ach)
+        if n == 0:
+            return {}, 0
+        rates: Dict[int, float] = {}
+        for idx in range(self.n_achievements):
+            rates[idx] = sum(1 for s in self.completed_episode_ach if idx in s) / n
+        return rates, n
+
     def close(self):
         """关闭所有环境。"""
         for env in self.envs:
             env.close()
 
-    @staticmethod
-    def _to_obs(raw: np.ndarray, target_h: int = 384, target_w: int = 640) -> torch.Tensor:
-        """[N,H,W,C] uint8 → [N,C,H,W] float32 [0,1]。
+    def _to_obs(self, raw, target_h: int = 384, target_w: int = 640) -> torch.Tensor:
+        """每环境 (H,W,3) 帧 → [N,C,H,W] float32 [0,1]，移到 self.device。
 
-        并自动填充到目标分辨率（兼容 YOLO 的 32 倍数要求）。
-        使用上下对称零填充以保持图像在中心。
-
-        Args:
-            raw: 原始观测 (B, H, W, 3)
-            target_h: 目标高度（默认 384，= ceil(360 / 32) * 32）
-            target_w: 目标宽度（默认 640）
-
-        Returns:
-            观测张量 (B, 3, H, W)，填充到目标大小
+        raw 可为：
+          - list[np.ndarray]   (RAW 编码，CPU)
+          - list[torch.Tensor] (ZEROCOPY 编码，已在 GPU，零拷贝)
+          - np.ndarray (N,H,W,3) 或 (H,W,3)  （向后兼容）
         """
-        if raw.ndim == 3:
-            raw = raw[np.newaxis, ...]
+        if isinstance(raw, list):
+            if len(raw) > 0 and isinstance(raw[0], torch.Tensor):
+                # ZEROCOPY：各帧已是 GPU 上的 (H,W,3) tensor，stack 不经 CPU
+                stacked = torch.stack(raw, dim=0)              # (N,H,W,3)
+                obs = stacked.permute(0, 3, 1, 2).float()      # (N,3,H,W)
+                if obs.max() > 1.0:
+                    obs = obs / 255.0
+            else:
+                arr = np.array(raw)                            # (N,H,W,3)
+                obs = torch.from_numpy(arr.transpose(0, 3, 1, 2).astype(np.float32) / 255.0)
+        else:
+            arr = raw
+            if arr.ndim == 3:
+                arr = arr[np.newaxis, ...]
+            obs = torch.from_numpy(arr.transpose(0, 3, 1, 2).astype(np.float32) / 255.0)
 
-        # 转换为 torch 张量并转移到 [0, 1]
-        obs = torch.from_numpy(raw.transpose(0, 3, 1, 2).astype(np.float32) / 255.0)
+        obs = obs.to(self.device)
 
-        # 填充到目标分辨率（如果需要）
         if obs.shape[2] != target_h or obs.shape[3] != target_w:
             pad_h = max(0, target_h - obs.shape[2])
             pad_w = max(0, target_w - obs.shape[3])
-
             if pad_h > 0 or pad_w > 0:
-                # 上下对称填充，左右对称填充
                 pad_h_top = pad_h // 2
                 pad_h_bottom = pad_h - pad_h_top
                 pad_w_left = pad_w // 2
                 pad_w_right = pad_w - pad_w_left
-
-                # pad: (left, right, top, bottom)
                 obs = F.pad(obs, (pad_w_left, pad_w_right, pad_h_top, pad_h_bottom),
                            mode="constant", value=0.0)
 
-        return obs
+        return obs.to(self.device)

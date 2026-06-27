@@ -16,19 +16,82 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
+from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
+from craftground.screen_encoding_modes import ScreenEncodingMode
+
+from train.craftground.reward import RewardShaper
+
+# ── V2_MINERL_HUMAN 动作空间 ────────────────────────────────────────────────
+# V2 动作是一个 dict：布尔按键 (attack/forward/jump/...) + hotbar.1-9 +
+# camera_pitch / camera_yaw（度，正 pitch=向下，正 yaw=向右）。
+# 我们把策略输出的 Discrete(27) 映射为 27 个完整的 V2 动作 dict。
+_CAM_SMALL = 15.0  # 小幅转头（度）
+_CAM_BIG = 30.0    # 大幅转头（度）
+
+
+def _v2(forward=False, back=False, left=False, right=False, jump=False,
+        sneak=False, sprint=False, attack=False, use=False,
+        cam_pitch=0.0, cam_yaw=0.0):
+    """基于 no_op 构造一个完整的 V2 动作 dict（保证所有键齐全）。"""
+    a = no_op_v2()
+    a["forward"], a["back"] = forward, back
+    a["left"], a["right"] = left, right
+    a["jump"], a["sneak"], a["sprint"] = jump, sneak, sprint
+    a["attack"], a["use"] = attack, use
+    a["camera_pitch"], a["camera_yaw"] = float(cam_pitch), float(cam_yaw)
+    return a
+
+
+# 27 个离散动作 → V2 dict（语义与旧 V1 表对齐）
+DISCRETE_TO_V2 = [
+    _v2(),                                            # 0: no-op
+    _v2(forward=True),                                # 1: forward
+    _v2(back=True),                                   # 2: back
+    _v2(left=True),                                   # 3: strafe left
+    _v2(right=True),                                  # 4: strafe right
+    _v2(jump=True),                                   # 5: jump
+    _v2(forward=True, jump=True),                     # 6: forward+jump
+    _v2(attack=True),                                 # 7: attack
+    _v2(forward=True, attack=True),                   # 8: forward+attack
+    _v2(use=True),                                    # 9: use
+    _v2(forward=True, use=True),                      # 10: forward+use
+    _v2(sneak=True),                                  # 11: sneak
+    _v2(forward=True, sprint=True),                   # 12: forward+sprint
+    _v2(cam_pitch=_CAM_SMALL),                        # 13: look down
+    _v2(cam_pitch=-_CAM_SMALL),                       # 14: look up
+    _v2(cam_yaw=_CAM_SMALL),                          # 15: look right
+    _v2(cam_yaw=-_CAM_SMALL),                         # 16: look left
+    _v2(cam_pitch=_CAM_BIG),                          # 17: look down (big)
+    _v2(cam_pitch=-_CAM_BIG),                         # 18: look up (big)
+    _v2(cam_yaw=_CAM_BIG),                            # 19: look right (big)
+    _v2(cam_yaw=-_CAM_BIG),                           # 20: look left (big)
+    _v2(forward=True, cam_pitch=_CAM_SMALL),          # 21: forward+look down
+    _v2(forward=True, cam_pitch=-_CAM_SMALL),         # 22: forward+look up
+    _v2(forward=True, cam_yaw=_CAM_SMALL),            # 23: forward+look right
+    _v2(forward=True, cam_yaw=-_CAM_SMALL),           # 24: forward+look left
+    _v2(attack=True, cam_pitch=_CAM_SMALL),           # 25: attack+look down
+    _v2(attack=True, cam_pitch=-_CAM_SMALL),          # 26: attack+look up
+]
 
 
 class MinecraftCraftgroundEnv:
     """单个 Minecraft Craftground 环境，兼容 gym 接口。"""
 
-    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000):
+    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000,
+                 screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.RAW):
         self.seed = seed
         self.max_steps = max_steps
         self.episode_step = 0
+        self.reward_shaper = RewardShaper()
+        # RAW → obs["rgb"] 是 numpy (H,W,3) uint8（CPU）
+        # ZEROCOPY → obs["rgb"] 是 CUDA torch.Tensor (H,W,3)，GPU 渲染零拷贝，
+        #           省掉 GPU→CPU 读回 + socket 像素传输（仅 GPU 渲染下可用）
+        self.screen_encoding_mode = screen_encoding_mode
 
-        config = InitialEnvironmentConfig()
+        config = InitialEnvironmentConfig(screen_encoding_mode=screen_encoding_mode)
         self.env = CraftGroundEnvironment(
             config,
+            action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
             port=port,
             find_free_port=True,  # 自动分配可用端口（多环境必需）
             verbose=False,
@@ -37,23 +100,47 @@ class MinecraftCraftgroundEnv:
     def reset(self) -> np.ndarray:
         """重置环境，返回 (H, W, C) uint8 观测。"""
         self.episode_step = 0
-        return self.env.reset()
+        self.reward_shaper.reset()
+        obs, _ = self.env.reset()
+        return obs["rgb"]
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
-        """执行一步，返回 (obs, reward, done, info)。"""
-        result = self.env.step(action)
+        """执行一步，返回 (obs, reward, done, info)。
 
+        Craftground 基类 reward 恒为 0、不提供成就，因此这里从 obs["full"]
+        （protobuf）自行构造稠密内在奖励，并在 info["successes"] 中给出本步
+        新解锁的成就索引（供上层 env_interface 统计与发放成就奖励）。
+        """
+        result = self.env.step(DISCRETE_TO_V2[int(action)])
+
+        # craftground.step 返回 (final_obs, reward, done, truncated, final_obs)
         if len(result) == 5:
-            obs, rew, done, truncated, info = result
+            obs, _rew, done, truncated, _info = result
             done = done or truncated
         else:
-            obs, rew, done, info = result
+            obs, _rew, done, _info = result
 
         self.episode_step += 1
+
+        # 从完整观测构造奖励与成就（在取 rgb 之前）
+        full_obs = obs.get("full", None)
+        intrinsic, new_ach_indices, force_done = (0.0, [], False)
+        if full_obs is not None:
+            intrinsic, new_ach_indices, force_done = self.reward_shaper.compute(
+                full_obs, self.episode_step
+            )
+
+        rgb = obs["rgb"]
+        info = {"achievements": True, "successes": new_ach_indices}
+
+        # 死档(idle/无镐深入)触发强制重开
+        if force_done:
+            done = True
+
         if self.episode_step >= self.max_steps:
             done = True
 
-        return obs, float(rew), done, info
+        return rgb, float(intrinsic), done, info
 
     def close(self):
         self.env.close()
@@ -80,6 +167,7 @@ class CraftgroundVecEnv:
         device: str = "cuda",
         max_episode_steps: int = 1000,
         base_port: int = 8000,
+        screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.RAW,
     ):
         self.nproc = nproc
         self.device = device
@@ -89,7 +177,8 @@ class CraftgroundVecEnv:
             MinecraftCraftgroundEnv(
                 seed=i,
                 max_steps=max_episode_steps,
-                port=base_port + i * 10,  # 每个环境的基础端口不同（find_free_port 会找到可用的）
+                port=base_port + i * 10,
+                screen_encoding_mode=screen_encoding_mode,
             )
             for i in range(nproc)
         ]

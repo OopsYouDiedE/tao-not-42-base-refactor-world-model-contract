@@ -43,9 +43,6 @@ class CraftgroundTrainingConfig:
     lr: float = 3e-4  # 初始学习率
     lr_decay: str = "cosine"  # 学习率衰减方式：linear / cosine / none
 
-    # ─── 世界模型 (RSSM) ─────────────────────────────────────────
-    world_model_enabled: bool = True  # 启用世界模型
-    world_model_loss_scale: float = 0.5  # 世界模型损失权重
 
     # ─── 种子与重现性 ──────────────────────────────────────────────
     seed: int = 42  # 初始种子（用于验证）

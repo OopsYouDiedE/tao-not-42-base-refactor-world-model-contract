@@ -81,13 +81,13 @@ DISTANCE_THRESHOLDS = [
 # ── 死档(idle/退化策略)检测 ──────────────────────────────────────────
 # 防止策略塌缩成"原地不动"或"无意义乱钻"。触发 = 小额惩罚 + 强制重开(force_done)。
 # 惩罚刻意放轻(默认 0.5)：主要靠"结束烂局"，避免惩罚太狠让角色摆烂/自杀刷重置。
-ANTI_IDLE_ENABLED = True
-SEA_LEVEL = 63              # Minecraft 1.18+/1.21 海平面 y
+ANTI_IDLE_ENABLED = False
+SEA_LEVEL = 45              # Minecraft 1.18+/1.21 海平面 y (调低为 45 避免河道、沙滩等常规地表误判为深渊死档)
 IDLE_WINDOW = 1200          # 地表 idle 滑窗步数(20Hz=60秒)
 IDLE_MIN_DISP = 10.0        # 窗口内离窗口起点净位移 < 此值(格) → 地表卡死
 BELOW_SEA_GRACE = 100       # 无镐处于海平面下连续步数 > 此值(5秒) 才触发(防地形瞬时误判)
-DEAD_POLICY_PENALTY = 0.5   # 我们主动重置(idle/无镐深入)的小额惩罚(可设 0 完全靠重置)
-DEATH_PENALTY = 2.0         # 游戏内死亡(被怪/摔/岩浆/溺水/饿死)重罚——比主动重置狠
+DEAD_POLICY_PENALTY = 0.0   # 我们主动重置(idle/无镐深入)的小额惩罚(可设 0 完全靠重置)
+DEATH_PENALTY = 0.0         # 游戏内死亡(被怪/摔/岩浆/溺水/饿死)重罚——比主动重置狠
 # 地表 idle 重置(规则②)前期关闭:早期随机策略位移本就小,60秒/<10格的 idle 判定
 # 会把"在树边站着砍木"这种正确行为也当成卡死、每分钟强制重开,扼杀探索自举。
 # 对比实验证实:老 run(无此机制)16.5万步解锁3个成就,开此机制后61.6万步零非root成就。
@@ -244,7 +244,7 @@ class RewardShaper:
 
         # 终止检测：游戏死亡(-2) 或 死档(idle/无镐深入, -0.5) → 惩罚 + 强制重开
         term_penalty = self._check_termination(full_obs)
-        force_done = term_penalty > 0.0
+        force_done = getattr(full_obs, "is_dead", False) and (episode_step > 10)
         intrinsic -= term_penalty
 
         return intrinsic, new_indices, force_done

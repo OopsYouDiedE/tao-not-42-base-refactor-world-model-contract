@@ -77,28 +77,32 @@ DISCRETE_TO_V2 = [
 class MinecraftCraftgroundEnv:
     """单个 Minecraft Craftground 环境，兼容 gym 接口。"""
 
-    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000,
-                 screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.RAW):
+    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000):
         self.seed = seed
         self.max_steps = max_steps
         self.episode_step = 0
         self.reward_shaper = RewardShaper()
-        # RAW → obs["rgb"] 是 numpy (H,W,3) uint8（CPU）
-        # ZEROCOPY → obs["rgb"] 是 CUDA torch.Tensor (H,W,3)，GPU 渲染零拷贝，
-        #           省掉 GPU→CPU 读回 + socket 像素传输（仅 GPU 渲染下可用）
-        self.screen_encoding_mode = screen_encoding_mode
+        self.screen_encoding_mode = ScreenEncodingMode.RAW
 
-        config = InitialEnvironmentConfig(screen_encoding_mode=screen_encoding_mode)
+        # 检查 DISPLAY 环境变量
+        if 'DISPLAY' not in os.environ:
+            raise RuntimeError(
+                "No DISPLAY environment variable found! \\n"
+                "To run with GPU headless rendering or Xvfb, please use the gpu_run.sh wrapper:\\n"
+                "    ./scripts/gpu_run.sh python your_script.py"
+            )
+
+        config = InitialEnvironmentConfig(screen_encoding_mode=self.screen_encoding_mode)
         self.env = CraftGroundEnvironment(
             config,
             action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
             port=port,
-            find_free_port=True,  # 自动分配可用端口（多环境必需）
+            find_free_port=True,
             verbose=False,
         )
 
     def reset(self) -> np.ndarray:
-        """重置环境，返回 (H, W, C) uint8 观测。"""
+        """重置环境，返回 (H, W, C) uint8 numpy 观测。"""
         self.episode_step = 0
         self.reward_shaper.reset()
         obs, _ = self.env.reset()
@@ -167,7 +171,6 @@ class CraftgroundVecEnv:
         device: str = "cuda",
         max_episode_steps: int = 1000,
         base_port: int = 8000,
-        screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.RAW,
     ):
         self.nproc = nproc
         self.device = device
@@ -178,7 +181,6 @@ class CraftgroundVecEnv:
                 seed=i,
                 max_steps=max_episode_steps,
                 port=base_port + i * 10,
-                screen_encoding_mode=screen_encoding_mode,
             )
             for i in range(nproc)
         ]
@@ -242,11 +244,11 @@ class CraftgroundVecEnv:
 
     @staticmethod
     def _to_obs(raw: np.ndarray) -> torch.Tensor:
-        """[N,H,W,C] uint8 → [N,C,H,W] float32 [0,1]。"""
+        """[N,H,W,C] uint8 numpy → [N,C,H,W] float32 [0,1] on CUDA。"""
         if raw.ndim == 3:  # 单张图像
             raw = raw[np.newaxis, ...]
         # Craftground 观测格式：(H, W, 3) RGB uint8
-        return torch.from_numpy(raw.transpose(0, 3, 1, 2).astype(np.float32) / 255.0)
+        return torch.from_numpy(raw.transpose(0, 3, 1, 2)).cuda().float() / 255.0
 
 
 # 占位符：成就列表（待从 craftground 的实际成就系统提取）

@@ -37,6 +37,9 @@ venv.bak/
 # Project specifics
 *.ts
 *.pt
+*.model
+*.weights
+models/
 vis_outputs/
 wandb/
 *.npz

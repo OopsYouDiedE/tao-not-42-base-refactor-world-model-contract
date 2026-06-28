@@ -37,7 +37,7 @@ class YOLO26sEncoder(nn.Module):
 
             # 加载 YOLO v8-s（假设用户指的 YOLO26s 对应 v8-s）
             # 如果有实际的 YOLO26s 版本，替换这里
-            yolo = YOLO("yolov8s.pt") if pretrained else YOLO("yolov8s.yaml")
+            yolo = YOLO("runs/checkpoints/yolov8s.pt") if pretrained else YOLO("yolov8s.yaml")
             self.backbone = yolo.model
         except ImportError:
             print("⚠️  ultralytics 未安装，将使用简化的 backbone")

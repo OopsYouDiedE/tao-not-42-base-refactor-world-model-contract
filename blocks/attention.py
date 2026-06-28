@@ -4,11 +4,10 @@
     PreLNAttn            — Pre-LN 多头注意 + 残差(self/cross,槽绑定与感知用)。
     ProtoDecode          — 无参原型解码 σ(einsum)。
     SlotCompetitiveAttn  — Slot-Attention 式竞争交叉注意力(softmax 沿 slot 维)。
-    Mamba2Block          — Mamba-2(SSD)状态空间序列混合块,O(n);DRAMA 用它替 GRU 作动力学骨干。
-    MHABlock             — 多头自注意力序列混合块(可因果),与 Mamba2Block 接口对齐、可互换作骨干。
+    MHABlock             — 多头自注意力序列混合块(可因果),作动力学骨干。
 
-Mamba-2 与 MHABlock 是动力学/序列骨干的两个可互换"序列混合器"(GRU 之外的选择):
-前者线性复杂度、后者二次但全局直连。两者前向均为 [B, L, d]→[B, L, d]、Pre-LN+残差。
+MHABlock 是动力学/序列骨干的"序列混合器":
+二次复杂度但全局直连。前向均为 [B, L, d]→[B, L, d]、Pre-LN+残差。
 """
 import torch
 import torch.nn as nn
@@ -122,49 +121,10 @@ class SlotCompetitiveAttn(nn.Module):
         return Z + self.out(out)
 
 
-class Mamba2Block(nn.Module):
-    """Mamba-2(SSD)状态空间序列混合块 — DRAMA 用它替 DreamerV3 的 GRU 作动力学骨干。
-
-    线性复杂度 O(n) 的选择性状态空间序列建模,Pre-LN + 残差;前向 [B, L, d]→[B, L, d],
-    与 MHABlock 接口对齐,可在序列骨干里互换。所有维度经参数注入,**不写死**。
-
-    ⚠️ 依赖 mamba-ssm(仅 CUDA kernel),**本机不测**。故把 `from mamba_ssm import Mamba2`
-    延迟到构造时:未装包时本文件/`import blocks` 仍正常,**只有真正实例化本类才报缺包**
-    (并给安装提示)。前向把输入升到 fp32 再调用 kernel(I4:SSM 递归数值敏感),输出回原 dtype。
-    """
-
-    def __init__(self, d, d_state=128, d_conv=4, expand=2, headdim=64, **mamba_kwargs):
-        """
-        Args:
-            d: 模型维(d_model)。
-            d_state: SSM 状态维。
-            d_conv: 因果深度卷积核宽。
-            expand: 内部扩张倍率(内维 = expand·d)。
-            headdim: 每个 SSD head 的维度(需满足 expand·d 可被其整除)。
-            **mamba_kwargs: 透传给 mamba_ssm.Mamba2 的其余参数(ngroups、chunk_size 等),不写死。
-        """
-        super().__init__()
-        try:
-            from mamba_ssm import Mamba2
-        except ImportError as e:
-            raise ImportError(
-                "Mamba2Block 需要 mamba-ssm(仅 CUDA):pip install mamba-ssm。"
-                "本机不测 mamba 时无需实例化本类——仅 `import blocks` 不会触发此依赖。"
-            ) from e
-        self.norm = nn.LayerNorm(d)
-        self.mamba = Mamba2(d_model=d, d_state=d_state, d_conv=d_conv,
-                            expand=expand, headdim=headdim, **mamba_kwargs)
-
-    def forward(self, x):
-        dtype = x.dtype
-        out = self.mamba(self.norm(x).float())                                 # I4:SSM 递归走 fp32
-        return x + out.to(dtype)
-
-
 class MHABlock(nn.Module):
     """多头自注意力序列混合块(Pre-LN + 残差),前向 [B, L, d]→[B, L, d]。
 
-    与 Mamba2Block 接口对齐、可互换作动力学骨干(GRU/Mamba/注意力三选一)。区别于本文件的
+    可作动力学骨干(GRU/注意力二选一)。区别于本文件的
     PreLNAttn:后者面向槽绑定/感知、支持 cross(kv);本块面向**自回归序列骨干**,支持因果掩码。
 
     causal=True 时加上三角因果掩码(想象 rollout 自回归用);默认 need_weights=False 走 SDPA

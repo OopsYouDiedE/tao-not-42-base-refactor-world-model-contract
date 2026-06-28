@@ -57,7 +57,7 @@ class YoloBackboneEncoder(nn.Module):
         try:
             from ultralytics import YOLO
 
-            model = YOLO("yolov8s.pt" if pretrained else "yolov8s.yaml", verbose=False)
+            model = YOLO("runs/checkpoints/yolov8s.pt" if pretrained else "yolov8s.yaml", verbose=False)
             self.backbone = model.model  # DetectionModel (nn.Module)
         except ImportError:
             raise ImportError("ultralytics 未安装。请运行: pip install ultralytics")

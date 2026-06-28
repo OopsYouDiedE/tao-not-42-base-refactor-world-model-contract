@@ -107,7 +107,10 @@ def install_system_deps_for_headless():
         "libglu1-mesa-dev",
         "xorg-dev",
         "libglfw3-dev",
-        "xvfb",  # 虚拟显示
+        "xvfb",  # 虚拟显示 CPU 回退
+        "xserver-xorg-core", # GPU Headless 核心
+        "x11-xserver-utils", # X11 工具
+        "pciutils", # lspci 支持
     ]
     try:
         subprocess.run(["sudo", "apt-get", "update"], check=True)

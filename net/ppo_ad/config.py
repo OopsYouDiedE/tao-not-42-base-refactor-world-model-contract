@@ -69,7 +69,7 @@ class PPOADConfig:
     ppo_nbatch: int = 8
     clip_param: float = 0.2
     vf_loss_coef: float = 0.5
-    ent_coef: float = 0.01
+    ent_coef: float = 0.05  # 从 0.01 提升到 0.05，延缓熵坍缩
     lr: float = 3.0e-4
     max_grad_norm: float = 0.5
 

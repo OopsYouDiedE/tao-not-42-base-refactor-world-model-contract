@@ -187,12 +187,11 @@ def resolve_extras(
         py_extras.add("dreamer")
         print("✅ 将安装 DreamerV3")
 
-    # Craftground（待确认包名和依赖）
+    # Craftground
     if "craftground" in modules:
         py_extras.add("craftground")
         sys_deps.add("craftground")  # 需要 Java 21
         print("✅ 将安装 Craftground（需要 Java 21）")
-        print("   注意：craftground 包的可用性待确认，可能需要手动安装或自编译")
 
     # Minecraft
     if "minecraft" in modules:

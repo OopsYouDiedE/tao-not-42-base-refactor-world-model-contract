@@ -95,7 +95,7 @@ tests/
 | L1 积木 | `blocks/` | 与任务无关的可复用算子（注意力 / 门控残差 / 时间编码 / 卷积编解码 / 分布 / SIGReg） | 任何领域字眼（Minecraft/Crafter/VPT）、训练逻辑 |
 | L2 网络 | `net/` | 模型与部件：`dreamerv3/`、`dreamer4/`、`ppo_ad/` 等世界模型/策略，`backbone.py` 骨干加载；结构 schema `config.py`（纯 dataclass）与各部件 `build_*` 工厂 | 训练循环、loss、mock、数据加载、yaml/文件 IO |
 | L2.5 第三方 | `net/vpt_lib/` | 原样 vendored 的 OpenAI VPT（见其 `NOTICE`）。**本规范不约束 vendored 目录**；升级方式是重拉上游覆盖 | 我们改写的代码 |
-| L3 训练域 | `train/<game>/` | 该数据集/游戏的**全部领域逻辑 + 训练**：数据契约（动作编解码、数据集、任务文本）、回放、loss、循环/装配 `train_*.py`（CLI/main）。**不同数据集的区分全压在这一层**（`train/crafter/`、`train/minecraft/`、`train/godot_meta_rl/` 各自自洽） | 模型定义、跨域可复用算子 |
+| L3 训练域 | `train/<game>/` | 该数据集/游戏的**全部领域逻辑 + 训练**：数据契约（动作编解码、数据集、任务文本）、回放、loss、循环/装配 `train_*.py`（CLI/main）。**不同数据集的区分全压在这一层**（`train/crafter/`、`train/minecraft/`、`train/craftground/`、`train/godot_meta_rl/` 各自自洽） | 模型定义、跨域可复用算子 |
 | 配置 | `configs/<game>/` | 模型结构 yaml 预设（部件选择 + 超参；缺键取 `net.config` 默认） | 模型定义、训练逻辑、数据契约 |
 | 测试 / 离线脚本 | `tests/` | **所有** mock、CPU 兼容、离线降级、骨干冒烟、一次性诊断；`unit/` 与 `integration/` | 生产依赖、大体积产物（→ `runs/`） |
 | 文档 | `knowledge/` | 宏观设计意图与"为什么"（中文，SSOT） | 历史活动流水账（→ git log） |
@@ -213,16 +213,15 @@ helper 下沉到二者的公共下游。
 | `headless` | 环境适配 | pyvirtualdisplay | 自动在 Colab / 无显示服务器添加 |
 | `dev` | 开发 | pytest / black / mypy / isort | 仅开发用 |
 
-### 11.4 已知不确定的依赖
+### 11.4 已知不确定的依赖与已确认依赖
 
 - **`godot-python`**：GitHub 存在但 PyPI 包名和版本需确认；Godot 4 推荐用 C# + Mono，Python binding 可选
-- **`craftground`**：假设存在且可通过 pip 安装；待验证真实包名和版本
+- **`craftground`（已确认）**：已验证在 Python 3.13 虚拟环境下直接通过 `pip` 安装可用，真实包名即为 `craftground`。
 
 ---
 
 ## 12. 已知技术债（待清，不阻塞）
 
-- `utils/__init__.py` 若仍用 `from .x import *` 桶导出，按 §9.5 应改显式 re-export 或删桶。
 - `train/minecraft/vpt_dataset.py` 等文件头若仍保留成段设计叙事，按 §9.3 应逐步下沉到 `knowledge/`，代码留指针。
 - `knowledge/mental_world.md` 描述的部分内容（fovea/gaze 选择性读取等）是**尚未落地的设计愿景**，与当前
   代码是"愿景 vs 现状"关系，已在该文顶部标注。

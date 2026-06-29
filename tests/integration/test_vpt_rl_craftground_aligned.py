@@ -33,16 +33,10 @@ def to_craftground_v2(buttons, camera):
             
         cg_action[k_dot] = val
         cg_action[k_under] = val
-            
-    # Minecraft 1.11 (VPT 训练数据) 与 1.20+ (CraftGround) 的 GUI 鼠标灵敏度可能存在版本差异。
-    # 加入灵敏度补偿缩放因子，修复模型由于鼠标横向移动不足而把木板放错格子（造出木斧）的问题。
-    GUI_CAMERA_SCALER_X = 1.5
-    GUI_CAMERA_SCALER_Y = 1.5
-    
     # 填充连续相机 pitch 和 yaw
     pitch, yaw = camera
-    cg_action["camera_pitch"] = float(pitch) * GUI_CAMERA_SCALER_Y
-    cg_action["camera_yaw"] = float(yaw) * GUI_CAMERA_SCALER_X
+    cg_action["camera_pitch"] = float(pitch)
+    cg_action["camera_yaw"] = float(yaw)
     
     return cg_action
 

@@ -93,6 +93,16 @@
 * **`train_dreamerv3.py`**: DreamerV3 训练循环（采集 ↔ 世界模型更新 ↔ 想象 actor-critic；wm 与 actor/critic 各自独立优化器）。`--size {tiny,small,default}` 选规模。训练手册见 [dreamer.md](dreamer.md)。
 * **`train_ppo_ad.py`**: PPO + Achievement Distillation 训练循环；`--vec {serial,subproc}` 选向量环境实现。
 
+### `train/craftground/` (Craftground 数据集与环境域, 最新的 Minecraft 1.21 RL 训练环境)
+
+* **`achievements.py`**: 定义了 Minecraft 1.21 全成就列表与依赖关系（主线、下界、农业、基础采集、探索）。
+* **`spaces.py`**: 观测空间、动作空间（27维离散动作）、成就空间及编码器的配置定义。
+* **`env.py`**: `MinecraftCraftgroundEnv`（单环境，兼容 gym 接口）与 `CraftgroundVecEnv`（向量化环境）。
+* **`env_interface.py`**: `CraftgroundEnvWithTerrainCheck`（添加 favorable biomes 启发式地形检测防海洋出生点的环境）与 `CraftgroundVecEnvWithInterface`（向量环境 + per-episode 成就成功率追踪接口）。
+* **`reward.py`**: `RewardShaper`（从 `obs["full"]` protobuf 报文中根据库存物品的 translation_key 进行成就检测，并根据新获取物品类型发放稠密内在探索奖励）。
+* **`train_ppo_ad.py`**: Craftground PPO + Achievement Distillation (Model-Free) 训练主循环。
+* **`training_config.py`**: 结构 schema (`CraftgroundTrainingConfig` dataclass)，用以加载 Craftground 训练的超参预设。
+
 ### `train/godot_meta_rl/` (Godot 40 环境 RL 子系统)
 
 * **`vec_env.py`**: `GodotVecEnv`（SB3 VecEnv 适配）/ `RolloutProgress`。当前 `train/godot_meta_rl/` 仅保留此对接桥。
@@ -120,6 +130,7 @@
 * **`blocks/`**：编解码 / RSSM GRU / 分布 / 序列等算子被 `net/dreamerv3`、`net/dreamer4` 复用；其余算子作为统一基座的候选组件来源。
 * **`net/backbone.py`**：`load_backbone` 加载冻结视觉骨干；**`net/config.py`**：结构 schema；**`net/vpt_lib/`**：vendored VPT。
 * **`train/minecraft/`**：`vpt_action`/`vpt_dataset`/`task_text` 数据契约（训练循环待新基座补）。
+* **`train/craftground/`**：Minecraft 1.21 PPO + Achievement Distillation 可训练强化学习环境与算法域。
 * **`train/godot_meta_rl/` + `assets/godot_meta_rl/`**：Godot RL 子系统（见其文档）。
 * **`utils/io.py`**：YAML 读取 + HF token；**`utils/godot_rl/`**：Godot 跨平台共享内存基础设施。
 * **`tests/`**：`unit/`（SIGReg / 空间位置编码）+ `integration/`（DreamerV3 构建冒烟）。

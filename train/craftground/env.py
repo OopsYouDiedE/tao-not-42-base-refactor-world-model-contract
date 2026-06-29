@@ -77,12 +77,12 @@ DISCRETE_TO_V2 = [
 class MinecraftCraftgroundEnv:
     """单个 Minecraft Craftground 环境，兼容 gym 接口。"""
 
-    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000):
+    def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000, screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.ZEROCOPY):
         self.seed = seed
         self.max_steps = max_steps
         self.episode_step = 0
         self.reward_shaper = RewardShaper()
-        self.screen_encoding_mode = ScreenEncodingMode.ZEROCOPY
+        self.screen_encoding_mode = screen_encoding_mode
 
         # 检查 DISPLAY 环境变量
         if 'DISPLAY' not in os.environ:

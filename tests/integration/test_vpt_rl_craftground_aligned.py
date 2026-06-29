@@ -50,9 +50,10 @@ if __name__ == '__main__':
     parser.add_argument("--max-steps", type=int, default=36000, help="Maximum steps to run per env")
     args = parser.parse_args()
     
-    # 优先将 DISPLAY 绑定到无头 GPU 渲染器 (避免鼠标飞出窗口)
-    os.environ['DISPLAY'] = args.display
-    print(f"=== VPT RL Fine-tuned 模型测试 (直接对齐 V2 键鼠动作空间, DISPLAY={args.display}) ===")
+    # 优先将 DISPLAY 绑定到无头 GPU 渲染器 (若指定且非空)
+    if args.display:
+        os.environ['DISPLAY'] = args.display
+    print(f"=== VPT RL Fine-tuned 模型测试 (直接对齐 V2 键鼠动作空间, DISPLAY={os.environ.get('DISPLAY')}) ===")
     
     # 1. 载入配置与初始化完整的 Agent Policy
     model_path = 'runs/checkpoints/vpt/weights/2x.model'
@@ -83,14 +84,24 @@ if __name__ == '__main__':
         camera_quantization_scheme="mu_law"
     )
 
-    # 2. 创建环境 (强制 ZEROCOPY GPU 零拷贝模式)
+    # 2. 创建环境 (根据 DISPLAY 自动选择最佳编码模式)
     n_envs = args.n_envs
     max_steps = args.max_steps
-    print(f"创建 {n_envs} 个并行环境（{max_steps} 步/episode，强制使用 RAW 编码确保全 CUDA 环境兼容）...")
+    from craftground.screen_encoding_modes import ScreenEncodingMode
+    
+    current_display = os.environ.get("DISPLAY", "")
+    if current_display == ":1":
+        enc_mode = ScreenEncodingMode.ZEROCOPY
+        enc_desc = "ZEROCOPY GPU 零拷贝模式"
+    else:
+        enc_mode = ScreenEncodingMode.RAW
+        enc_desc = "RAW 像素回传模式"
+        
+    print(f"创建 {n_envs} 个并行环境（{max_steps} 步/episode，使用 {enc_desc}，DISPLAY={current_display}）...")
 
     from train.craftground.env import MinecraftCraftgroundEnv
     envs = [
-        MinecraftCraftgroundEnv(seed=100+i, max_steps=max_steps, port=9100+i*5)
+        MinecraftCraftgroundEnv(seed=100+i, max_steps=max_steps, port=9100+i*5, screen_encoding_mode=enc_mode)
         for i in range(n_envs)
     ]
 

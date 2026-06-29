@@ -100,13 +100,18 @@ class MinecraftCraftgroundEnv:
             find_free_port=True,
             verbose=False,
         )
+    def _process_obs(self, rgb):
+        if isinstance(rgb, torch.Tensor):
+            # ZEROCOPY 模式在 CUDA 上返回 BGR Tensor，此处翻转为 RGB
+            return rgb[:, :, [2, 1, 0]]
+        return rgb
 
     def reset(self) -> np.ndarray:
         """重置环境，返回 (H, W, C) uint8 numpy 观测。"""
         self.episode_step = 0
         self.reward_shaper.reset()
         obs, _ = self.env.reset()
-        return obs["rgb"]
+        return self._process_obs(obs["rgb"])
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
         """执行一步，返回 (obs, reward, done, info)。
@@ -144,7 +149,7 @@ class MinecraftCraftgroundEnv:
         if self.episode_step >= self.max_steps:
             done = True
 
-        return rgb, float(intrinsic), done, info
+        return self._process_obs(rgb), float(intrinsic), done, info
 
     def close(self):
         self.env.close()

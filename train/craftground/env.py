@@ -92,7 +92,10 @@ class MinecraftCraftgroundEnv:
                 "    ./scripts/gpu_run.sh python your_script.py"
             )
 
-        config = InitialEnvironmentConfig(screen_encoding_mode=self.screen_encoding_mode)
+        config = InitialEnvironmentConfig(
+            screen_encoding_mode=self.screen_encoding_mode,
+            seed=str(self.seed) if self.seed is not None else ""
+        )
         self.env = CraftGroundEnvironment(
             config,
             action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,

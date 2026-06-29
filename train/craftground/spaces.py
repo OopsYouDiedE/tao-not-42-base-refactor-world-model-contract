@@ -62,7 +62,7 @@ ACTION_NAMES = {
 }
 
 # 成就空间
-from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+from train.craftground.achievements import ALL_ACHIEVEMENTS
 
 NUM_ACHIEVEMENTS = len(ALL_ACHIEVEMENTS)
 
@@ -75,8 +75,3 @@ CHECKPOINT_ACHIEVEMENTS = {
     "下界": ["minecraft.story.enter_the_nether"],
     "末影": ["minecraft.story.enter_the_end"],
 }
-
-print(f"🎮 Minecraft 空间定义：")
-print(f"   - 观测: {OBS_SHAPE}")
-print(f"   - 动作: {NUM_ACTIONS} 个离散动作")
-print(f"   - 成就: {NUM_ACHIEVEMENTS} 个成就")

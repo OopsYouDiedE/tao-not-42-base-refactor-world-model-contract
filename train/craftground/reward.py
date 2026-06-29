@@ -14,7 +14,7 @@ Craftground 基类 `step` 的 reward 恒为 0，info 不含成就。本模块从
 from collections import deque
 from typing import Dict, List, Set, Tuple
 
-from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+from train.craftground.achievements import ALL_ACHIEVEMENTS
 
 # 成就名 → 索引（与 env_interface 的成就向量列对齐）
 ACHIEVEMENT_TO_IDX: Dict[str, int] = {name: i for i, name in enumerate(ALL_ACHIEVEMENTS)}

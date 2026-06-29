@@ -186,7 +186,7 @@ if __name__ == '__main__':
                 
                 # 打印新解锁的成就
                 if new_ach_indices:
-                    from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+                    from train.craftground.achievements import ALL_ACHIEVEMENTS
                     for idx in new_ach_indices:
                         print(f"    [Env {i}] ⭐ 解锁成就: {ALL_ACHIEVEMENTS[idx]}")
                         

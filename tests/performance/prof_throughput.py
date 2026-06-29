@@ -18,7 +18,7 @@ from train.craftground import env_interface as EI
 from train.craftground.env_interface import CraftgroundVecEnvWithInterface, CraftgroundEnvWithTerrainCheck
 from net.encoders.yolo_backbone_encoder import YoloBackboneEncoder
 from train.craftground.train_ppo_ad import PPOActorCritic, AchievementHead, compute_gae_advantages
-from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+from train.craftground.achievements import ALL_ACHIEVEMENTS
 
 DEVICE = "cuda"
 N_ENVS = 4

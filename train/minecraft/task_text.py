@@ -10,8 +10,8 @@
 空间接口";条件是否被模型利用,取决于数据里任务间是否真有行为方差(四任务
 混采,见 colab_demo §2)。
 
-mock 模式:每个唯一字符串一个确定的单位随机向量(md5 种子)——能区分任务、
-无语义外推,供离线冒烟;minilm 加载失败时自动回退并告警。
+ mock 模式:每个唯一字符串一个确定的单位随机向量(md5 种子)——能区分任务、
+ 无语义外推,供离线冒烟。
 """
 import hashlib
 
@@ -34,17 +34,12 @@ class TaskTextEncoder:
         self._cache = {}
         self.tok = self.model = None
         if kind == "minilm":
-            try:
-                from transformers import AutoTokenizer, AutoModel
-                name = "sentence-transformers/all-MiniLM-L6-v2"
-                self.tok = AutoTokenizer.from_pretrained(name)
-                self.model = AutoModel.from_pretrained(name).to(device).eval()
-                for p in self.model.parameters():
-                    p.requires_grad_(False)
-            except Exception as ex:
-                print(f"[TaskTextEncoder] minilm 加载失败({ex}),"
-                      f"回退 mock(哈希伪嵌入:可区分任务,无语义外推)")
-                self.kind = "mock"
+            from transformers import AutoTokenizer, AutoModel
+            name = "sentence-transformers/all-MiniLM-L6-v2"
+            self.tok = AutoTokenizer.from_pretrained(name)
+            self.model = AutoModel.from_pretrained(name).to(device).eval()
+            for p in self.model.parameters():
+                p.requires_grad_(False)
 
     @torch.no_grad()
     def encode(self, texts):

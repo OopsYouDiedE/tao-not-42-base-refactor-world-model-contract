@@ -97,11 +97,3 @@ ALL_ACHIEVEMENTS = list(
     | EXPLORATION_ACHIEVEMENTS.keys()
 )
 ALL_ACHIEVEMENTS.sort()
-
-print(f"📊 Minecraft 成就统计：")
-print(f"   - 故事线: {len(STORY_ACHIEVEMENTS)}")
-print(f"   - 下界: {len(NETHER_ACHIEVEMENTS)}")
-print(f"   - 农业: {len(HUSBANDRY_ACHIEVEMENTS)}")
-print(f"   - 基础采集/合成: {len(GATHERING_ACHIEVEMENTS)}")
-print(f"   - 探索(深度/距离): {len(EXPLORATION_ACHIEVEMENTS)}")
-print(f"   - 总数: {len(ALL_ACHIEVEMENTS)}")

@@ -34,10 +34,15 @@ def to_craftground_v2(buttons, camera):
         cg_action[k_dot] = val
         cg_action[k_under] = val
             
+    # Minecraft 1.11 (VPT 训练数据) 与 1.20+ (CraftGround) 的 GUI 鼠标灵敏度可能存在版本差异。
+    # 加入灵敏度补偿缩放因子，修复模型由于鼠标横向移动不足而把木板放错格子（造出木斧）的问题。
+    GUI_CAMERA_SCALER_X = 1.5
+    GUI_CAMERA_SCALER_Y = 1.5
+    
     # 填充连续相机 pitch 和 yaw
     pitch, yaw = camera
-    cg_action["camera_pitch"] = float(pitch)
-    cg_action["camera_yaw"] = float(yaw)
+    cg_action["camera_pitch"] = float(pitch) * GUI_CAMERA_SCALER_Y
+    cg_action["camera_yaw"] = float(yaw) * GUI_CAMERA_SCALER_X
     
     return cg_action
 
@@ -105,8 +110,10 @@ if __name__ == '__main__':
     first = th.from_numpy(np.array([True] * n_envs)).cuda()
 
     for step in range(max_steps):
-        # 图像 resize 128x128 (使用 numpy array 并一次性丢入 CUDA)
-        obs_t = th.from_numpy(np.array(obs)).cuda()  # [B, H, W, C]
+        if isinstance(obs[0], th.Tensor):
+            obs_t = th.stack(obs)
+        else:
+            obs_t = th.from_numpy(np.array(obs)).cuda()  # [B, H, W, C]
         obs_t = obs_t.permute(0, 3, 1, 2).float()  # [B, C, H, W]
         # 直接使用 GPU 批处理重采样，杜绝循环和 CPU 拷贝
         obs_t = th.nn.functional.interpolate(
@@ -166,7 +173,7 @@ if __name__ == '__main__':
                 
                 # 打印新解锁的成就
                 if new_ach_indices:
-                    from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+                    from train.craftground.achievements import ALL_ACHIEVEMENTS
                     for idx in new_ach_indices:
                         print(f"    [Env {i}] ⭐ 解锁成就: {ALL_ACHIEVEMENTS[idx]}")
                         

@@ -21,7 +21,7 @@ class CraftgroundConfig:
     obs_shape: Tuple[int, int, int] = (3, 384, 640)  # 填充后的分辨率（384 = ceil(360/32)*32）
     obs_shape_native: Tuple[int, int, int] = (3, 360, 640)  # Craftground 原生输出
     num_actions: int = 27  # Minecraft Java 标准离散动作
-    n_achievements: int = 100  # 占位符，实际从 train/craftground_minecraft_ml_env/achievements.py 动态获取
+    n_achievements: int = 100  # 占位符，实际从 train/craftground/achievements.py 动态获取
 
     # ─── RSSM 世界模型 ──────────────────────────────────────────
     dyn_deter: int = 512  # 确定性状态维

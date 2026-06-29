@@ -14,7 +14,7 @@ from collections import deque
 from typing import Tuple, Dict, Optional
 from craftground.screen_encoding_modes import ScreenEncodingMode
 from train.craftground.env import MinecraftCraftgroundEnv, CraftgroundVecEnv
-from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+from train.craftground.achievements import ALL_ACHIEVEMENTS
 
 
 class CraftgroundEnvWithTerrainCheck(MinecraftCraftgroundEnv):

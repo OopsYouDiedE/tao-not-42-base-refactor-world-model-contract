@@ -82,7 +82,7 @@ class MinecraftCraftgroundEnv:
         self.max_steps = max_steps
         self.episode_step = 0
         self.reward_shaper = RewardShaper()
-        self.screen_encoding_mode = ScreenEncodingMode.RAW
+        self.screen_encoding_mode = ScreenEncodingMode.ZEROCOPY
 
         # 检查 DISPLAY 环境变量
         if 'DISPLAY' not in os.environ:
@@ -197,7 +197,7 @@ class CraftgroundVecEnv:
         obs_list = [env.reset() for env in self.envs]
         self.episode_rewards.fill(0)
         self.episode_lengths.fill(0)
-        return self._to_obs(np.array(obs_list))
+        return self._to_obs(obs_list)
 
     def step(self, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict]:
         """步进所有环境（顺序执行，待优化为真正的并行）。
@@ -232,7 +232,7 @@ class CraftgroundVecEnv:
             dones.append(done)
 
         return (
-            self._to_obs(np.array(obs_list)),
+            self._to_obs(obs_list),
             torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1),
             torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1),
             infos,
@@ -243,18 +243,15 @@ class CraftgroundVecEnv:
             env.close()
 
     @staticmethod
-    def _to_obs(raw: np.ndarray) -> torch.Tensor:
-        """[N,H,W,C] uint8 numpy → [N,C,H,W] float32 [0,1] on CUDA。"""
+    def _to_obs(obs_list: List[np.ndarray | torch.Tensor]) -> torch.Tensor:
+        """[N,H,W,C] uint8 → [N,C,H,W] float32 [0, 255] on CUDA。"""
+        if isinstance(obs_list[0], torch.Tensor):
+            tensor = torch.stack(obs_list)
+            return tensor.permute(0, 3, 1, 2).float()
+        
+        raw = np.array(obs_list)
         if raw.ndim == 3:  # 单张图像
             raw = raw[np.newaxis, ...]
         # Craftground 观测格式：(H, W, 3) RGB uint8
-        return torch.from_numpy(raw.transpose(0, 3, 1, 2)).cuda().float() / 255.0
+        return torch.from_numpy(raw.transpose(0, 3, 1, 2)).cuda().float()
 
-
-# 占位符：成就列表（待从 craftground 的实际成就系统提取）
-ACHIEVEMENTS = [
-    # Minecraft 标准成就（示例）
-    # "minecraft.story.root",
-    # "minecraft.story.mine_wood",
-    # ... (实际列表待确认)
-]

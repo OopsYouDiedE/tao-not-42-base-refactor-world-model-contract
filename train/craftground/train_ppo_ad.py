@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from train.craftground.env_interface import CraftgroundVecEnvWithInterface
 from train.craftground.training_config import CraftgroundTrainingConfig
-from train.craftground_minecraft_ml_env.achievements import ALL_ACHIEVEMENTS
+from train.craftground.achievements import ALL_ACHIEVEMENTS
 from net.encoders.yolo_backbone_encoder import YoloBackboneEncoder
 
 

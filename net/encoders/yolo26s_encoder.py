@@ -14,6 +14,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ultralytics import YOLO
 
 
 class YOLO26sEncoder(nn.Module):
@@ -31,17 +32,9 @@ class YOLO26sEncoder(nn.Module):
         self.output_dim = output_dim
 
         # YOLO26s Backbone
-        # （这里使用 ultralytics 库，需要安装 ultralytics）
-        try:
-            from ultralytics import YOLO
-
-            # 加载 YOLO v8-s（假设用户指的 YOLO26s 对应 v8-s）
-            # 如果有实际的 YOLO26s 版本，替换这里
-            yolo = YOLO("runs/checkpoints/yolov8s.pt") if pretrained else YOLO("yolov8s.yaml")
-            self.backbone = yolo.model
-        except ImportError:
-            print("⚠️  ultralytics 未安装，将使用简化的 backbone")
-            self.backbone = None
+        # 加载 YOLO v8-s（假设用户指的 YOLO26s 对应 v8-s）
+        yolo = YOLO("runs/checkpoints/yolov8s.pt") if pretrained else YOLO("yolov8s.yaml")
+        self.backbone = yolo.model
 
         # 多尺度融合权重（可学习）
         # P3, P4, P5 分别对应三个特征尺度
@@ -67,18 +60,8 @@ class YOLO26sEncoder(nn.Module):
         if x.dtype == torch.uint8:
             x = x.float() / 255.0
 
-        if self.backbone is not None:
-            # 使用真实 YOLO backbone
-            # YOLO 模型的多尺度特征提取
-            try:
-                # 通过 backbone 获取多尺度特征
-                features = self._extract_yolo_features(x)
-            except Exception as e:
-                print(f"⚠️  YOLO 特征提取失败: {e}，使用回退方案")
-                features = self._fallback_features(x)
-        else:
-            # 回退方案：简化的 CNN
-            features = self._fallback_features(x)
+        # 通过 backbone 获取多尺度特征
+        features = self._extract_yolo_features(x)
 
         # 多尺度融合
         fused = self._fuse_multi_scale(features)
@@ -90,25 +73,7 @@ class YOLO26sEncoder(nn.Module):
 
     def _extract_yolo_features(self, x):
         """从 YOLO backbone 提取多尺度特征 (P3, P4, P5)。"""
-        # YOLO 的特征金字塔通常在 backbone 的不同深度
-        # 这里需要根据实际 YOLO 结构调整
         p3, p4, p5 = self.backbone(x)[:3]  # 取前三个尺度
-        return [p3, p4, p5]
-
-    def _fallback_features(self, x):
-        """回退方案：简化的多尺度特征提取（不依赖 YOLO 库）。"""
-        # 使用简单的卷积层模拟多尺度特征
-        # P3: 原始分辨率的特征
-        p3 = F.conv2d(x, torch.randn(64, 3, 3, 3).to(x.device), padding=1)
-
-        # P4: 下采样 1/2
-        p4 = F.avg_pool2d(p3, 2)
-        p4 = F.conv2d(p4, torch.randn(128, 64, 3, 3).to(x.device), padding=1)
-
-        # P5: 下采样 1/4
-        p5 = F.avg_pool2d(p4, 2)
-        p5 = F.conv2d(p5, torch.randn(256, 128, 3, 3).to(x.device), padding=1)
-
         return [p3, p4, p5]
 
     def _fuse_multi_scale(self, features):
@@ -131,7 +96,6 @@ class YOLO26sEncoder(nn.Module):
         weights = F.softmax(self.fusion_weights, dim=0)
 
         # 加权求和
-        # 需要调整 channel 维度保证兼容
         fused_list = []
         for w, feat in zip(weights, pooled):
             # 如果 channel 不同，投影到统一维度

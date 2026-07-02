@@ -25,10 +25,19 @@
   后台下载中（BASALT find-cave 承包商数据，与上一轮结论文档同源同规模）。
   首 2 段标定：|dx| p95=58 ⇒ 建议 camera_scale≈33（全量下完后按汇总分位数定，上轮为 29）。
 
+### 利用率标定（scripts/sys_monitor.py + 7 配置 240 步探测）
+- 吞吐被 CPU 数据管线封顶 ~4600 帧/s：batch 32/64/128 稳态帧率同为 4.5-4.7k，
+  workers 9→11、clip_cache 4→8 均无增益。
+- GPU 利用率随每步计算量走：26M 模型 batch 32→22%、64→71%、128→85%。
+- `motion_sample 4` 的 4 倍候选解码开销被闲置 CPU 完全吸收（吞吐 4617 vs 4686 帧/s）。
+- **结论：占满 GPU 用"加大模型"而非"加大 batch"**——62M 结构（token_dim 384/dyn_layers 8/
+  enc_base 48）+ batch 32 + bf16 即为上轮实测 85% 利用率组合，四组实验采用之。
+
 ### 实验计划（进行中）
 - 目标：对比 e8c8904 引入的修改方式的效果，四口径评估（psnr_gen−persist、EV(Δz)、IG、
   8 步开环 rollout 优势）。
-- 矩阵（统一预算 4000 步 / seq 16 / bf16 / seed 42，26M 结构，batch 按 GPU 打满调）：
+- 矩阵（统一预算 5000 步 / batch 32 / seq 16 / bf16 / seed 42 / camera_scale 32（全量 p95 标定）/
+  62M 结构；holdout_n=3，eval_interval=500）：
   - A 基线（对齐修复后，motion_sample=1，无 delta_weight）
   - B `--motion_sample 4`
   - C `--delta_weight`

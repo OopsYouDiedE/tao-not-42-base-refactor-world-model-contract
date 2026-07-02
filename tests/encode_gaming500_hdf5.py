@@ -12,7 +12,10 @@
   - **多样性优先**:会话顺序为游戏间轮转交错(每游戏轮流出 1 个会话),管线随时
     中断都保证"各游戏都已有样本",而非字母序头部游戏独占。
   - 解码帧积各 worker 内存缓冲,超 buffer_gb/parallel 即由共享线程池 JPEG 压缩
-    追加进当前分片;分片超 --shard-gb 且无在写段时封片:后台线程上传 HF 后删本地。
+    追加进当前分片;分片超 --shard-gb 即**滚动**——新段开进新分片,旧分片上仍在写
+    的段自然写完后立即封片(后台线程上传 HF 后删本地)。不等"全局无在写段"窗口:
+    高并行下该窗口趋于不存在,等窗口会让分片无限膨胀、流式上传失效(2026-07-02 实测
+    parallel=8 时 8.3GB 仍未封)。
   - "其他信息不要丢":事件以源生 30Hz 全率存两份——结构化数组(dx/dy f32、键位 u32
     位掩码、gui u8,gzip)+ 整段契约 JSONL gzip 原文;图像可按 --hz 降采样
     (frame_idx 记录到 30Hz 事件流的映射,不丢对齐)。
@@ -128,8 +131,12 @@ class Uploader:
 # ---------------------------------------------------------------- 分片写入(多 worker 共享,锁串行化)
 
 class ShardWriter:
-    """滚动分片 HDF5 写入器:JPEG 压缩在锁外并行,h5 写入锁内串行;
-    封片延迟到"无在写段"时执行,避免关掉别的 worker 正在写的文件。"""
+    """滚动分片 HDF5 写入器:JPEG 压缩在锁外并行,h5 写入锁内串行。
+
+    封片策略(高并行安全):当前分片超 --shard-gb 后,**新段一律开进新分片**,
+    旧分片转入 pending,其上余段全部 end_segment 后立即封片上传。不等
+    "全局无在写段"窗口——parallel≥8 时该窗口趋于不存在,分片会无限膨胀。
+    """
 
     def __init__(self, out_dir, shard_bytes, quality, threads, uploader, manifest_cb,
                  sealed_shards=(), prefix=""):
@@ -140,7 +147,6 @@ class ShardWriter:
         self.prefix = prefix
         self.pool = ThreadPoolExecutor(max_workers=threads)
         self.lock = threading.Lock()
-        self.open_segments = 0
         os.makedirs(out_dir, exist_ok=True)
         taken = []
         for fn in os.listdir(out_dir):
@@ -153,20 +159,44 @@ class ShardWriter:
                 continue                               # 留着即孤儿
             taken.append(int(fn[len(prefix):].split("_")[1].split(".")[0]))
         self.idx = max(taken) + 1 if taken else 0
-        self.f, self.cur_segs = None, []
+        self.cur = None          # {"f","path","segs","open"} 接收新段的当前分片
+        self.pending = []        # 已滚动、余段未写完的旧分片
 
     def _open(self):
-        self.path = os.path.join(self.dir, f"{self.prefix}shard_{self.idx:04d}.h5")
-        self.f = self.h5py.File(self.path, "w")
-        print(f"📦 新分片 {self.path}", flush=True)
+        path = os.path.join(self.dir, f"{self.prefix}shard_{self.idx:04d}.h5")
+        self.idx += 1
+        print(f"📦 新分片 {path}", flush=True)
+        return {"f": self.h5py.File(path, "w"), "path": path, "segs": [], "open": 0}
+
+    def _seal(self, sh):
+        sh["f"].close()
+        print(f"📦 封片 {sh['path']}({os.path.getsize(sh['path']) / 1e9:.2f}GB)",
+              flush=True)
+        self.manifest_cb(os.path.basename(sh["path"]), sh["segs"])
+        self.uploader.submit(sh["path"])
+
+    def _shard_of(self, g):
+        fn = g.file.filename
+        for sh in [self.cur] + self.pending:
+            if sh is not None and sh["path"] == fn:
+                return sh
+        raise KeyError(f"段所属分片未登记: {fn}")
 
     def begin_segment(self, game, name, hz, attrs):
         with self.lock:
-            if self.f is None:
-                self._open()
-            g = self.f.require_group(game).create_group(name)
-            self.cur_segs.append(f"{game}/{name}")
-            self.open_segments += 1
+            if self.cur is not None:
+                self.cur["f"].flush()                  # 刷盘后按真实大小判滚动
+                if os.path.getsize(self.cur["path"]) >= self.limit:
+                    if self.cur["open"] == 0:
+                        self._seal(self.cur)
+                    else:
+                        self.pending.append(self.cur)  # 余段写完时在 end_segment 封
+                    self.cur = None
+            if self.cur is None:
+                self.cur = self._open()
+            g = self.cur["f"].require_group(game).create_group(name)
+            self.cur["segs"].append(f"{game}/{name}")
+            self.cur["open"] += 1
             dt = self.h5py.vlen_dtype(np.uint8)
             g.create_dataset("jpeg", shape=(0,), maxshape=(None,), dtype=dt, chunks=(256,))
             g.create_dataset("frame_idx", shape=(0,), maxshape=(None,), dtype=np.int32,
@@ -193,7 +223,7 @@ class ShardWriter:
             gi[n0:] = np.asarray(frame_idx, np.int32)
 
     def end_segment(self, g, acts):
-        """写事件全率数组 + gzip JSONL 原文;段计数归零且超阈值才封片。"""
+        """写事件全率数组 + gzip JSONL 原文;所属分片余段归零时按策略封片。"""
         dx = np.array([a["mouse"]["dx"] for a in acts], np.float32)
         dy = np.array([a["mouse"]["dy"] for a in acts], np.float32)
         keys = np.array([sum(_KEY_BIT.get(k, 0) for k in a["keyboard"]) for a in acts],
@@ -202,28 +232,26 @@ class ShardWriter:
         raw = "\n".join(json.dumps(a) for a in acts).encode()
         blob = np.frombuffer(gzip.compress(raw, 6), np.uint8)
         with self.lock:
+            sh = self._shard_of(g)
             for nm, arr in (("dx", dx), ("dy", dy), ("keys", keys), ("gui", gui)):
                 g.create_dataset(nm, data=arr, compression="gzip", compression_opts=4)
             g.create_dataset("events_gz", data=blob)
-            self.f.flush()
-            self.open_segments -= 1
-            if (self.open_segments == 0
-                    and os.path.getsize(self.path) >= self.limit):
-                self._rollover_locked()
-
-    def _rollover_locked(self):
-        if self.f is None:
-            return
-        self.f.close()
-        print(f"📦 封片 {self.path}({os.path.getsize(self.path) / 1e9:.2f}GB)", flush=True)
-        self.manifest_cb(os.path.basename(self.path), self.cur_segs)
-        self.uploader.submit(self.path)
-        self.idx += 1
-        self.f, self.cur_segs = None, []
+            sh["f"].flush()
+            sh["open"] -= 1
+            if sh["open"] > 0:
+                return
+            if sh in self.pending:                     # 已滚动旧片:余段清零即封
+                self.pending.remove(sh)
+                self._seal(sh)
+            elif os.path.getsize(sh["path"]) >= self.limit:   # 当前片:超阈值即封
+                self._seal(sh)
+                self.cur = None
 
     def close(self):
         with self.lock:
-            self._rollover_locked()
+            for sh in self.pending + ([self.cur] if self.cur else []):
+                self._seal(sh)                         # 收尾:残片一律封存上传
+            self.pending, self.cur = [], None
         self.pool.shutdown(wait=True)
 
 

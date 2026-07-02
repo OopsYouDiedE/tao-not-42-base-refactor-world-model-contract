@@ -87,7 +87,8 @@ def parse_args():
     p.add_argument("--no-upload", action="store_true", help="只编码不上传(无 token 冒烟)")
     p.add_argument("--min-free-gb", type=float, default=30.0,
                    help="磁盘低水位:低于此值暂停接新会话,等待上传腾地或人工处置")
-    p.add_argument("--public", action="store_true", help="HF 仓库设为公开(默认私有)")
+    p.add_argument("--private", action="store_true",
+                   help="HF 仓库设为私有(默认公开;免费账户私有存储配额有限,大分片必 403)")
     return p.parse_args()
 
 
@@ -105,6 +106,9 @@ class Uploader:
             self.repo_id = f"{user}/{repo}"
             self.api.create_repo(self.repo_id, repo_type="dataset",
                                  private=not public, exist_ok=True)
+            # exist_ok 不改已存在仓库的可见性:显式对齐,避免旧私有库继续吃配额 403
+            self.api.update_repo_settings(self.repo_id, repo_type="dataset",
+                                          private=not public)
             print(f"☁️  上传目标: {self.repo_id}({'公开' if public else '私有'})", flush=True)
         self.t = threading.Thread(target=self._loop, daemon=True)
         self.t.start()
@@ -335,13 +339,13 @@ def main():
     args = parse_args()
     use_gpu = cg.probe_nvenc()
     if args.no_upload:
-        up = Uploader(args.repo, args.public, False)
+        up = Uploader(args.repo, not args.private, False)
     else:
         try:
-            up = Uploader(args.repo, args.public, True)
+            up = Uploader(args.repo, not args.private, True)
         except Exception as ex:
             print(f"⚠️  HF 未登录({ex}),转为只编码;分片留本地,登录后重跑即自动补传", flush=True)
-            up = Uploader(args.repo, args.public, False)
+            up = Uploader(args.repo, not args.private, False)
 
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.raw, exist_ok=True)
@@ -362,6 +366,11 @@ def main():
     writer = ShardWriter(args.out, int(args.shard_gb * 1e9), args.quality,
                          args.threads, up, record_shard,
                          sealed_shards=set(manifest["shards"]), prefix=args.shard_prefix)
+    for fn in sorted(manifest["shards"]):              # 上轮上传失败遗留的已封分片:
+        p = os.path.join(args.out, fn)                 # 重启即补传(成功后删本地)
+        if os.path.exists(p):
+            print(f"☁️  补传遗留封片 {fn}", flush=True)
+            up.submit(p)
     # 已固化的段 = 所有已封分片记录的段名并集(跳过判据,比"会话 done"标记更强)
     done_segs = {s for segs in manifest["shards"].values() for s in segs}
 

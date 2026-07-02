@@ -85,6 +85,8 @@ def parse_args():
     p.add_argument("--warp-px", type=float, default=200.0)
     p.add_argument("--match", default=None)
     p.add_argument("--no-upload", action="store_true", help="只编码不上传(无 token 冒烟)")
+    p.add_argument("--min-free-gb", type=float, default=30.0,
+                   help="磁盘低水位:低于此值暂停接新会话,等待上传腾地或人工处置")
     p.add_argument("--public", action="store_true", help="HF 仓库设为公开(默认私有)")
     return p.parse_args()
 
@@ -392,6 +394,14 @@ def main():
         sid = game + "_" + sess.split("/")[-1][:8]
         if session_complete(sid):
             return
+        while True:                                    # 磁盘低水位:上传受阻时分片
+            st = os.statvfs(args.out)                  # 积压本地,暂停接新会话防爆盘
+            free_gb = st.f_bavail * st.f_frsize / 1e9
+            if free_gb >= args.min_free_gb:
+                break
+            print(f"⏸ 磁盘余 {free_gb:.0f}GB < {args.min_free_gb}GB,{sid} 暂停 5 分钟",
+                  flush=True)
+            time.sleep(300)
         fe = os.path.join(args.raw, f"{sid}_frame_events.json")
         mp4 = os.path.join(args.raw, f"{sid}_clip.mp4")
         try:

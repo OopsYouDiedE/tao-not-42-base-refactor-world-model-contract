@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""下载 HF markov-ai/gaming-500-hours 的 minecraft 子集并转换为 train/minecraft 数据契约。
+"""下载 HF markov-ai/gaming-500-hours 任意游戏子集并转换为 train/minecraft 数据契约。
 
 对外接口:命令行脚本(main);无库接口。
+
+多游戏预训练动机:OS 级输入契约跨游戏通用(WASD/空格/Shift/Ctrl/数字键 + 鼠标
+dx,dy + 左右键在 FPS/生存/开放世界游戏中语义一致),22 维动作向量全数据集共用;
+--games 逗号分隔多个游戏目录,游戏进程按会话自动识别(接收输入最多的非系统进程)。
 
 数据源:每会话 = clip.mp4(1080p/30fps 桌面录屏)+ frame_events.json(逐帧 OS 输入事件)
 + metadata.json(标题/描述)。与 VPT/BASALT(tests/download_vpt_data.py)的差异:
@@ -31,7 +35,10 @@ import requests
 
 BASE = "https://huggingface.co/datasets/markov-ai/gaming-500-hours/resolve/main"
 API = "https://huggingface.co/api/datasets/markov-ai/gaming-500-hours"
-GAME_BUNDLES = {"javaw.exe", "java.exe", "minecraft.exe"}
+# 已知游戏进程;不在表内的游戏由 detect_game_bundle 按"接收输入事件最多的非系统进程"自动识别
+KNOWN_GAME_BUNDLES = {"javaw.exe", "java.exe", "minecraft.exe"}
+NON_GAME_BUNDLES = {"chrome.exe", "msedge.exe", "firefox.exe", "explorer.exe",
+                    "steam.exe", "steamwebhelper.exe", "discord.exe", "unknown", None}
 
 # Windows VK keyCode → 契约键名(train/minecraft/vpt_dataset.VPT_KEYS)
 VK_MAP = {
@@ -45,6 +52,8 @@ BTN_MAP = {"left": "key_attack", "right": "key_use"}
 
 def parse_args():
     p = argparse.ArgumentParser(description="gaming-500-hours minecraft 子集转换")
+    p.add_argument("--games", default="minecraft",
+                   help="逗号分隔的游戏目录名(HF 仓库顶层目录),如 'minecraft,valorant,palworld'")
     p.add_argument("--n", type=int, default=2, help="转换的会话数")
     p.add_argument("--out", default="runs/data/gaming500_mc")
     p.add_argument("--raw", default="runs/data/gaming500_raw", help="原始下载缓存目录")
@@ -78,7 +87,32 @@ def download(url, path, desc):
     print(f"   ↓ {desc}: {os.path.getsize(path) / 1e6:.0f}MB", flush=True)
 
 
-def frame_actions(fe_path, warp_px):
+def detect_game_bundle(fe_path):
+    """扫描输入事件(key/click/mouse_move)的 bundleId 频次,取非系统进程的众数为游戏进程。
+
+    Returns:
+        game_bundles: set,该会话的游戏进程名集合(已知表命中则并入)。
+    """
+    import collections
+    freq = collections.Counter()
+    with open(fe_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                fr = json.loads(line)
+            except json.JSONDecodeError:
+                break
+            for e in fr.get("events", []):
+                if e.get("type") in ("key", "click", "mouse_move", "drag"):
+                    b = e.get("bundleId")
+                    if b not in NON_GAME_BUNDLES:
+                        freq[b] += 1
+    hits = {b for b in freq if b in KNOWN_GAME_BUNDLES}
+    if hits:
+        return hits
+    return {freq.most_common(1)[0][0]} if freq else set()
+
+
+def frame_actions(fe_path, warp_px, game_bundles):
     """frame_events.json → (per_frame_action 列表, in_game 布尔列表)。
 
     键/鼠标键走 isDown 状态机;dx/dy 为帧内游戏事件坐标差分和(回中跳变丢弃);
@@ -96,12 +130,12 @@ def frame_actions(fe_path, warp_px):
             for e in fr.get("events", []):
                 et, bid = e.get("type"), e.get("bundleId")
                 if et == "active_app":
-                    game_active = bid in GAME_BUNDLES
+                    game_active = bid in game_bundles
                     if not game_active:
                         held.clear()
                         prev_xy = None
                     continue
-                if bid not in GAME_BUNDLES:
+                if bid not in game_bundles:
                     continue
                 game_active = True
                 if et == "key":
@@ -155,8 +189,11 @@ def main():
     args = parse_args()
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.raw, exist_ok=True)
-    tree = http_json(f"{API}/tree/main/minecraft")
-    all_sessions = sorted(x["path"] for x in tree if x["type"] == "directory")
+    games = [g.strip() for g in args.games.split(",") if g.strip()]
+    all_sessions = []
+    for game in games:
+        tree = http_json(f"{API}/tree/main/{game}")
+        all_sessions += sorted(x["path"] for x in tree if x["type"] == "directory")
     if args.match:
         import re
         pat = re.compile(args.match, re.I)
@@ -171,18 +208,23 @@ def main():
         print(f"   筛选 --match '{args.match}': {len(all_sessions)} → {len(kept)} 个会话", flush=True)
         all_sessions = kept
     sessions = all_sessions[: args.n]
-    print(f"📥 minecraft 会话共 {len(tree)},转换前 {len(sessions)} 个 → {args.out}", flush=True)
+    print(f"📥 {','.join(games)} 会话共 {len(all_sessions)},转换前 {len(sessions)} 个 → {args.out}",
+          flush=True)
 
     adx, ady, n_seg, n_frames_total = [], [], 0, 0
     for si, sess in enumerate(sessions):
-        sid = sess.split("/")[-1][:8]
+        sid = sess.split("/")[0] + "_" + sess.split("/")[-1][:8]
         print(f"[{si + 1}/{len(sessions)}] {sid}", flush=True)
         fe = os.path.join(args.raw, f"{sid}_frame_events.json")
         mp4 = os.path.join(args.raw, f"{sid}_clip.mp4")
         try:
             meta = http_json(f"{BASE}/{sess}/metadata.json")
             download(f"{BASE}/{sess}/frame_events.json", fe, "frame_events")
-            acts, in_game = frame_actions(fe, args.warp_px)
+            bundles = detect_game_bundle(fe)
+            if not bundles:
+                print("   ⤫ 未识别到游戏进程,跳过", flush=True)
+                continue
+            acts, in_game = frame_actions(fe, args.warp_px, bundles)
             segs = segments(in_game, args.min_frames)
             if not segs:
                 print("   ⤫ 无足够长的游戏内片段,跳过", flush=True)

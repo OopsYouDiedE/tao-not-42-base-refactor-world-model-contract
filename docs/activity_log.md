@@ -95,3 +95,11 @@
   世界模型与变体对比是工具不是目的；路线为 离线世界模型（选出最优配方）→ VPT 动作先验（BC）
   → CraftGround 在线 achievement_rewards（mine_wood→mine_stone 课程）+ PPO。已确认
   `train/craftground/achievements.py` 含 mine_stone 依赖链、reward.py 有成就奖励与稠密内在奖励通道。
+
+### 脑内推演可视化(用户要求"看看预测长啥样")
+- 新增 tests/viz_rollout.py:holdout 上 K 步开环 rollout → [GT|DREAM|PERSIST] 三联
+  对比视频(libx264,浏览器可播)+ 每样本胶片图(3 行×horizon 列)。
+- 已渲染两个 ckpt:runs/viz/b128.mp4(128²,step 1500 早期)与 runs/viz/b64_ms4.mp4
+  (64² B 配方,step 4000)。目视结论:梦境保留场景构图(草地/天空/HUD 位置正确)
+  但纹理糊(L2 频谱偏置+隐码容量+训练早期三因素叠加),随步数漂移加剧
+  (即 roll_adv 测的误差复利);64²/5k 步比 128²/1.5k 步稳定,分辨率换训练量。

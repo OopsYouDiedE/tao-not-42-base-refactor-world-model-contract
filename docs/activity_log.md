@@ -56,6 +56,12 @@
   genmean=23.40 recon=26.81 val_flow=0.1414 EV(Δz)=−0.136 IG=−0.316 开环优势 −1.29dB。
   口径分化：单步 PSNR 上首次追平/略超 persistence，但 EV 为负、开环劣于 A——损失加权
   赢在"下一帧像素"，没赢在"变化方向正确"，与 B 恰好互补，D（组合）是关键判据。
+- **D 组合**（08:06-08:25）：gen=22.59 persist=22.76（差 −0.17）EV=−0.115 IG=−0.181
+  开环优势 −1.25dB val_flow=0.173（四组最高）。无叠加收益。
+- **四组齐，判定与选型写入 knowledge/conclusion_minecraft_dreamer4_run.md §00**：
+  胜者 B（motion_sample=4），EV 唯一转正 + 开环差距缩至 1/3；IG 恒负列为诊断项。
+- 新数据源调查：HF `markov-ai/gaming-500-hours` minecraft 子集 75 段（~30h，1080p/30fps，
+  逐帧 OS 输入事件带 appName 过滤）。转换风险：FPS 鼠标捕获模式绝对坐标差分待实测。
 
 ### 项目主线目标（用户 2026-07-02 明确）
 - **最终目的：快速学会 Minecraft 动作，达成 mine_stone（Stone Age）及以上成就。**

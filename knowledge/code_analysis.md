@@ -43,6 +43,12 @@
 #### `net/dreamer4/` (Dreamer4 时空 Transformer 世界模型,仅构建)
 * 从 `blocks/` 组装：`tokenizer.py`、`dynamics.py`（`SpaceTimeTransformer` + `ShortcutHead`）、`world_model.py`、`agent.py`（`build_dreamer4` 工厂）、`config.py`。本仓只构建、不提供训练循环。详见 [dreamer.md](dreamer.md) §2。
 
+#### `net/bc/` (VPT 行为克隆策略)
+* `config.py`（`BCConfig`：纯 dataclass;action_dim/camera_bins 等领域常量由 train 侧传入）、
+  `policy.py`（`BCPolicy` + `build_bc_policy` 工厂：冻结 DINO 骨干(经 `build_backbone`,含 ImageNet 归一化)
+  + 因果时序 Transformer(`blocks.attention.MHABlock` + Pre-LN FFN) + 相机 mu-law 分箱头/按键二值头,
+  自回归预测 a_t | o_{≤t}, a_{<t}）。消费端 `train/minecraft/train_bc.py`。
+
 #### `net/ppo_ad/` (Crafter PPO + Achievement Distillation)
 * `actor_critic.py`（`ActorCritic`）、`config.py`（`PPOADConfig`）。供 `train/crafter/train_ppo_ad.py` 使用。
 
@@ -80,7 +86,13 @@
   * **`encode(texts)`**: 获取任务文本对应的句向量。内置查表缓存 `_cache` 以避免重复计算。
   * **`_embed(s)`**: 编码逻辑。`"minilm"` 模式下加载 MiniLM 提取句特征并做 $\ell_2$ 归一化；`"mock"` 降级模式下基于字符串 md5 产生确定性的归一化随机向量（用于在无网络或显存不足时区分任务类型）。
 
-> 旧训练循环 `train_minecraft.py`/`losses.py`/`eval.py`/`_seq.py`/`minecraft_viz.py`、`train/vpt/distill_vpt.py` 与蒸馏 teacher 适配器 `vpt_teacher.py`(`VPTTeacher`,minerl-free VPT 边缘化 soft 蒸馏适配器)已随退役管线删除,新基座训练入口待补。
+#### [train/minecraft/train_bc.py](../train/minecraft/train_bc.py)
+* 离线行为克隆训练循环(CLI/main):`VPTStreamDataset`(frame_skip=1) → `net/bc.BCPolicy`;
+  损失 = 相机两轴 mu-law 分箱 CE(`camera_to_bin`) + 20 键 BCE;bf16 autocast。
+* holdout 评估(与训练不同 clip):相机 bin top-1 准确率 vs **多数 bin / 持续性(抄上一步)** 基线,
+  按键 micro-F1 vs 持续性基线;best/final checkpoint 存 `run_dir`(冻结骨干不入 ckpt)。
+
+> 旧训练循环 `train_minecraft.py`/`losses.py`/`eval.py`/`_seq.py`/`minecraft_viz.py`、`train/vpt/distill_vpt.py` 与蒸馏 teacher 适配器 `vpt_teacher.py`(`VPTTeacher`,minerl-free VPT 边缘化 soft 蒸馏适配器)已随退役管线删除;离线 BC 入口 `train_bc.py` 于 2026-07 补齐。
 
 ### `train/crafter/` (Crafter 数据集域,当前最活跃)
 
@@ -116,6 +128,8 @@
 * **`get_hf_token(colab_secret_name, set_environ)`**: HuggingFace token 解析函数。按环境变量 -> Colab Secret -> 本地 .env 文件 -> 已登录本地缓存的优先级提取 token，并写回 `os.environ` 完成鉴权，支持 Gated 视觉模型（DINOv3）的后台加载。
 
 > 离线脚本 `download_sample_data.py`(合成 VPT 样本生成器)与 `test_dinov3_hf.py`(DINOv3 骨干冒烟)已于本次清理删除。
+> 新增 `tests/download_vpt_data.py`:下载 OpenAI VPT/BASALT 承包商真数据(mp4+jsonl)并转换为
+> `train/minecraft` 数据契约,附 |dx|/|dy| 分位数报告用于标定 `--camera_scale`。
 
 #### [tests/unit/](../tests/unit/)
 * **`test_sigreg.py`** / **`test_spatial_pos_embed.py`**: CPU 可跑的纯单元测试（SIGReg 防坍缩统计量、空间位置编码形状/连续性/数值安全）。
@@ -128,7 +142,7 @@
 * **`net/dreamerv3/` + `train/crafter/`**：Crafter 上可训练的 DreamerV3（世界模型 + 想象 actor-critic + 稀疏 planner）与 PPO+AD，当前最活跃子系统。
 * **`blocks/`**：编解码 / RSSM GRU / 分布 / 序列等算子被 `net/dreamerv3`、`net/dreamer4` 复用；其余算子作为统一基座的候选组件来源。
 * **`net/backbone.py`**：`load_backbone` 加载冻结视觉骨干；**`net/config.py`**：结构 schema；**`net/vpt_lib/`**：vendored VPT。
-* **`train/minecraft/`**：`vpt_action`/`vpt_dataset`/`task_text` 数据契约（训练循环待新基座补）。
+* **`train/minecraft/`**：`vpt_action`/`vpt_dataset`/`task_text` 数据契约 + `train_bc` 离线行为克隆训练循环（配 `net/bc/` 策略；数据下载脚本 `tests/download_vpt_data.py`）。
 * **`train/craftground/`**：Minecraft 1.21 PPO + Achievement Distillation 可训练强化学习环境与算法域。
 * **`train/godot_meta_rl/` + `assets/godot_meta_rl/`**：Godot RL 子系统（见其文档）。
 * **`utils/io.py`**：YAML 读取 + HF token；**`utils/godot_rl/`**：Godot 跨平台共享内存基础设施。

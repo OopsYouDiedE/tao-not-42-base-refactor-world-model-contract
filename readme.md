@@ -63,7 +63,8 @@ net/               网络组件
   vpt_lib/         vendored OpenAI VPT（第三方，见 NOTICE；不受代码规范约束）
 train/             训练域：不同数据集的区分全压在这一层（数据契约 + 循环 + 装配）
   crafter/         Crafter 域：env / 回放 / PPO+AD（train_ppo_ad）/ DreamerV3（train_dreamerv3）/ goal / planner
-  minecraft/       VPT 数据集域：vpt_action / vpt_dataset / task_text 数据契约（训练循环待新基座补）
+  minecraft/       VPT 数据集域：vpt_action / vpt_dataset / task_text 数据契约 + train_bc（离线行为克隆，
+                   冻结 DINO 骨干 + net/bc 因果时序策略；真数据下载见 tests/download_vpt_data.py）
   godot_meta_rl/   Godot RL 共享内存对接（vec_env：SB3 VecEnv 适配）
 utils/             通用基础设施：io（yaml 读取 + HF token）/ godot_rl（Godot 跨平台共享内存基础设施）
 assets/godot_meta_rl/  Godot 引擎工程（C# Main.cs 编排 + GDScript 环境 + 场景），见其 README

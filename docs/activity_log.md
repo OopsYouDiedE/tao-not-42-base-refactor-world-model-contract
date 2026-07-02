@@ -228,3 +228,6 @@
 - 17:41 会话 17/776;二次滚动:shard_0002 已开(118MB),shard_0001(5.3GB)转 pending;
   shard_0000 13GB 只剩 ac4 长段(14.5GB 原 clip,估算段体量 GB 级)在写;007 会话已收尾。
   RAM 24/50GB、磁盘 73G/226G、load 27/8 核,进程存活。
+- 17:51 会话 19/776;shard_0000 13GB(ac4 长段持续 >1h,14.5GB 原 clip 单流解码为
+  当前最长尾);shard_0001(pending)7.0GB 滚动时已开段(odyssey 等)刚收尾;shard_0002
+  在写 605MB;RAM 24/50GB、磁盘 73G/226G、load 28/8 核,进程存活。

@@ -74,7 +74,7 @@ class WorldModel(nn.Module):
         return x
 
     def loss(self, image, actions, reward=None, cont=None, mask=None,
-             d_min=0.125, sc_weight=1.0, delta_weight=False):
+             d_min=0.125, sc_weight=1.0, delta_weight=False, hard_weight=0.0):
         """世界模型训练损失(shortcut forcing,Dreamer 4 §世界模型预训练的单循环简化)。
 
         组成:
@@ -94,6 +94,11 @@ class WorldModel(nn.Module):
             mask:    [B, T-1] float 或 None;0 处的转移不计 flow/sc 损失(episode 边界)。
             d_min:   基础流匹配的最小步长。
             sc_weight: 自一致项权重。
+            hard_weight: >0 时按模型**自身流误差**(detach)对转移做温度化重加权
+                (OHEM 式硬样本挖掘,权重 = (err/mean)^hard_weight ∈ [0.25,4])。
+                与 delta_weight 的区别:delta_weight 看数据(|Δz|² 变化大小),
+                hard_weight 看模型(哪里还没学会)——后者随训练进程自动转移注意,
+                是 knowledge/design_learned_attention.md v0 的损失侧实现。
 
         Returns:
             (total, metrics dict)。
@@ -128,6 +133,11 @@ class WorldModel(nn.Module):
         d_base = torch.full((b, t1, 1), d_min, device=z.device)
         flow_err = ((self.shortcut(ctx, x_tau, tau, d_base)
                      - (x1 - eps)) ** 2).mean(dim=(-2, -1))            # [B,T1]
+        # OHEM 硬样本重加权(hard_weight>0):模型自身误差(detach)做温度化权重,
+        # 有界 [0.25,4] 防噪声样本主导;同一 w 作用于 flow 与 sc(同转移同难度)
+        if hard_weight > 0:
+            e_ = flow_err.detach()
+            w = w * (e_ / e_.mean().clamp(min=1e-8)).pow(hard_weight).clamp(0.25, 4.0)
         flow_loss = wmean(flow_err)
 
         # 自一致:d ∈ {2·d_min..1},目标 = 两个 d/2 半步的平均速度(stop-grad)

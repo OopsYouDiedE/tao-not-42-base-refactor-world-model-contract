@@ -72,6 +72,24 @@
   密度裁剪、dynamics 吃全时长 token cache）、一次解码两路落盘、img_size 提 128、
   磁盘预算与四阶段执行时序。转换暂停，待用户确认方案。
 
+### 学习式注意 v0 落码 + 128² 基线启动
+- `WorldModel.loss` 新增 `hard_weight`(OHEM 硬样本重加权,模型自身流误差 detach 温度化,
+  [0.25,4] 有界,flow/sc 同权);train_dreamer4 增 `--hard_weight` 透传。冒烟通过
+  (含与 delta_weight 组合)。本轮 128² 长跑未开启(保持 B 配方纯净口径,留给下轮消融)。
+- **修 bug**:ConvDecoder 输出分辨率 = dec_min_res×16 与 obs_shape 脱钩,img_size=128 时
+  重建目标 64² vs 输入 128² 形状错——train_dreamer4 现按 img_size//16 反推 dec_min_res,
+  并断言 img_size 为 16 倍数。
+- 转换器升级:probe_nvenc 自检 + cut_video 走 NVDEC 解码/NVENC 编码(不占 CPU/SM);
+  `--crop-stream` 每段附加输出 1080p 原生像素运动能量最大 256² 窗口(积分图搜索,
+  排除任务栏区),无 jsonl 配对不进动力学训练,专喂 tokenizer;会话级断点续转。
+  旧命名(无游戏前缀)的 17 段已删避免重复偏置,新版转换器后台重转中(--purge-raw)。
+- **128² 基线长跑启动**(runs/mc_d4_b128,PID 112078):B 配方 motion_sample=4,
+  token 网格 8×8=64(隐码容量×4,解闸 1+2),646M 参数(~600M 是解码器平铺 Linear,
+  分辨率耦合点#2 的已知代价),batch 16 bf16,15k 步,~262 帧/s 预计 4-5h。
+- 冒烟目录 runs/mc_d4_smoke128 已按用户要求清除。
+- 用户拍板 W/C/A 三模型架构,设计入库 knowledge/design_wca_agent.md
+  (A 硬约束:绝对禁止直接吃原始内容输入,只吃 W 隐状态)。
+
 ### 项目主线目标（用户 2026-07-02 明确）
 - **最终目的：快速学会 Minecraft 动作，达成 mine_stone（Stone Age）及以上成就。**
   世界模型与变体对比是工具不是目的；路线为 离线世界模型（选出最优配方）→ VPT 动作先验（BC）

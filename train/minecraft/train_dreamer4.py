@@ -64,6 +64,10 @@ def parse_args():
                         "persistence 赢在静止多数样本上,把梯度集中到高运动转移直击其票仓")
     p.add_argument("--delta_weight", action="store_true", default=False,
                    help="流匹配损失按目标 |Δz|² 逐转移加权(有界 [0.25,4]),损失层的运动加权")
+    p.add_argument("--hard_weight", type=float, default=0.0,
+                   help="OHEM 硬样本重加权温度(0 关闭,1 线性):按模型自身流误差(detach)"
+                        "对转移加权,注意力随'还没学会的地方'自动转移——学习式注意 v0 "
+                        "的损失侧实现(knowledge/design_learned_attention.md)")
     p.add_argument("--amp", choices=["off", "bf16", "fp16"], default="bf16",
                    help="混合精度:autocast 前向/反向(bf16 无需 GradScaler,fp16 需要;"
                         "评估始终 fp32 保证指标口径)。危险算子(norm/softmax/loss)由 "
@@ -155,12 +159,16 @@ def main():
                                 num_workers=1, pin_memory=True))
 
     b_ = args.enc_base
+    # 解码器输出分辨率 = dec_min_res × stride^级数(与 obs_shape 解耦的历史坑):
+    # 必须按 img_size 反推起始分辨率,否则 img_size≠64 时重建目标形状不匹配
+    assert args.img_size % 16 == 0, "--img_size 需为 16 的倍数(4 级 stride-2 卷积)"
     cfg = Dreamer4Config(
         obs_shape=(3, args.img_size, args.img_size), num_actions=ACTION_DIM + 1,
         token_dim=args.token_dim, dyn_layers=args.dyn_layers, dyn_heads=args.dyn_heads,
         enc_depths=(b_, 2 * b_, 4 * b_, 8 * b_),
         dec_depths=(8 * b_, 4 * b_, 2 * b_, b_),
         shortcut_hidden=args.shortcut_hidden,
+        dec_min_res=args.img_size // 16,
     )
     wm = WorldModel(cfg).to(device)
     n_params = sum(p.numel() for p in wm.parameters())
@@ -200,7 +208,8 @@ def main():
             img, act = make_batch(next(train_iter), device)
             with torch.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
                 total, m = wm.loss(img, act, d_min=args.d_min, sc_weight=args.sc_weight,
-                                   delta_weight=args.delta_weight)
+                                   delta_weight=args.delta_weight,
+                                   hard_weight=args.hard_weight)
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(total).backward()
             scaler.unscale_(optimizer)

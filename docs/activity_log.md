@@ -220,3 +220,6 @@
 - 17:11 会话 8/776(angry-birds-2 单段 5 万帧入片);shard_0000(pending)11GB,滚动时
   已开的长段(ac4/007 等)尚未收尾;shard_0001 在写 1.6GB;RAM 23/50GB、磁盘 60G/226G、
   load 29/8 核,进程存活。
+- 17:21 会话 10/776;shard_0000(pending)稳定 11GB,余段 ac4/007 仍在解码(14.5GB 原
+  clip 单流约数十分钟量级);shard_0001 在写 2.4GB;RAM 23/50GB、磁盘 70G/226G(原片缓
+  存峰值,syndicate 9GB 在下)、load 30/8 核,进程存活。

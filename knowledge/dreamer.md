@@ -106,6 +106,18 @@ CPU 小尺寸前向+反向冒烟见 `tests/integration/test_dreamer_build.py`。
   3. **fp8（E4M3/E5M2,Ada 原生支持）**：需 Transformer Engine 与逐张量缩放,
      matmul 密集的 dynamics 或再得 1.3-1.6×;但 62M 规模部分是 overhead-bound,
      收益不确定,等模型上到数亿参数再评估。
+- **更先进 GPU 上的 FP8/NVFP4**（当前 L4 用不上,记录以备换卡）:
+  - **FP8（E4M3/E5M2）**:Hopper(H100)/Ada(sm 8.9,含 L4)张量核原生支持,经
+    NVIDIA Transformer Engine 的 `fp8_autocast` + 逐张量/逐块缩放使用。只加速
+    matmul 密集层(te.Linear/attention/MLP),卷积 tokenizer 收益小;本仓 62M 规模
+    overhead-bound,预期收益 <1.3×,数亿参数后再评估。
+  - **NVFP4（Blackwell,B200/GB200/RTX50)**:4 位浮点(E2M1)+ 16 元素微块 FP8(E4M3)
+    缩放 + 逐张量 fp32 缩放(区别于 OCP MXFP4 的 32 元素 2 的幂缩放)。GEMM 吞吐约为
+    FP8 的 2×。**训练**可行但需完整配方(NVIDIA 2025 预训练报告):随机 Hadamard 变换
+    摊平离群值、梯度随机舍入、首末层保高精度、bf16 主权重——不是一个开关,是一套
+    数值工程;TE 提供实验性支持。**推理**侧 NVFP4 已较成熟(TensorRT-LLM)。
+  - 结论:L4 上 bf16 是甜点;换 H100 → 上 TE FP8;换 Blackwell 且模型到数亿参数
+    → 评估 NVFP4 训练配方。任何降精度都保持评估路径 fp32(口径不变)。
 - 与**推理量化**（int8/int4 PTQ/QAT,部署用）是两条线,勿混:本节只谈训练精度。
 - 提升 GPU 利用率的第一杠杆仍是 **batch**（`scripts/sys_monitor.py` 低于 30% 滑窗
   均值会告警）:bf16 激活减半,同显存可再放大 batch 约 2×。

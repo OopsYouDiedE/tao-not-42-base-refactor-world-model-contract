@@ -43,3 +43,9 @@
   - C `--delta_weight`
   - D `--motion_sample 4 --delta_weight`
 - 结果与判定将写入 `knowledge/conclusion_minecraft_dreamer4_run.md`。
+
+### 实验结果流水（holdout@5000，n_eval_batches=8）
+- **A 基线**（07:10-07:28，GPU 92-100%，~2300 帧/s）：gen=22.59 persist=22.76（差 −0.17dB）
+  genmean=23.13 recon=26.95 val_flow=0.1395（未收敛）EV(Δz)=−0.092 IG=−0.417
+  开环@8 步优势 −0.89dB。初步观察：因果修复后 5k 步即达上轮 10k 步水平；IG 为负值得警惕
+  （无动作反而更易预测？待四组齐后统一分析）。

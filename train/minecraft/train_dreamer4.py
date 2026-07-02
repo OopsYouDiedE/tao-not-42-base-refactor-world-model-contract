@@ -39,6 +39,10 @@ def parse_args():
     p.add_argument("--img_size", type=int, default=64)
     p.add_argument("--seq_len", type=int, default=16)
     p.add_argument("--camera_scale", type=float, default=29.0)
+    p.add_argument("--frame_skip", type=int, default=1,
+                   help="可变时间跨度上限:每个转移 Δt~U{1..frame_skip}(帧)。>1 时 jumpy 预测,"
+                        "persistence 基线随运动量增大而变弱,动作效应信噪比更高(数学动机见 "
+                        "vpt_dataset docstring);Δt 经 DT_NORM 归一化后追加为条件向量末维")
     p.add_argument("--token_dim", type=int, default=256)
     p.add_argument("--dyn_layers", type=int, default=4)
     p.add_argument("--dyn_heads", type=int, default=8)
@@ -69,17 +73,25 @@ def parse_args():
     return p.parse_args()
 
 
+# Δt 条件的固定归一化尺度(帧)。离线/在线共用:在线 20Hz 单步 Δt=1 ⇒ 特征 0.25。
+# 是契约常数,不随 --frame_skip 变(否则不同 frame_skip 训练的 ckpt 无法互迁)。
+DT_NORM = 4.0
+
+
 def make_batch(sample, device):
-    """dataset batch → (image [B,T,3,H,W] float01, actions [B,T,A])。
+    """dataset batch → (image [B,T,3,H,W] float01, cond [B,T,A+1])。
 
     act_agg[t] 是转移 t→t+1 的动作,只有 T-1 个;首位补零对齐到 T 帧
     (dynamics 因果时间注意下,context[t] 消费的是"进入第 t+1 帧前"的动作序列)。
+    条件向量末维 = Δt/DT_NORM(jumpy 预测时模型必须知道要预测多远)。
     """
     img = sample["img"].to(device, non_blocking=True).float() / 255.0
     act = sample["act_agg"].to(device, non_blocking=True)          # [B,T-1,A]
-    actions = torch.zeros(img.shape[0], img.shape[1], act.shape[-1], device=device)
-    actions[:, 1:] = act
-    return img, actions
+    dt = sample["dt"].to(device, non_blocking=True)                # [B,T-1]
+    cond = torch.zeros(img.shape[0], img.shape[1], act.shape[-1] + 1, device=device)
+    cond[:, 1:, :-1] = act
+    cond[:, 1:, -1] = dt / DT_NORM
+    return img, cond
 
 
 @torch.no_grad()
@@ -114,7 +126,7 @@ def main():
     print("=" * 78, flush=True)
 
     ds_kw = dict(seq_len=args.seq_len, img_size=args.img_size,
-                 camera_scale=args.camera_scale, frame_skip=1,
+                 camera_scale=args.camera_scale, frame_skip=args.frame_skip,
                  clip_cache=args.clip_cache, seed=args.seed)
     train_ds = VPTStreamDataset(args.data_dir, split="train",
                                 holdout_n=args.holdout_n, **ds_kw)
@@ -127,7 +139,7 @@ def main():
 
     b_ = args.enc_base
     cfg = Dreamer4Config(
-        obs_shape=(3, args.img_size, args.img_size), num_actions=ACTION_DIM,
+        obs_shape=(3, args.img_size, args.img_size), num_actions=ACTION_DIM + 1,
         token_dim=args.token_dim, dyn_layers=args.dyn_layers, dyn_heads=args.dyn_heads,
         enc_depths=(b_, 2 * b_, 4 * b_, 8 * b_),
         dec_depths=(8 * b_, 4 * b_, 2 * b_, b_),

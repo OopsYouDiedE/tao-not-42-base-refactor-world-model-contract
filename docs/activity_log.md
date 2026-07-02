@@ -63,6 +63,15 @@
 - 新数据源调查：HF `markov-ai/gaming-500-hours` minecraft 子集 75 段（~30h，1080p/30fps，
   逐帧 OS 输入事件带 appName 过滤）。转换风险：FPS 鼠标捕获模式绝对坐标差分待实测。
 
+### 高清语料吃法设计（用户指示：先思考再转换）
+- 实测 L4 视频引擎：NVDEC 解码 1080p 25.9×实时（~780 帧/s、零 CPU）；
+  NVDEC+scale_cuda+NVENC 全 GPU 转码 25.6×实时 vs libx264 CPU 路径 10.1×（且吃满 12 核）。
+  NVENC 同段体积 10.3MB vs x264 6.7MB，cq 待标定。
+- 发现：训练 `--img_size` 默认 64——四组实验实际输入 64²，仅占 1080p 像素 0.2%。
+- 设计结论写入 `knowledge/design_gaming500_hd_pretrain.md`：分层吃法（tokenizer 吃原生
+  密度裁剪、dynamics 吃全时长 token cache）、一次解码两路落盘、img_size 提 128、
+  磁盘预算与四阶段执行时序。转换暂停，待用户确认方案。
+
 ### 项目主线目标（用户 2026-07-02 明确）
 - **最终目的：快速学会 Minecraft 动作，达成 mine_stone（Stone Age）及以上成就。**
   世界模型与变体对比是工具不是目的；路线为 离线世界模型（选出最优配方）→ VPT 动作先验（BC）

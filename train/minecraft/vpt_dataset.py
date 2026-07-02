@@ -180,8 +180,13 @@ class VPTStreamDataset(IterableDataset):
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
                  split=None, holdout_n=1, buffer_size=0, buffer_reuse=1,
-                 clip_cache=4, clip_refresh=256):
+                 clip_cache=4, clip_refresh=256, motion_sample=1):
         super().__init__()
+        # motion_sample:运动量锦标赛采样——每窗口抽 k 个候选,取采样帧差能量最大者
+        # (k=1 关闭,保持均匀采样)。动机:均匀采样下静止转移占多数,persistence 基线
+        # 恰赢在这些样本上;向高运动转移倾斜可把梯度集中到"动作产生效果"的地方。
+        # 有偏是有意的课程,评估侧(holdout)不开启即可保持口径公正。
+        self.motion_sample = max(1, int(motion_sample))
         self.seq_len, self.fps = seq_len, fps
         self.cache_size = max(1, cache_size)
         self.seed = seed
@@ -367,16 +372,29 @@ class VPTStreamDataset(IterableDataset):
                         "[VPTStreamDataset] 没有足够长的片段,调小 --seq_len/--frame_skip 或下载更长数据")
                 time.sleep(0.05)              # 缓存里全是短段:避免等后台解码时热旋
                 continue
-            m = cand[rng.randrange(len(cand))]
-            start = rng.randint(0, m["n"] - span)
-            # GUI 窗口拒采:GUI 内画面变化与记录动作零相关(标签噪声),>10% 即重抽
-            if m["gui"] is not None and float(m["gui"][start:start + span].mean()) > 0.1:
+            # 候选抽取(motion_sample>1 时锦标赛:通过 GUI 检查的候选里取运动能量最大)
+            picks = []
+            for _ in range(self.motion_sample):
+                mm = cand[rng.randrange(len(cand))]
+                st = rng.randint(0, mm["n"] - span)
+                # GUI 窗口拒采:GUI 内画面变化与记录动作零相关(标签噪声),>10% 即弃
+                if mm["gui"] is not None and float(mm["gui"][st:st + span].mean()) > 0.1:
+                    continue
+                picks.append((mm, st))
+            if not picks:
                 fails += 1
                 if fails % 8 == 0:
                     served = self.clip_refresh        # 反复命中 GUI 段:触发换 clip
                 if not self.rescan and fails > 16 * len(self.pairs) + 64:
                     raise RuntimeError("[VPTStreamDataset] 可用 clip 几乎全是 GUI 段")
                 continue
+            if len(picks) == 1:
+                m, start = picks[0]
+            else:
+                def _motion(mm, st):
+                    f = mm["img"][st:st + span:max(1, span // 8)].to(torch.int16)
+                    return float((f[1:] - f[:-1]).abs().float().mean())
+                m, start = max(picks, key=lambda p: _motion(*p))
             fails = 0
             # 采样帧索引(可变间隔 ⇒ 非等差);窗口 = 缓存 clip 的纯内存切片
             fidx = torch.tensor([0] + skips, dtype=torch.long).cumsum(0) + start

@@ -59,6 +59,11 @@ def parse_args():
     p.add_argument("--gen_steps", type=int, default=4)
     p.add_argument("--workers", type=int, default=3)
     p.add_argument("--clip_cache", type=int, default=4)
+    p.add_argument("--motion_sample", type=int, default=1,
+                   help="运动量锦标赛采样:每窗口抽 k 个候选,取帧差能量最大者(k=1 关闭)。"
+                        "persistence 赢在静止多数样本上,把梯度集中到高运动转移直击其票仓")
+    p.add_argument("--delta_weight", action="store_true", default=False,
+                   help="流匹配损失按目标 |Δz|² 逐转移加权(有界 [0.25,4]),损失层的运动加权")
     p.add_argument("--amp", choices=["off", "bf16", "fp16"], default="bf16",
                    help="混合精度:autocast 前向/反向(bf16 无需 GradScaler,fp16 需要;"
                         "评估始终 fp32 保证指标口径)。危险算子(norm/softmax/loss)由 "
@@ -81,31 +86,42 @@ DT_NORM = 4.0
 def make_batch(sample, device):
     """dataset batch → (image [B,T,3,H,W] float01, cond [B,T,A+1])。
 
-    act_agg[t] 是转移 t→t+1 的动作,只有 T-1 个;首位补零对齐到 T 帧
-    (dynamics 因果时间注意下,context[t] 消费的是"进入第 t+1 帧前"的动作序列)。
+    因果约定(**离开帧**,与 WorldModel.loss 对齐):cond[t] = act_agg[t] =
+    转移 t→t+1 的动作——ctx[t] 必须看到"正要执行的动作"才可能预测 z[t+1]。
+    历史版本曾用"进入帧"约定(cond[t]=act_agg[t-1]),等于让模型在不知道当前
+    动作的情况下预测其结果,动作条件形同虚设——已修正。
+    末帧的离开动作未知置零(loss 只用 cond[:, :-1],不消费该位)。
     条件向量末维 = Δt/DT_NORM(jumpy 预测时模型必须知道要预测多远)。
     """
     img = sample["img"].to(device, non_blocking=True).float() / 255.0
     act = sample["act_agg"].to(device, non_blocking=True)          # [B,T-1,A]
     dt = sample["dt"].to(device, non_blocking=True)                # [B,T-1]
     cond = torch.zeros(img.shape[0], img.shape[1], act.shape[-1] + 1, device=device)
-    cond[:, 1:, :-1] = act
-    cond[:, 1:, -1] = dt / DT_NORM
+    cond[:, :-1, :-1] = act
+    cond[:, :-1, -1] = dt / DT_NORM
     return img, cond
 
 
 @torch.no_grad()
 def evaluate(wm, hold_iter, n_batches, device, gen_steps):
-    """holdout:生成/重建/持续性 PSNR 与流匹配验证损失。"""
+    """holdout:PSNR 族 + Δz 解释方差 + 动作信息增益 + 8 步开环 rollout + 验证流损失。"""
     wm.eval()
-    agg = {"psnr_gen": 0.0, "psnr_recon": 0.0, "psnr_persist": 0.0, "val_flow": 0.0}
+    agg, roll_sum, pers_sum = {}, None, None
     for _ in range(n_batches):
         img, act = make_batch(next(hold_iter), device)
         m = wm.eval_next_frame(img, act, gen_steps=gen_steps)
+        m.update(wm.eval_action_ig(img, act))
         _, tm = wm.loss(img, act)
-        for k in ("psnr_gen", "psnr_recon", "psnr_persist"):
-            agg[k] += m[k] / n_batches
-        agg["val_flow"] += tm["flow"] / n_batches
+        m["val_flow"] = tm["flow"]
+        for k, v in m.items():
+            agg[k] = agg.get(k, 0.0) + v / n_batches
+        roll, pers = wm.eval_rollout(img, act, context_len=img.shape[1] // 2,
+                                     horizon=img.shape[1] // 2, gen_steps=gen_steps)
+        roll_sum = [a + b / n_batches for a, b in zip(roll_sum or [0] * len(roll), roll)]
+        pers_sum = [a + b / n_batches for a, b in zip(pers_sum or [0] * len(pers), pers)]
+    agg["roll_adv_last"] = roll_sum[-1] - pers_sum[-1]      # 末步开环优势(dB)
+    agg["roll_last"] = roll_sum[-1]
+    agg["roll_persist_last"] = pers_sum[-1]
     wm.train()
     return agg
 
@@ -128,8 +144,9 @@ def main():
     ds_kw = dict(seq_len=args.seq_len, img_size=args.img_size,
                  camera_scale=args.camera_scale, frame_skip=args.frame_skip,
                  clip_cache=args.clip_cache, seed=args.seed)
-    train_ds = VPTStreamDataset(args.data_dir, split="train",
-                                holdout_n=args.holdout_n, **ds_kw)
+    # 运动量采样只作用于训练集;holdout 保持均匀采样(评估口径公正)
+    train_ds = VPTStreamDataset(args.data_dir, split="train", holdout_n=args.holdout_n,
+                                motion_sample=args.motion_sample, **ds_kw)
     hold_ds = VPTStreamDataset(args.data_dir, split="holdout",
                                holdout_n=args.holdout_n, **ds_kw)
     train_iter = iter(DataLoader(train_ds, batch_size=args.batch_size,
@@ -182,7 +199,8 @@ def main():
         for step in range(start_step, args.total_steps):
             img, act = make_batch(next(train_iter), device)
             with torch.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
-                total, m = wm.loss(img, act, d_min=args.d_min, sc_weight=args.sc_weight)
+                total, m = wm.loss(img, act, d_min=args.d_min, sc_weight=args.sc_weight,
+                                   delta_weight=args.delta_weight)
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(total).backward()
             scaler.unscale_(optimizer)
@@ -201,8 +219,13 @@ def main():
             if (step + 1) % args.eval_interval == 0 or step + 1 == args.total_steps:
                 e = evaluate(wm, hold_iter, args.n_eval_batches, device, args.gen_steps)
                 print(f"    📊 holdout@{step+1}: gen={e['psnr_gen']:.2f}dB "
-                      f"recon={e['psnr_recon']:.2f}dB persist={e['psnr_persist']:.2f}dB "
-                      f"val_flow={e['val_flow']:.4f}", flush=True)
+                      f"genmean={e['psnr_genmean']:.2f}dB recon={e['psnr_recon']:.2f}dB "
+                      f"persist={e['psnr_persist']:.2f}dB val_flow={e['val_flow']:.4f}",
+                      flush=True)
+                print(f"       EV(Δz)={e['ev']:+.3f} IG={e['ig']:+.3f} "
+                      f"| 开环@末步: roll={e['roll_last']:.2f}dB "
+                      f"persist={e['roll_persist_last']:.2f}dB "
+                      f"优势={e['roll_adv_last']:+.2f}dB", flush=True)
                 if e["psnr_gen"] > best_gen:
                     best_gen = e["psnr_gen"]
                     save_ckpt("best", step + 1, e)

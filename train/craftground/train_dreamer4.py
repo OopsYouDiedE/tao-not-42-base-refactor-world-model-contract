@@ -124,19 +124,23 @@ class StreamReplay:
             if self.len[i] < seq_len + 1:
                 continue
             s = int(rng.integers(0, self.len[i] - seq_len))
-            dn = self.done[i][s: s + seq_len - 1]
+            # 离开帧约定:窗口内转移 t→t+1 的 done/reward 存于位置 s+t+1
+            dn = self.done[i][s + 1: s + seq_len]
             if dn.any():                       # 不跨 episode 边界
                 continue
             imgs.append(self.obs[i][s: s + seq_len])
             acts.append(self.act[i][s: s + seq_len])
-            rews.append(self.rew[i][s: s + seq_len - 1])
-            conts.append(1.0 - self.done[i][s: s + seq_len - 1])
+            rews.append(self.rew[i][s + 1: s + seq_len])
+            conts.append(1.0 - dn)
         if len(imgs) < max(2, batch // 2):
             return None
         img = torch.stack(imgs).to(device).float() / 255.0
-        # act[j] 即"产生 obs[j] 的动作"(collect 处 add 的语义)⇒ cond[t] 天然对齐
-        # "进入第 t 帧的动作",与离线 make_batch 的因果约定一致,无需移位。
-        cond = action_table[torch.stack(acts).to(device)]
+        # act[j] 是"产生 obs[j] 的动作"(进入帧约定)。训练要的是**离开帧**约定
+        # (cond[t] = 导致 t→t+1 的动作,与 WorldModel.loss/离线 make_batch 一致),
+        # 故整体左移一位:cond[t] = act[t+1],末位(不被 loss 消费)置零。
+        idx = torch.stack(acts).to(device)                       # [B,T]
+        cond = action_table[idx]
+        cond = torch.cat([cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1)
         return img, cond, torch.stack(rews).to(device), torch.stack(conts).to(device)
 
 

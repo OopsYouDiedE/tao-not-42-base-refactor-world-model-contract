@@ -4,7 +4,8 @@
 
 > **重构中（2026-06，统一世界基座重设计）**：原 **Minecraft Δz-JEPA 世界模型**（`net/world_model.py` 等）
 > 与并行的 **RSSM + 后继特征切片**（`net/rssm.py`）已删除退役。当前仓库的世界模型从 `blocks/` 算子库重新组装：
-> `net/dreamerv3/`（可训练，已在 Crafter 上跑通）、`net/dreamer4/`（仅构建）。跨域共享权重的统一基座仍在设计中。
+> `net/dreamerv3/`（可训练，已在 Crafter 上跑通）、`net/dreamer4/`（可训练：离线 VPT 见
+> `train/minecraft/train_dreamer4`，在线 CraftGround 见 `train/craftground/train_dreamer4`）。跨域共享权重的统一基座仍在设计中。
 > 设计意图见 [knowledge/mental_world.md](knowledge/mental_world.md)，Dreamer 系实现见 [knowledge/dreamer.md](knowledge/dreamer.md)。
 
 当前目标仍是"看视频掌握玩法"的快速迁移底座（见 [knowledge/mental_world.md](knowledge/mental_world.md) §6）；Δz-JEPA 是已退役的第一版实现。
@@ -58,7 +59,8 @@ net/               网络组件
   backbone.py      load_backbone（冻结 DINOv2/v3 HF 加载；mock 骨干见 tests/，经依赖注入）
   config.py        结构 schema（纯 dataclass，无 IO）
   dreamerv3/       DreamerV3 世界模型（从 blocks 重建：RSSM + 编解码 + 想象 actor-critic + 稀疏 planner；可训练）
-  dreamer4/        Dreamer4 时空 Transformer 世界模型（从 blocks 组装：tokenizer + shortcut forcing；仅构建）
+  dreamer4/        Dreamer4 时空 Transformer 世界模型（从 blocks 组装：tokenizer + shortcut forcing；
+                   世界模型 loss 已接线，离线/在线训练循环见 train/minecraft、train/craftground）
   ppo_ad/          Crafter PPO + Achievement Distillation actor-critic
   vpt_lib/         vendored OpenAI VPT（第三方，见 NOTICE；不受代码规范约束）
 train/             训练域：不同数据集的区分全压在这一层（数据契约 + 循环 + 装配）

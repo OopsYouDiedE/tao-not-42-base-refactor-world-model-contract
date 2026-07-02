@@ -40,8 +40,8 @@
 #### `net/dreamerv3/` (DreamerV3 世界模型,可训练)
 * 从 `blocks/` 算子库重建：`rssm.py`（`RSSM`：GRU 确定性 deter + 离散随机隐变量）、`world_model.py`（`WorldModel`：编码 + RSSM + 解码 + reward/cont 头）、`behavior.py`（`ImagBehavior`：想象 rollout 上的 actor-critic）、`planner.py`（稀疏规划）、`agent.py`（`DreamerV3` + `build_dreamerv3` 工厂）、`config.py`。方法级结构与训练手册见 [dreamer.md](dreamer.md) §1。
 
-#### `net/dreamer4/` (Dreamer4 时空 Transformer 世界模型,仅构建)
-* 从 `blocks/` 组装：`tokenizer.py`、`dynamics.py`（`SpaceTimeTransformer` + `ShortcutHead`）、`world_model.py`、`agent.py`（`build_dreamer4` 工厂）、`config.py`。本仓只构建、不提供训练循环。详见 [dreamer.md](dreamer.md) §2。
+#### `net/dreamer4/` (Dreamer4 时空 Transformer 世界模型,可训练)
+* 从 `blocks/` 组装：`tokenizer.py`、`dynamics.py`（`SpaceTimeTransformer` + `ShortcutHead`）、`world_model.py`（含 `loss()`：tokenizer 重建 + shortcut forcing 流匹配 + 自一致 + 可选 reward/cont,与 `net/dreamerv3` 同置层先例;`eval_next_frame()`：少步流生成下一帧的 PSNR 评估）、`agent.py`（`build_dreamer4` 工厂）、`config.py`。训练循环:离线 `train/minecraft/train_dreamer4`、在线 `train/craftground/train_dreamer4`。详见 [dreamer.md](dreamer.md) §2。
 
 #### `net/bc/` (VPT 行为克隆策略)
 * `config.py`（`BCConfig`：纯 dataclass;action_dim/camera_bins 等领域常量由 train 侧传入）、
@@ -86,6 +86,11 @@
   * **`encode(texts)`**: 获取任务文本对应的句向量。内置查表缓存 `_cache` 以避免重复计算。
   * **`_embed(s)`**: 编码逻辑。`"minilm"` 模式下加载 MiniLM 提取句特征并做 $\ell_2$ 归一化；`"mock"` 降级模式下基于字符串 md5 产生确定性的归一化随机向量（用于在无网络或显存不足时区分任务类型）。
 
+#### [train/minecraft/train_dreamer4.py](../train/minecraft/train_dreamer4.py)
+* VPT 数据上的离线 Dreamer4 世界模型训练循环(CLI/main):`VPTStreamDataset`(64px) →
+  `net/dreamer4.WorldModel.loss`(重建 + shortcut forcing;VPT 无奖励 ⇒ 不训 reward/cont 头)。
+* holdout 评估:`psnr_gen` 对照 `psnr_recon`(上限)/`psnr_persist`(复读上一帧基线)。
+
 #### [train/minecraft/train_bc.py](../train/minecraft/train_bc.py)
 * 离线行为克隆训练循环(CLI/main):`VPTStreamDataset`(frame_skip=1) → `net/bc.BCPolicy`;
   损失 = 相机两轴 mu-law 分箱 CE(`camera_to_bin`) + 20 键 BCE;bf16 autocast。
@@ -113,6 +118,7 @@
 * **`env_interface.py`**: `CraftgroundEnvWithTerrainCheck`（添加 favorable biomes 启发式地形检测防海洋出生点的环境）与 `CraftgroundVecEnvWithInterface`（向量环境 + per-episode 成就成功率追踪接口）。
 * **`reward.py`**: `RewardShaper`（从 `obs["full"]` protobuf 报文中根据库存物品的 translation_key 进行成就检测，并根据新获取物品类型发放稠密内在探索奖励）。
 * **`train_ppo_ad.py`**: Craftground PPO + Achievement Distillation (Model-Free) 训练主循环。超参由 argparse 持有（曾并存的 `training_config.py` dataclass 从未被实例化、默认值与 argparse 矛盾，已删除）。
+* **`train_dreamer4.py`**: CraftGround 在线 Dreamer4 世界模型训练（随机探索采集 + `StreamReplay` 逐环境交互流回放 + reward/cont 头；`--init` 支持离线 VPT checkpoint 热启动；held-out 环境评估）。
 
 ### `train/godot_meta_rl/` (Godot 40 环境 RL 子系统)
 

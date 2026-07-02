@@ -38,22 +38,45 @@ wm_total 434→181），KL 稳定约 1.6，无 NaN；采集→wm 训练→想象
 该规模和步数下策略尚未充分收敛（actor lr 3e-5、仅数百次更新），世界模型损失下降是当前可见的正向信号。
 CPU 小尺寸前向+反向冒烟见 `tests/integration/test_dreamer_build.py`。
 
-## 2. Dreamer4（`net/dreamer4/`）— 仅构建，暂不训练
+## 2. Dreamer4（`net/dreamer4/`）— 世界模型可训练（离线 VPT + 在线 CraftGround）
 
 对应 Hafner 等《Dreamer 4: Training Agents Inside of Scalable World Models》（2025）的结构骨架，
-从 `blocks/` 组装。**本仓只构建、不提供训练循环**（流匹配世界模型训练 + 想象 actor-critic 待补）。
+从 `blocks/` 组装。世界模型训练已接线（`WorldModel.loss()` + 两个训练域入口）；
+想象 actor-critic / 策略蒸馏阶段仍待补。
 
 | 文件 | 内容 |
 |---|---|
 | `config.py` | `Dreamer4Config`（tokenizer/动力学/shortcut 头/各头的结构超参；为本机可构造做了缩放，非论文原尺度） |
 | `tokenizer.py` | `Tokenizer`：`ConvEncoder`（flatten=False 取空间特征图）→ 每空间位置一个连续潜 token；可选 `VectorQuantizer` 离散码本瓶颈；`ConvDecoder` 还原图像 |
 | `dynamics.py` | `SpaceTimeTransformer`：每块 = 帧内空间自注意（`MHABlock` 非因果）+ 跨帧因果时间自注意（`MHABlock` causal）+ 动作 AdaLN 调制（零初始恒等）；`ShortcutHead`：shortcut-forcing 流匹配速度头（给定上下文+噪声 token+流时间 τ+步长 d → 速度 v，支持少步生成） |
-| `world_model.py` | `WorldModel`：tokenizer + 动力学 + shortcut 头 + reward/cont 头；`forward()` 跑一次形状自洽前向（编码→上下文→少步 Euler 流生成→解码） |
+| `world_model.py` | `WorldModel`：tokenizer + 动力学 + shortcut 头 + reward/cont 头；`forward()` 跑一次形状自洽前向（编码→上下文→少步 Euler 流生成→解码）；`loss()` 世界模型训练损失；`eval_next_frame()` 生成质量评估 |
 | `agent.py` | `Dreamer4`（wm + actor/critic 头）+ `build_dreamer4(**overrides)` 工厂 |
 
-暂不训练的原因：Dreamer4 的训练目标（shortcut forcing 的流匹配 + 一致性、想象 actor-critic）
-与 DreamerV3 差异较大，需要单独的训练域实现。当前阶段先按 blocks 分层把结构落地、跑通 shape 契约
-（`tests/integration/test_dreamer_build.py` 覆盖连续/VQ 两种 tokenizer 的前向），训练循环后续按需补充。
+### 世界模型训练（2026-07 接线）
+
+`WorldModel.loss()`（置层沿 `net/dreamerv3.WorldModel.loss` 先例）为单循环简化的 Dreamer4 目标：
+
+- **recon**：tokenizer 重建 MSE。tokenizer 只由此项训练——动力学侧对 token `detach()`，
+  近似论文的两阶段（先 tokenizer 后动力学）训练。
+- **flow**：基础流匹配。x_τ=(1-τ)ε+τz₁、速度目标 v*=z₁-ε，在最小步长 d_min 处监督。
+- **sc（shortcut 自一致）**：随机较大步长 d∈{2·d_min…1}（τ 取 d 的 Euler 网格整数倍），
+  目标 = 两个 d/2 半步的平均速度（stop-grad，I8），使 4 步 Euler 少步生成可用。
+- **reward/cont**（可选）：two-hot symexp NLL / 伯努利 NLL，对齐 context[t]（已见 o≤t, a≤t）
+  与转移奖励 reward[t]；仅在线数据可用（离线 VPT 无奖励）。
+
+训练域入口（超参与评估口径见各文件 docstring）：
+
+- **离线** `train/minecraft/train_dreamer4`：VPT/BASALT 真数据（`VPTStreamDataset`，64px，
+  22 维连续动作直接进 AdaLN 调制——不要求 one-hot）。评估 = holdout clip 上
+  `psnr_gen`（4 步流生成下一帧）对照 `psnr_recon`（重建上限）与 `psnr_persist`
+  （复读上一帧基线）：gen 必须逼近/超过 persist 才说明动力学在利用动作。
+- **在线** `train/craftground/train_dreamer4`：CraftGround(Minecraft 1.21) 随机探索采集
+  交互流，边采集边训练（含 reward/cont 头）；`--init` 从离线 checkpoint 热启动
+  （动作接口 22 维连续→27 维 one-hot 不同，action_proj/reward/cont 重新学）。
+  评估在 **held-out 环境**（最后一个 env 的数据不进训练）。
+
+想象 actor-critic / 策略蒸馏阶段仍待补（`tests/integration/test_dreamer_build.py`
+覆盖连续/VQ 两种 tokenizer 的构建前向）。
 
 ## 2.5 训练实践笔记（Crafter + L4）
 

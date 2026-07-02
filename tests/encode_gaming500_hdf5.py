@@ -69,10 +69,11 @@ def parse_args():
     p.add_argument("--n", type=int, default=2, help="每游戏最多会话数")
     p.add_argument("--out", default="runs/data/g500_h5", help="分片输出目录")
     p.add_argument("--raw", default="runs/data/gaming500_raw")
-    p.add_argument("--repo", default="gaming500-360p-hdf5",
+    p.add_argument("--repo", default="gaming500-720p-hdf5",
                    help="HF 数据集名(命名空间自动取当前登录用户)")
     p.add_argument("--hz", type=float, default=15.0, help="图像采样率(事件恒为源生 30Hz 全率)")
-    p.add_argument("--scale-h", type=int, default=360)
+    p.add_argument("--scale-h", type=int, default=720,
+                   help="图像高(等比缩放,1080p 源→1280×720;用户 2026-07-02 拍板)")
     p.add_argument("--quality", type=int, default=80, help="JPEG 质量")
     p.add_argument("--buffer-gb", type=float, default=10.0, help="内存原始帧缓冲上限(全 worker 合计)")
     p.add_argument("--shard-gb", type=float, default=5.0, help="单分片封片阈值")

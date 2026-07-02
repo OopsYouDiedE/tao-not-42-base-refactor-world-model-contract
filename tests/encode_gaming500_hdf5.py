@@ -97,9 +97,13 @@ def parse_args():
 # ---------------------------------------------------------------- 上传
 
 class Uploader:
-    """封片后台上传线程:成片入队,逐个 upload_file 到 HF 数据集后删本地。"""
+    """封片后台上传线程池:成片入队,并发 upload_file 到 HF 数据集后删本地。
 
-    def __init__(self, repo, public, enabled):
+    多线程动机:单线程时一个分片的退避重试(最长 60×15s)会阻塞后续所有成片,
+    磁盘随之积压;多 worker 下慢片/重试片不挡快片。
+    """
+
+    def __init__(self, repo, public, enabled, workers=3):
         self.q, self.enabled, self.repo_id = queue.Queue(), enabled, None
         if enabled:
             from huggingface_hub import HfApi
@@ -111,9 +115,12 @@ class Uploader:
             # exist_ok 不改已存在仓库的可见性:显式对齐,避免旧私有库继续吃配额 403
             self.api.update_repo_settings(self.repo_id, repo_type="dataset",
                                           private=not public)
-            print(f"☁️  上传目标: {self.repo_id}({'公开' if public else '私有'})", flush=True)
-        self.t = threading.Thread(target=self._loop, daemon=True)
-        self.t.start()
+            print(f"☁️  上传目标: {self.repo_id}({'公开' if public else '私有'},"
+                  f"{workers} 并发)", flush=True)
+        self.ts = [threading.Thread(target=self._loop, daemon=True)
+                   for _ in range(max(1, workers))]
+        for t in self.ts:
+            t.start()
 
     def submit(self, path):
         self.q.put(path)
@@ -141,8 +148,10 @@ class Uploader:
                 print(f"☁️  ⤫ 放弃重试留本地: {name}", flush=True)
 
     def close(self):
-        self.q.put(None)
-        self.t.join()
+        for _ in self.ts:
+            self.q.put(None)
+        for t in self.ts:
+            t.join()
 
 
 # ---------------------------------------------------------------- 分片写入(多 worker 共享,锁串行化)
@@ -283,8 +292,10 @@ def decode_stream(mp4, start_f, n_frames, scale_h, use_gpu):
     w = (W * scale_h // H) // 2 * 2
     dec = ["-hwaccel", "cuda"] if use_gpu else []
     cmd = (["ffmpeg", "-loglevel", "error"] + dec +
-           ["-i", mp4, "-ss", f"{start_f / 30:.3f}", "-frames:v", str(n_frames),
-            "-vf", f"scale={w}:{scale_h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"])
+           ["-ss", f"{start_f / 30:.3f}", "-i", mp4,   # 输入端 seek:跳关键帧再精解,
+            "-frames:v", str(n_frames),                # 输出端 seek 要全程解码丢帧,
+            "-vf", f"scale={w}:{scale_h}",             # 后段起点越深越慢(CPU 路径致命)
+            "-f", "rawvideo", "-pix_fmt", "bgr24", "-"])
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             bufsize=w * scale_h * 3 * 8)  # stderr 静默:读满即关管道
                                                           # 的 EPIPE 噪声无诊断价值

@@ -225,3 +225,6 @@
   存峰值,syndicate 9GB 在下)、load 30/8 核,进程存活。
 - 17:31 会话 14/776;shard_0000(pending)12GB 余段未尽,shard_0001 在写 3.6GB(将二次
   滚动);RAM 23/50GB、磁盘 70G/226G、load 31/8 核,进程存活。
+- 17:41 会话 17/776;二次滚动:shard_0002 已开(118MB),shard_0001(5.3GB)转 pending;
+  shard_0000 13GB 只剩 ac4 长段(14.5GB 原 clip,估算段体量 GB 级)在写;007 会话已收尾。
+  RAM 24/50GB、磁盘 73G/226G、load 27/8 核,进程存活。

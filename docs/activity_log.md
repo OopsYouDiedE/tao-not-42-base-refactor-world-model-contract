@@ -176,3 +176,19 @@
   重跑零成本)、旧转换器、sys_monitor;数据缓存目录已清(磁盘余 153G)。
 - HDF5 管线代码就绪度:并行 5/分片 5GB/轮转交错/多机 --shard-prefix 均已入库,
   下一会话直接按 docs/next_session.md 重启即可。
+
+## 2026-07-02(纯 CPU 机,会话 2)
+
+### 环境与管线启动
+- 环境:8 核 / 50GB RAM / 206GB 盘,无 GPU(NVENC 探测失败自动回落 CPU 路径);
+  ffmpeg 4.4 与 cv2/h5py/huggingface_hub 均已就绪,无需跑 install_env(编码管线不依赖 torch 训练栈)。
+- HF 登录 unjustify(用户提供新 write token);检查 unjustify/gaming500-360p-hdf5:
+  仅 .gitattributes,无历史分片需要清理。
+- 用户拍板本机策略:**不分前后半游戏,167 游戏全量覆盖优先**(轮转交错保证随时中断
+  都有全游戏样本);--buffer-gb 20(内存堆到 20GB 即异步 JPEG 压缩落盘)、
+  --shard-gb 5(凑满 5GB 封片异步上传 HF)、--shard-prefix cpu_。
+- 首启 parallel=6 后按用户"效率尽可能高"要求重启为 **parallel=8 / threads=12**
+  (重启发生在会话枚举阶段,零编码损失;8 worker 超订 8 核以掩盖下载等待)。
+- 管线规模:776 个会话 / 167 游戏,cpu_shard_0000.h5 已开,8 路并行下载中。
+- 每 10 分钟监控 cron 已建(job 3e7765fb):健康检查(进程/RAM/磁盘/封片/上传)+
+  activity_log 快照 + 按规范 commit/push。

@@ -72,6 +72,8 @@ def parse_args():
     p.add_argument("--shard-gb", type=float, default=20.0, help="单分片封片阈值")
     p.add_argument("--threads", type=int, default=8, help="JPEG 编码线程数(共享池)")
     p.add_argument("--parallel", type=int, default=3, help="并行编码的会话 worker 数")
+    p.add_argument("--shard-prefix", default="",
+                   help="分片文件名前缀(多机同写一个 HF 仓库时用于隔离,如 'cpu1_')")
     p.add_argument("--min-frames", type=int, default=900)
     p.add_argument("--warp-px", type=float, default=200.0)
     p.add_argument("--match", default=None)
@@ -130,30 +132,31 @@ class ShardWriter:
     封片延迟到"无在写段"时执行,避免关掉别的 worker 正在写的文件。"""
 
     def __init__(self, out_dir, shard_bytes, quality, threads, uploader, manifest_cb,
-                 sealed_shards=()):
+                 sealed_shards=(), prefix=""):
         import h5py
         self.h5py, self.dir, self.limit = h5py, out_dir, shard_bytes
         self.quality, self.uploader = quality, uploader
         self.manifest_cb = manifest_cb
+        self.prefix = prefix
         self.pool = ThreadPoolExecutor(max_workers=threads)
         self.lock = threading.Lock()
         self.open_segments = 0
         os.makedirs(out_dir, exist_ok=True)
         taken = []
         for fn in os.listdir(out_dir):
-            if not fn.startswith("shard_"):
+            if not fn.startswith(prefix + "shard_"):
                 continue
             p = os.path.join(out_dir, fn)
             if fn not in sealed_shards:                # 未封分片(崩溃残留):无论
                 print(f"🧹 清理未封分片 {fn}", flush=True)  # 可否打开都弃置——其段
                 os.remove(p)                           # 不在 manifest,必被重编,
                 continue                               # 留着即孤儿
-            taken.append(int(fn.split("_")[1].split(".")[0]))
+            taken.append(int(fn[len(prefix):].split("_")[1].split(".")[0]))
         self.idx = max(taken) + 1 if taken else 0
         self.f, self.cur_segs = None, []
 
     def _open(self):
-        self.path = os.path.join(self.dir, f"shard_{self.idx:04d}.h5")
+        self.path = os.path.join(self.dir, f"{self.prefix}shard_{self.idx:04d}.h5")
         self.f = self.h5py.File(self.path, "w")
         print(f"📦 新分片 {self.path}", flush=True)
 
@@ -295,7 +298,7 @@ def main():
 
     writer = ShardWriter(args.out, int(args.shard_gb * 1e9), args.quality,
                          args.threads, up, record_shard,
-                         sealed_shards=set(manifest["shards"]))
+                         sealed_shards=set(manifest["shards"]), prefix=args.shard_prefix)
     # 已固化的段 = 所有已封分片记录的段名并集(跳过判据,比"会话 done"标记更强)
     done_segs = {s for segs in manifest["shards"].values() for s in segs}
 

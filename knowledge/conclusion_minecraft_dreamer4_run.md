@@ -1,4 +1,28 @@
-# Minecraft Dreamer4 离线 + 在线首轮训练结论（2026-07-02，Colab L4）
+# Minecraft Dreamer4 离线 + 在线训练结论（2026-07-02，Colab L4）
+
+> **第二轮（同日，扩参数 + bf16 混合精度）已完成**，见 §0；§1-§5 为首轮（26M/fp32）记录。
+
+## 0. 第二轮：62M + bf16（`--amp bf16`，批量 32，GPU 利用率均值 85.5%）
+
+模型 26.39M → **62.05M**（token_dim 384 / dyn_layers 8 / enc_base 48 / shortcut_hidden 1024），
+bf16 autocast（三精度 60 步对照损失逐位一致，bf16 较 fp32 +26% 吞吐,见 dreamer.md §2.6），
+batch 24→32 + workers 5 后稳态吞吐约 2100-2300 帧/s，GPU 利用率均值 85.5%（`scripts/sys_monitor.py` 实测,
+显存峰值仅 4.7/23GB——还有继续加 batch/模型的空间）。
+
+| 口径 | v1(26M,fp32) | **v2(62M,bf16)** |
+|---|---|---|
+| 离线 holdout psnr_gen @10k 步 | 22.39 dB | **22.84 dB** |
+| 同批 psnr_persist | 23.03 dB | 22.70 dB |
+| gen − persist | **−0.64 dB** | **+0.14 dB（首次超过持续性基线）** |
+| 离线重建上限 psnr_recon | 27.34 dB | 27.50 dB |
+| 离线 10k 步耗时 | ~16 分钟 | 37.1 分钟（帧数 ×2:batch 32 vs 16/24） |
+| 在线 held-out psnr_gen(best) | 16.67 dB | 16.70 dB（持平;瓶颈是在线数据量与随机策略,非容量） |
+| 在线 24k env 步耗时 | 8.4 分钟(47 sps) | 5.8 分钟(~75 sps,JVM/区块已热) |
+
+判定：**扩参数 + 更多数据吞吐让离线生成首次越过持续性基线**（@8.5k/9k/10k 三个连续评估点
+gen ≥ persist）。在线侧持平——held-out 环境的生成质量受限于随机策略采集的数据多样性与
+24k 步的数据量,继续扩容模型无收益,下一步应换有奖励覆盖的采集策略并加长在线采集。
+在线阶段 GPU 利用率约 30%（环境步进主导）,抬升手段是异步采集（见 §5）。
 
 按 Dreamer 4 路线在 Minecraft 上完成世界模型的**离线（VPT 真数据）与在线（CraftGround 交互流）**
 两种方式训练与评估。模型 26.39M 参数（token 网格 4×4、token_dim 256、dyn_layers 4），

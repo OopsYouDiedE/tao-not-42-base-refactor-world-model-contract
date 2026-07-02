@@ -100,8 +100,7 @@
 * **`env.py`**: `MinecraftCraftgroundEnv`（单环境，兼容 gym 接口）与 `CraftgroundVecEnv`（向量化环境）。
 * **`env_interface.py`**: `CraftgroundEnvWithTerrainCheck`（添加 favorable biomes 启发式地形检测防海洋出生点的环境）与 `CraftgroundVecEnvWithInterface`（向量环境 + per-episode 成就成功率追踪接口）。
 * **`reward.py`**: `RewardShaper`（从 `obs["full"]` protobuf 报文中根据库存物品的 translation_key 进行成就检测，并根据新获取物品类型发放稠密内在探索奖励）。
-* **`train_ppo_ad.py`**: Craftground PPO + Achievement Distillation (Model-Free) 训练主循环。
-* **`training_config.py`**: 结构 schema (`CraftgroundTrainingConfig` dataclass)，用以加载 Craftground 训练的超参预设。
+* **`train_ppo_ad.py`**: Craftground PPO + Achievement Distillation (Model-Free) 训练主循环。超参由 argparse 持有（曾并存的 `training_config.py` dataclass 从未被实例化、默认值与 argparse 矛盾，已删除）。
 
 ### `train/godot_meta_rl/` (Godot 40 环境 RL 子系统)
 
@@ -138,3 +137,10 @@
 ### 2. 预留:实现存在,当前未接入主循环 (Inactive / Reserved)
 * **`net/dreamer4/`**：结构已落地、shape 契约跑通，但无训练循环（流匹配训练待补）。
 * **`blocks/` 中的预留算子**：`ConvGRUCell`、`GatedResidual`、`FiLM`、`PositionalEmbed`、`ProtoDecode`、`StochLatent`、`BoundedActivation`、`Accumulator`、`DiscreteRouter`、`SpatialPosEmbed`——保留为积木库,供未来感知/动力学/局部注视 fovea 采样等接入备选。几何/流采样组件(`Warp`/`GlobalTransformApply`/`BEVSplat`/`LocalCorr`/`SoftArgmaxFlow`/`box_iou`/`rot6d_to_matrix`/`make_4x4`)与 `blocks/yolo.py` 已于本次清理删除。
+
+### 3. 已删除的死码分叉（第三轮清理）
+以下模块无任何 `train/`/`tests/` 调用方,作为退役线残留被物理删除（迁移路径见 commit message）:
+* **`net/yoloworld/`**：YOLO-World-Dreamer 全套（`net/dreamerv3` WorldModel 的近拷贝 + 成就头/ProposalHead）,从未接线,且引用不存在的 `knowledge/yoloworld.md`。
+* **`net/minecraft/`**：`MinecraftStudent`/`FakeTeacher`（后者为随机策略 mock,违反 AGENTS §2 生产纯净原则）。
+* **`net/vpt/`**：`VPTTeacher` 适配器 / `vpt_distill_loss` / `remap_action`,消费端训练循环已随退役管线删除（见上文 train/minecraft 备注）;vendored 的 `net/vpt_lib/` 保留（Craftground VPT 对齐测试在用）。
+* **`net/encoders/yolo26s_encoder.py`**：无调用方;同目录 `yolo_backbone_encoder.py` 为活跃编码器保留。

@@ -26,7 +26,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 from train.craftground.env_interface import CraftgroundVecEnvWithInterface
-from train.craftground.training_config import CraftgroundTrainingConfig
 from train.craftground.achievements import ALL_ACHIEVEMENTS
 from net.encoders.yolo_backbone_encoder import YoloBackboneEncoder
 

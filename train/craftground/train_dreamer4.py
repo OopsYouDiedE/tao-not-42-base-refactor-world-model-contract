@@ -46,6 +46,11 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--warmup-env-steps", type=int, default=2000,
                    help="回放攒到该 env 步数后才开始更新")
+    p.add_argument("--enc-base", type=int, default=32,
+                   help="tokenizer 编码器基础通道(各级 = b,2b,4b,8b;解码器倒序)")
+    p.add_argument("--shortcut-hidden", type=int, default=512)
+    p.add_argument("--amp", choices=["off", "bf16", "fp16"], default="bf16",
+                   help="混合精度(评估始终 fp32;fp16 走 GradScaler)")
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--sc-weight", type=float, default=1.0)
@@ -168,9 +173,13 @@ def main():
         use_terrain_check=False, seed=args.seed)
     obs = env.reset()                                    # [N,3,384,640] float01
 
+    b_ = args.enc_base
     cfg = Dreamer4Config(
         obs_shape=(3, args.img_size, args.img_size), num_actions=num_actions,
-        token_dim=args.token_dim, dyn_layers=args.dyn_layers, dyn_heads=args.dyn_heads)
+        token_dim=args.token_dim, dyn_layers=args.dyn_layers, dyn_heads=args.dyn_heads,
+        enc_depths=(b_, 2 * b_, 4 * b_, 8 * b_),
+        dec_depths=(8 * b_, 4 * b_, 2 * b_, b_),
+        shortcut_hidden=args.shortcut_hidden)
     wm = WorldModel(cfg).to(device)
     if args.init:
         ck = torch.load(args.init, map_location=device, weights_only=False)
@@ -181,6 +190,11 @@ def main():
         print(f"♻️  已从离线预训练热启动: {args.init}"
               f"(重新初始化 action_proj/reward/cont,共 {len(missing)} 个张量)", flush=True)
     print(f"✅ Dreamer4: {sum(p.numel() for p in wm.parameters())/1e6:.2f}M 参数", flush=True)
+
+    amp_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(args.amp)
+    use_amp = amp_dtype is not None and device.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp and args.amp == "fp16")
+    print(f"⚙️  混合精度: {args.amp if use_amp else 'off(fp32)'}", flush=True)
 
     optimizer = torch.optim.AdamW(wm.parameters(), lr=args.lr, weight_decay=1e-5)
     replay = StreamReplay(args.n_envs, args.total_env_steps // args.n_envs + args.seq_len,
@@ -231,12 +245,15 @@ def main():
                     if s is None:
                         break
                     img, act, rew_b, cont_b = s
-                    total, m = wm.loss(img, act, reward=rew_b, cont=cont_b,
-                                       d_min=args.d_min, sc_weight=args.sc_weight)
+                    with torch.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
+                        total, m = wm.loss(img, act, reward=rew_b, cont=cont_b,
+                                           d_min=args.d_min, sc_weight=args.sc_weight)
                     optimizer.zero_grad(set_to_none=True)
-                    total.backward()
+                    scaler.scale(total).backward()
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(wm.parameters(), args.grad_clip)
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
                     recent_losses.append(m)
 
             it += 1

@@ -78,6 +78,38 @@ CPU 小尺寸前向+反向冒烟见 `tests/integration/test_dreamer_build.py`。
 想象 actor-critic / 策略蒸馏阶段仍待补（`tests/integration/test_dreamer_build.py`
 覆盖连续/VQ 两种 tokenizer 的构建前向）。
 
+### 2.6 混合精度与降精度训练（Minecraft Dreamer4，L4 实测 2026-07-02）
+
+两个 Dreamer4 训练域均有 `--amp {off,bf16,fp16}`（默认 bf16）。同一 62M 配置
+（token_dim 384 / dyn_layers 8 / enc_base 48 / batch 24）三精度对照，60 步内
+损失轨迹逐位一致（step40 total 均 1.0662）、holdout PSNR 一致：
+
+| 精度 | step40 累计吞吐 | 备注 |
+|---|---|---|
+| fp32(+TF32) | 667 帧/s | TF32 已默认开启（§2.5），matmul 走 tensor core |
+| **bf16 autocast** | **839 帧/s（+26%）** | **默认**。指数位同 fp32 ⇒ 无上下溢、无需 GradScaler |
+| fp16 autocast | 843 帧/s | 与 bf16 同速（Ada 上无优势），额外要 GradScaler ⇒ 不选 |
+
+要点与边界（与 I4 的关系）：
+
+- **autocast 是"混合"而非"全低精度"**：权重主本与优化器状态仍 fp32；norm/softmax/
+  log/exp/损失 reduction 由 autocast 自动保持 fp32——I4（危险算子 fp32）无需手工处理。
+  评估路径不进 autocast（指标口径恒 fp32）。
+- **流匹配对 bf16 不敏感的原因**：速度目标 z₁-ε 与 MSE 都是 O(1) 量级、无长链
+  数值积累；shortcut 自一致目标本身带 stop-grad（I8），半步误差不回传。
+- **进一步降精度的选项（未做，按性价比排序）**：
+  1. `torch.compile` 编/解码器：核融合，预计 1.1-1.3×;代价是编译时间与形状变化的
+     graph break，形状固定后可开。
+  2. **8-bit 优化器**（torchao/bitsandbytes）：优化器状态从 fp32→int8，省约 6 字节/参数
+     显存,用于换更大 batch;精度损失有公开基准背书,比"纯 bf16 权重主本"稳妥
+     （后者小更新量会被 7 位尾数吞掉,不推荐）。
+  3. **fp8（E4M3/E5M2,Ada 原生支持）**：需 Transformer Engine 与逐张量缩放,
+     matmul 密集的 dynamics 或再得 1.3-1.6×;但 62M 规模部分是 overhead-bound,
+     收益不确定,等模型上到数亿参数再评估。
+- 与**推理量化**（int8/int4 PTQ/QAT,部署用）是两条线,勿混:本节只谈训练精度。
+- 提升 GPU 利用率的第一杠杆仍是 **batch**（`scripts/sys_monitor.py` 低于 30% 滑窗
+  均值会告警）:bf16 激活减半,同显存可再放大 batch 约 2×。
+
 ## 2.5 训练实践笔记（Crafter + L4）
 
 以下为可复用的操作性经验，非训练流水账：

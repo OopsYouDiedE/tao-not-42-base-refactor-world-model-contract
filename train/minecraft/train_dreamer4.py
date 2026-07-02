@@ -42,6 +42,9 @@ def parse_args():
     p.add_argument("--token_dim", type=int, default=256)
     p.add_argument("--dyn_layers", type=int, default=4)
     p.add_argument("--dyn_heads", type=int, default=8)
+    p.add_argument("--enc_base", type=int, default=32,
+                   help="tokenizer 编码器基础通道(各级 = b,2b,4b,8b;解码器倒序)")
+    p.add_argument("--shortcut_hidden", type=int, default=512)
     p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--total_steps", type=int, default=4000)
     p.add_argument("--lr", type=float, default=3e-4)
@@ -52,6 +55,10 @@ def parse_args():
     p.add_argument("--gen_steps", type=int, default=4)
     p.add_argument("--workers", type=int, default=3)
     p.add_argument("--clip_cache", type=int, default=4)
+    p.add_argument("--amp", choices=["off", "bf16", "fp16"], default="bf16",
+                   help="混合精度:autocast 前向/反向(bf16 无需 GradScaler,fp16 需要;"
+                        "评估始终 fp32 保证指标口径)。危险算子(norm/softmax/loss)由 "
+                        "autocast 自动保持 fp32(I4)")
     p.add_argument("--eval_interval", type=int, default=400)
     p.add_argument("--n_eval_batches", type=int, default=8)
     p.add_argument("--log_interval", type=int, default=50)
@@ -118,9 +125,13 @@ def main():
     hold_iter = iter(DataLoader(hold_ds, batch_size=args.batch_size,
                                 num_workers=1, pin_memory=True))
 
+    b_ = args.enc_base
     cfg = Dreamer4Config(
         obs_shape=(3, args.img_size, args.img_size), num_actions=ACTION_DIM,
         token_dim=args.token_dim, dyn_layers=args.dyn_layers, dyn_heads=args.dyn_heads,
+        enc_depths=(b_, 2 * b_, 4 * b_, 8 * b_),
+        dec_depths=(8 * b_, 4 * b_, 2 * b_, b_),
+        shortcut_hidden=args.shortcut_hidden,
     )
     wm = WorldModel(cfg).to(device)
     n_params = sum(p.numel() for p in wm.parameters())
@@ -147,17 +158,25 @@ def main():
                     "step": step, "cfg": vars(args), "metrics": metrics}, path)
         print(f"💾 已保存 {path}", flush=True)
 
+    amp_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(args.amp)
+    use_amp = amp_dtype is not None and device.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp and args.amp == "fp16")
+    print(f"⚙️  混合精度: {args.amp if use_amp else 'off(fp32)'}", flush=True)
+
     best_gen = -float("inf")
     t0 = time.time()
     wm.train()
     try:
         for step in range(start_step, args.total_steps):
             img, act = make_batch(next(train_iter), device)
-            total, m = wm.loss(img, act, d_min=args.d_min, sc_weight=args.sc_weight)
+            with torch.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
+                total, m = wm.loss(img, act, d_min=args.d_min, sc_weight=args.sc_weight)
             optimizer.zero_grad(set_to_none=True)
-            total.backward()
+            scaler.scale(total).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(wm.parameters(), args.grad_clip)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             sched.step()
 
             if step % args.log_interval == 0:

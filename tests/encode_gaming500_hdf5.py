@@ -31,6 +31,9 @@ HDF5 布局(每游戏段一组):
         dx, dy     f32 [M] (gzip);keys u32 [M] (gzip,VPT_KEYS 位掩码);gui u8 [M]
         events_gz  u8  [K]       # 整段逐帧契约 JSONL 的 gzip 原文(无损兜底)
         attrs: task / session / game / seg_start / seg_end / src_fps / meta_json
+    段 00 另含会话级源文件原文(其他内容不删,无损兜底):
+        src_events_gz  u8 [K]    # 整会话 frame_events.json 原文 gzip(含游戏外时段)
+        src_meta       u8 [K]    # 完整 metadata.json(attr 版受 64KB 限制会截断)
 
 使用方法:
     PYTHONPATH=. python tests/encode_gaming500_hdf5.py --games minecraft --n 2 \
@@ -249,6 +252,14 @@ class ShardWriter:
             gi.resize((n0 + len(blobs),))
             gi[n0:] = np.asarray(frame_idx, np.int32)
 
+    def add_session_raw(self, g, events_gz_blob, meta_bytes):
+        """会话级源文件无损附带(仅段 00):frame_events.json 原文 gzip(含游戏外
+        时段)与完整 metadata.json——"其他内容也要保留"(用户 2026-07-02)。"""
+        with self.lock:
+            g.create_dataset("src_events_gz",
+                             data=np.frombuffer(events_gz_blob, np.uint8))
+            g.create_dataset("src_meta", data=np.frombuffer(meta_bytes, np.uint8))
+
     def end_segment(self, g, acts):
         """写事件全率数组 + gzip JSONL 原文;所属分片余段归零时按策略封片。"""
         dx = np.array([a["mouse"]["dx"] for a in acts], np.float32)
@@ -464,6 +475,11 @@ def main():
                     "task": meta.get("title", ""), "session": sess, "game": game,
                     "seg_start": s, "seg_end": e, "src_fps": 30,
                     "meta_json": json.dumps(meta)[:65000]})
+                if gi == 0:                              # 源文件原文随段 00 无损入档
+                    with open(fe, "rb") as fh:
+                        raw_fe = fh.read()
+                    writer.add_session_raw(g, gzip.compress(raw_fe, 6),
+                                           json.dumps(meta).encode())
                 pend, pend_bytes, pend_idx = [], 0, []
                 for off, frame in enumerate(
                         decode_stream(mp4, s, e - s, args.scale_h, use_gpu)):

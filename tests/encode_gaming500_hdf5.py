@@ -2,40 +2,40 @@
 """gaming-500-hours → HDF5 分片归档:图像 JPEG 入 h5,事件全率无损保留,流式上传 HF。
 
 对外接口:
-    命令行脚本(main)——编码/上传管线;
+    命令行脚本(main)——并行编码/上传管线;
     Gaming500H5(库类)——多线程随机读取已编码分片(训练/分析端加载器)。
 
-设计(用户 2026-07-02 拍板):
-  - 解码帧先积在内存缓冲,超 --buffer-gb(默认 10)即由线程池 JPEG 压缩追加进当前分片;
-  - 分片文件超 --shard-gb(默认 20)即封片:后台线程上传到 HF 数据集并删本地,另起新片;
-  - 编码(JPEG imencode,释放 GIL)与加载(Gaming500H5.read_batch)都走线程池;
+设计(用户 2026-07-02 拍板;并行化与多样性同日追加):
+  - **会话级并行**(--parallel,默认 3):每 worker 独立"下载→解析→解码→压缩"一个
+    会话,分片写入用锁串行化;实测单流瓶颈在 ffmpeg 单核缩放与原片下载,并行 3 路
+    吞吐 ×2-3(12 核 load 仅 ~5,NVDEC 余量 80%)。
+  - **多样性优先**:会话顺序为游戏间轮转交错(每游戏轮流出 1 个会话),管线随时
+    中断都保证"各游戏都已有样本",而非字母序头部游戏独占。
+  - 解码帧积各 worker 内存缓冲,超 buffer_gb/parallel 即由共享线程池 JPEG 压缩
+    追加进当前分片;分片超 --shard-gb 且无在写段时封片:后台线程上传 HF 后删本地。
   - "其他信息不要丢":事件以源生 30Hz 全率存两份——结构化数组(dx/dy f32、键位 u32
-    位掩码、gui u8,gzip)供快速训练加载 + 整段契约 JSON gzip 原文(绝对保真,含 task/
-    元数据);图像可按 --hz 降采样(frame_idx 记录到 30Hz 事件流的映射,不丢对齐)。
-  - 断点续跑:启动时列 HF 仓库与本地清单,已完成会话跳过;上传失败的分片留本地重试。
+    位掩码、gui u8,gzip)+ 整段契约 JSONL gzip 原文;图像可按 --hz 降采样
+    (frame_idx 记录到 30Hz 事件流的映射,不丢对齐)。
+  - 断点续跑:manifest 记录"分片→段名"映射(封片时落盘)与"会话→段名列表"
+    (会话完成时落盘);**跳过会话的唯一依据是其全部段都在已封分片里**——只有
+    "sessions done"标记而分片未封即崩溃的,重启后自动重做。损坏分片启动即清。
 
-体量账(360p/15Hz/q80 ≈ 20KB/帧):500h ≈ 2700 万帧 ≈ 550GB ≈ 28 个分片;
-上传 50MB/s 时每片 ~7 分钟,与编码流水重叠。HF 需 write token(hf auth login)。
-
-HDF5 布局(每游戏段一组,与 VPT 契约的段划分一致):
+HDF5 布局(每游戏段一组):
     /{game}/{session8}_{seg:02d}/
         jpeg       vlen u8 [N]   # JPEG 字节流,attrs: hz/w/h/quality
-        frame_idx  i32 [N]       # 各图像帧在 30Hz 事件流中的下标
-        dx, dy     f32 [M] (gzip)  # M = 段内 30Hz 全率帧数
-        keys       u32 [M] (gzip)  # VPT_KEYS 顺序位掩码
-        gui        u8  [M] (gzip)
+        frame_idx  i32 [N]       # 各图像帧在段内 30Hz 事件流中的下标
+        dx, dy     f32 [M] (gzip);keys u32 [M] (gzip,VPT_KEYS 位掩码);gui u8 [M]
         events_gz  u8  [K]       # 整段逐帧契约 JSONL 的 gzip 原文(无损兜底)
         attrs: task / session / game / seg_start / seg_end / src_fps / meta_json
 
 使用方法:
     PYTHONPATH=. python tests/encode_gaming500_hdf5.py --games minecraft --n 2 \
         --buffer-gb 1 --shard-gb 2 --no-upload          # 冒烟
-    PYTHONPATH=. python tests/encode_gaming500_hdf5.py --games minecraft,valorant,gta-v --n 999
+    PYTHONPATH=. python tests/encode_gaming500_hdf5.py --games <全部游戏> --n 999
 """
 import argparse
 import gzip
 import importlib.util
-import io
 import json
 import os
 import queue
@@ -68,9 +68,10 @@ def parse_args():
     p.add_argument("--hz", type=float, default=15.0, help="图像采样率(事件恒为源生 30Hz 全率)")
     p.add_argument("--scale-h", type=int, default=360)
     p.add_argument("--quality", type=int, default=80, help="JPEG 质量")
-    p.add_argument("--buffer-gb", type=float, default=10.0, help="内存原始帧缓冲上限")
+    p.add_argument("--buffer-gb", type=float, default=10.0, help="内存原始帧缓冲上限(全 worker 合计)")
     p.add_argument("--shard-gb", type=float, default=20.0, help="单分片封片阈值")
-    p.add_argument("--threads", type=int, default=8, help="JPEG 编码线程数")
+    p.add_argument("--threads", type=int, default=8, help="JPEG 编码线程数(共享池)")
+    p.add_argument("--parallel", type=int, default=3, help="并行编码的会话 worker 数")
     p.add_argument("--min-frames", type=int, default=900)
     p.add_argument("--warp-px", type=float, default=200.0)
     p.add_argument("--match", default=None)
@@ -97,11 +98,6 @@ class Uploader:
         self.t = threading.Thread(target=self._loop, daemon=True)
         self.t.start()
 
-    def existing(self):
-        if not self.enabled:
-            return set()
-        return set(self.api.list_repo_files(self.repo_id, repo_type="dataset"))
-
     def submit(self, path):
         self.q.put(path)
 
@@ -127,17 +123,20 @@ class Uploader:
         self.t.join()
 
 
-# ---------------------------------------------------------------- 分片写入
+# ---------------------------------------------------------------- 分片写入(多 worker 共享,锁串行化)
 
 class ShardWriter:
-    """滚动分片 HDF5 写入器:jpeg 数据集可追加,超阈值封片交给 Uploader。"""
+    """滚动分片 HDF5 写入器:JPEG 压缩在锁外并行,h5 写入锁内串行;
+    封片延迟到"无在写段"时执行,避免关掉别的 worker 正在写的文件。"""
 
     def __init__(self, out_dir, shard_bytes, quality, threads, uploader, manifest_cb):
         import h5py
         self.h5py, self.dir, self.limit = h5py, out_dir, shard_bytes
         self.quality, self.uploader = quality, uploader
-        self.manifest_cb = manifest_cb                 # 封片时记录 (shard名, 段名列表)
+        self.manifest_cb = manifest_cb
         self.pool = ThreadPoolExecutor(max_workers=threads)
+        self.lock = threading.Lock()
+        self.open_segments = 0
         os.makedirs(out_dir, exist_ok=True)
         taken = []
         for fn in os.listdir(out_dir):                 # 崩溃残留的未封分片:损坏即清
@@ -158,51 +157,58 @@ class ShardWriter:
         self.f = self.h5py.File(self.path, "w")
         print(f"📦 新分片 {self.path}", flush=True)
 
-    def begin_segment(self, game, name, w, h, hz, attrs):
-        if self.f is None:
-            self._open()
-        g = self.f.require_group(game).create_group(name)
-        self.cur_segs.append(f"{game}/{name}")
-        dt = self.h5py.vlen_dtype(np.uint8)
-        g.create_dataset("jpeg", shape=(0,), maxshape=(None,), dtype=dt, chunks=(256,))
-        g.create_dataset("frame_idx", shape=(0,), maxshape=(None,), dtype=np.int32,
-                         chunks=(4096,))
-        g["jpeg"].attrs.update({"hz": hz, "w": w, "h": h, "quality": self.quality})
-        for k, v in attrs.items():
-            g.attrs[k] = v
-        return g
+    def begin_segment(self, game, name, hz, attrs):
+        with self.lock:
+            if self.f is None:
+                self._open()
+            g = self.f.require_group(game).create_group(name)
+            self.cur_segs.append(f"{game}/{name}")
+            self.open_segments += 1
+            dt = self.h5py.vlen_dtype(np.uint8)
+            g.create_dataset("jpeg", shape=(0,), maxshape=(None,), dtype=dt, chunks=(256,))
+            g.create_dataset("frame_idx", shape=(0,), maxshape=(None,), dtype=np.int32,
+                             chunks=(4096,))
+            g["jpeg"].attrs.update({"hz": hz, "w": 0, "h": 0, "quality": self.quality})
+            for k, v in attrs.items():
+                g.attrs[k] = v
+            return g
 
     def append_frames(self, g, frames_bgr, frame_idx):
-        """线程池 JPEG 压缩一批原始帧并追加(imencode 释放 GIL,真并行)。"""
+        """共享线程池 JPEG 压缩(锁外,真并行)→ 锁内追加写。"""
         q = [cv2.IMWRITE_JPEG_QUALITY, self.quality]
         blobs = list(self.pool.map(
             lambda f: cv2.imencode(".jpg", f, q)[1].reshape(-1), frames_bgr))
-        if g["jpeg"].attrs.get("w", 0) == 0:
-            g["jpeg"].attrs["w"] = frames_bgr[0].shape[1]
-        d, n0 = g["jpeg"], g["jpeg"].shape[0]
-        d.resize((n0 + len(blobs),))
-        d[n0:] = blobs
-        gi = g["frame_idx"]
-        gi.resize((n0 + len(blobs),))
-        gi[n0:] = np.asarray(frame_idx, np.int32)
+        with self.lock:
+            if g["jpeg"].attrs.get("w", 0) == 0:
+                g["jpeg"].attrs["w"] = frames_bgr[0].shape[1]
+                g["jpeg"].attrs["h"] = frames_bgr[0].shape[0]
+            d, n0 = g["jpeg"], g["jpeg"].shape[0]
+            d.resize((n0 + len(blobs),))
+            d[n0:] = blobs
+            gi = g["frame_idx"]
+            gi.resize((n0 + len(blobs),))
+            gi[n0:] = np.asarray(frame_idx, np.int32)
 
-    def end_segment(self, g, acts, seg_range):
-        """写事件全率结构化数组 + gzip JSONL 原文。acts 为段内 30Hz 契约 dict 列表。"""
-        s, e = seg_range
+    def end_segment(self, g, acts):
+        """写事件全率数组 + gzip JSONL 原文;段计数归零且超阈值才封片。"""
         dx = np.array([a["mouse"]["dx"] for a in acts], np.float32)
         dy = np.array([a["mouse"]["dy"] for a in acts], np.float32)
         keys = np.array([sum(_KEY_BIT.get(k, 0) for k in a["keyboard"]) for a in acts],
                         np.uint32)
         gui = np.array([a.get("gui", False) for a in acts], np.uint8)
-        for nm, arr in (("dx", dx), ("dy", dy), ("keys", keys), ("gui", gui)):
-            g.create_dataset(nm, data=arr, compression="gzip", compression_opts=4)
         raw = "\n".join(json.dumps(a) for a in acts).encode()
-        g.create_dataset("events_gz", data=np.frombuffer(gzip.compress(raw, 6), np.uint8))
-        self.f.flush()
-        if os.path.getsize(self.path) >= self.limit:
-            self.rollover()
+        blob = np.frombuffer(gzip.compress(raw, 6), np.uint8)
+        with self.lock:
+            for nm, arr in (("dx", dx), ("dy", dy), ("keys", keys), ("gui", gui)):
+                g.create_dataset(nm, data=arr, compression="gzip", compression_opts=4)
+            g.create_dataset("events_gz", data=blob)
+            self.f.flush()
+            self.open_segments -= 1
+            if (self.open_segments == 0
+                    and os.path.getsize(self.path) >= self.limit):
+                self._rollover_locked()
 
-    def rollover(self):
+    def _rollover_locked(self):
         if self.f is None:
             return
         self.f.close()
@@ -213,7 +219,8 @@ class ShardWriter:
         self.f, self.cur_segs = None, []
 
     def close(self):
-        self.rollover()
+        with self.lock:
+            self._rollover_locked()
         self.pool.shutdown(wait=True)
 
 
@@ -245,105 +252,141 @@ def decode_stream(mp4, start_f, n_frames, scale_h, use_gpu):
 
 # ---------------------------------------------------------------- 主流程
 
+def interleave_by_game(games, per_game_sessions):
+    """游戏间轮转交错:g1s1,g2s1,...,gNs1,g1s2,... 保证随时中断都覆盖各游戏。"""
+    order, i = [], 0
+    while True:
+        row = [s[i] for s in per_game_sessions.values() if i < len(s)]
+        if not row:
+            return order
+        order += row
+        i += 1
+
+
 def main():
     args = parse_args()
     use_gpu = cg.probe_nvenc()
-    enabled = not args.no_upload
-    if enabled:
+    if args.no_upload:
+        up = Uploader(args.repo, args.public, False)
+    else:
         try:
             up = Uploader(args.repo, args.public, True)
         except Exception as ex:
             print(f"⚠️  HF 未登录({ex}),转为只编码;分片留本地,登录后重跑即自动补传", flush=True)
             up = Uploader(args.repo, args.public, False)
-    else:
-        up = Uploader(args.repo, args.public, False)
+
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.raw, exist_ok=True)
     manifest_p = os.path.join(args.out, "manifest.json")
     manifest = json.load(open(manifest_p)) if os.path.exists(manifest_p) else {}
     manifest.setdefault("shards", {})
     manifest.setdefault("sessions", {})
+    mlock = threading.Lock()
+
+    def msave():
+        json.dump(manifest, open(manifest_p, "w"))
 
     def record_shard(shard_name, segs):
-        manifest["shards"][shard_name] = segs
-        json.dump(manifest, open(manifest_p, "w"))
+        with mlock:
+            manifest["shards"][shard_name] = segs
+            msave()
 
     writer = ShardWriter(args.out, int(args.shard_gb * 1e9), args.quality,
                          args.threads, up, record_shard)
-    # 已固化的段 = 所有已封分片(本地完整或已上传)记录的段名并集
+    # 已固化的段 = 所有已封分片记录的段名并集(跳过判据,比"会话 done"标记更强)
     done_segs = {s for segs in manifest["shards"].values() for s in segs}
 
     games = [g.strip() for g in args.games.split(",") if g.strip()]
-    sessions = []
+    per_game = {}
     for game in games:
-        tree = cg.http_json(f"{cg.API}/tree/main/{game}")
-        sessions += sorted(x["path"] for x in tree if x["type"] == "directory")[: args.n]
-    print(f"📥 {len(sessions)} 个会话 → {args.out}(hz={args.hz} h={args.scale_h} "
-          f"q={args.quality} buffer={args.buffer_gb}GB shard={args.shard_gb}GB)", flush=True)
+        try:
+            tree = cg.http_json(f"{cg.API}/tree/main/{game}")
+        except Exception as ex:
+            print(f"⤫ 列举 {game} 失败: {ex}", flush=True)
+            continue
+        per_game[game] = sorted(
+            x["path"] for x in tree if x["type"] == "directory")[: args.n]
+    sessions = interleave_by_game(games, per_game)
+    print(f"📥 {len(sessions)} 个会话({len(per_game)} 游戏,轮转交错)→ {args.out}"
+          f"(hz={args.hz} q={args.quality} 并行={args.parallel} "
+          f"buffer={args.buffer_gb}GB shard={args.shard_gb}GB)", flush=True)
 
-    buf_limit = int(args.buffer_gb * 1e9)
-    step = 30.0 / args.hz                      # 30Hz 源 → 目标采样步长
-    dl_pool = ThreadPoolExecutor(max_workers=1)  # 预取下一会话的下载线程
+    buf_limit = int(args.buffer_gb * 1e9 / max(1, args.parallel))
+    step = 30.0 / args.hz
+    counter = {"done": 0}
 
-    def fetch(sess):
-        sid = sess.split("/")[0] + "_" + sess.split("/")[-1][:8]
+    def session_complete(sid):
+        """会话可跳过 ⇔ 其记录的全部段都已固化在已封分片里。"""
+        segs = manifest["sessions"].get(sid)
+        return isinstance(segs, list) and all(s in done_segs for s in segs)
+
+    def process_session(sess):
+        game = sess.split("/")[0]
+        sid = game + "_" + sess.split("/")[-1][:8]
+        if session_complete(sid):
+            return
         fe = os.path.join(args.raw, f"{sid}_frame_events.json")
         mp4 = os.path.join(args.raw, f"{sid}_clip.mp4")
-        meta = cg.http_json(f"{cg.BASE}/{sess}/metadata.json")
-        cg.download(f"{cg.BASE}/{sess}/frame_events.json", fe, f"{sid} events")
-        cg.download(f"{cg.BASE}/{sess}/clip.mp4", mp4, f"{sid} clip")
-        return sid, fe, mp4, meta
-
-    fut = dl_pool.submit(fetch, sessions[0]) if sessions else None
-    for si, sess in enumerate(sessions):
-        game = sess.split("/")[0]
         try:
-            sid, fe, mp4, meta = fut.result()
+            meta = cg.http_json(f"{cg.BASE}/{sess}/metadata.json")
+            cg.download(f"{cg.BASE}/{sess}/frame_events.json", fe, f"{sid} events")
+            bundles = cg.detect_game_bundle(fe)
+            if not bundles:
+                with mlock:
+                    manifest["sessions"][sid] = []
+                    msave()
+                return
+            acts, in_game = cg.frame_actions(fe, args.warp_px, bundles)
+            segs = cg.segments(in_game, args.min_frames)
+            if not segs:
+                with mlock:
+                    manifest["sessions"][sid] = []
+                    msave()
+                return
+            cg.download(f"{cg.BASE}/{sess}/clip.mp4", mp4, f"{sid} clip")
         except Exception as ex:
-            print(f"⤫ [{si + 1}/{len(sessions)}] 下载失败: {ex}", flush=True)
-            fut = dl_pool.submit(fetch, sessions[si + 1]) if si + 1 < len(sessions) else None
-            continue
-        fut = dl_pool.submit(fetch, sessions[si + 1]) if si + 1 < len(sessions) else None
-        if manifest["sessions"].get(sid) == "done":
-            print(f"[{si + 1}/{len(sessions)}] {sid} 已完成,跳过", flush=True)
-            continue
-        print(f"[{si + 1}/{len(sessions)}] {sid}", flush=True)
-        bundles = cg.detect_game_bundle(fe)
-        if not bundles:
-            manifest["sessions"][sid] = "no_game"
-            continue
-        acts, in_game = cg.frame_actions(fe, args.warp_px, bundles)
-        segs = cg.segments(in_game, args.min_frames)
-        for gi, (s, e) in enumerate(segs):
-            name = f"{sid}_{gi:02d}"
-            if f"{game}/{name}" in done_segs:
-                continue
-            want = np.arange(s, e, step).astype(int)     # 图像采样的 30Hz 帧号
-            want_set, wi = set(want.tolist()), 0
-            g = writer.begin_segment(game, name, 0, args.scale_h, args.hz, {
-                "task": meta.get("title", ""), "session": sess, "game": game,
-                "seg_start": s, "seg_end": e, "src_fps": 30,
-                "meta_json": json.dumps(meta)[:65000]})
-            pend, pend_bytes, pend_idx = [], 0, []
-            for off, frame in enumerate(decode_stream(mp4, s, e - s, args.scale_h, use_gpu)):
-                if s + off not in want_set:
+            print(f"⤫ {sid} 下载失败: {ex}", flush=True)
+            return
+        try:
+            seg_names = []
+            for gi, (s, e) in enumerate(segs):
+                name = f"{sid}_{gi:02d}"
+                seg_names.append(f"{game}/{name}")
+                if f"{game}/{name}" in done_segs:
                     continue
-                pend.append(frame.copy())
-                pend_idx.append(off)
-                pend_bytes += frame.nbytes
-                if pend_bytes >= buf_limit:              # 内存水位触发:线程池压缩落盘
+                want = np.arange(s, e, step).astype(int)
+                want_set = set(want.tolist())
+                g = writer.begin_segment(game, name, args.hz, {
+                    "task": meta.get("title", ""), "session": sess, "game": game,
+                    "seg_start": s, "seg_end": e, "src_fps": 30,
+                    "meta_json": json.dumps(meta)[:65000]})
+                pend, pend_bytes, pend_idx = [], 0, []
+                for off, frame in enumerate(
+                        decode_stream(mp4, s, e - s, args.scale_h, use_gpu)):
+                    if s + off not in want_set:
+                        continue
+                    pend.append(frame.copy())
+                    pend_idx.append(off)
+                    pend_bytes += frame.nbytes
+                    if pend_bytes >= buf_limit:          # 内存水位:压缩落盘
+                        writer.append_frames(g, pend, pend_idx)
+                        pend, pend_bytes, pend_idx = [], 0, []
+                if pend:
                     writer.append_frames(g, pend, pend_idx)
-                    pend, pend_bytes, pend_idx = [], 0, []
-                wi += 1
-            if pend:
-                writer.append_frames(g, pend, pend_idx)
-            writer.end_segment(g, acts[s:e], (s, e))
-            print(f"   ✓ seg{gi}: {len(want)} 图像帧 / {e - s} 事件帧", flush=True)
-        manifest["sessions"][sid] = "done"
-        json.dump(manifest, open(manifest_p, "w"))
-        for pth in (mp4, fe):
-            if os.path.exists(pth):
-                os.remove(pth)
+                writer.end_segment(g, acts[s:e])
+                print(f"   ✓ {name}: {len(want)} 图像帧 / {e - s} 事件帧", flush=True)
+            with mlock:
+                manifest["sessions"][sid] = seg_names
+                counter["done"] += 1
+                msave()
+                print(f"[{counter['done']}/{len(sessions)}] ✔ {sid}", flush=True)
+        finally:
+            for pth in (mp4, fe):
+                if os.path.exists(pth):
+                    os.remove(pth)
+
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        list(ex.map(process_session, sessions))
 
     writer.close()
     up.close()

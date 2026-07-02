@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""下载 HF markov-ai/gaming-500-hours 的 minecraft 子集并转换为 train/minecraft 数据契约。
+
+对外接口:命令行脚本(main);无库接口。
+
+数据源:每会话 = clip.mp4(1080p/30fps 桌面录屏)+ frame_events.json(逐帧 OS 输入事件)
++ metadata.json(标题/描述)。与 VPT/BASALT(tests/download_vpt_data.py)的差异:
+  - 动作是 OS 级事件(key isDown 按下/抬起、click、mouse_move 绝对坐标),需要
+    键状态机 + 帧间坐标差分重建为逐帧动作 dict;
+  - 录屏含桌面/浏览器片段,须按事件 bundleId(javaw.exe)过滤游戏内帧,
+    只导出连续游戏内片段(--min-frames 下限);
+  - 鼠标绝对坐标差分已实测可用(游戏内 34k 事件仅 0.1% 钉中心,|dx| p99=75,
+    无回中大跳变);>--warp-px 的跳变按回中丢弃。
+
+转换后契约(vpt_dataset._action_vec 消费,与 download_vpt_data 一致):
+    {"mouse": {"dx","dy"}, "keyboard": {"key_w":1,...}, "gui": bool}
+    首行额外带 "task"(metadata 标题)。视频重编码为 360p/30fps(降低训练期
+    CPU 解码开销;高分辨率实验可用 --scale-h 换档重转)。
+
+使用方法:
+    python tests/convert_gaming500.py --n 2 --out runs/data/gaming500_mc      # 验证
+    python tests/convert_gaming500.py --n 75 --out runs/data/gaming500_mc     # 全量
+"""
+import argparse
+import json
+import os
+import subprocess
+
+import numpy as np
+import requests
+
+BASE = "https://huggingface.co/datasets/markov-ai/gaming-500-hours/resolve/main"
+API = "https://huggingface.co/api/datasets/markov-ai/gaming-500-hours"
+GAME_BUNDLES = {"javaw.exe", "java.exe", "minecraft.exe"}
+
+# Windows VK keyCode → 契约键名(train/minecraft/vpt_dataset.VPT_KEYS)
+VK_MAP = {
+    87: "key_w", 65: "key_a", 83: "key_s", 68: "key_d",
+    32: "key_space", 16: "key_sneak", 17: "key_sprint",
+    81: "key_drop", 69: "key_inventory",
+    **{48 + i: f"key_hotbar.{i}" for i in range(1, 10)},
+}
+BTN_MAP = {"left": "key_attack", "right": "key_use"}
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="gaming-500-hours minecraft 子集转换")
+    p.add_argument("--n", type=int, default=2, help="转换的会话数")
+    p.add_argument("--out", default="runs/data/gaming500_mc")
+    p.add_argument("--raw", default="runs/data/gaming500_raw", help="原始下载缓存目录")
+    p.add_argument("--min-frames", type=int, default=900, help="游戏内片段帧数下限(30fps,900=30s)")
+    p.add_argument("--warp-px", type=float, default=200.0, help="单事件位移超此值视为回中丢弃")
+    p.add_argument("--scale-h", type=int, default=360, help="重编码目标高(宽等比,-2 对齐)")
+    p.add_argument("--seed", type=int, default=0)
+    return p.parse_args()
+
+
+def http_json(url):
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def download(url, path, desc):
+    if os.path.exists(path):
+        return
+    tmp = path + ".part"
+    with requests.get(url, stream=True, timeout=120) as r:
+        r.raise_for_status()
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(1 << 20):
+                f.write(chunk)
+    os.replace(tmp, path)
+    print(f"   ↓ {desc}: {os.path.getsize(path) / 1e6:.0f}MB", flush=True)
+
+
+def frame_actions(fe_path, warp_px):
+    """frame_events.json → (per_frame_action 列表, in_game 布尔列表)。
+
+    键/鼠标键走 isDown 状态机;dx/dy 为帧内游戏事件坐标差分和(回中跳变丢弃);
+    in_game[t] 由 active_app 状态机维护(输入事件的 bundleId 亦可翻转状态)。
+    """
+    held, acts, in_game = {}, [], []
+    game_active, prev_xy = False, None
+    with open(fe_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                fr = json.loads(line)
+            except json.JSONDecodeError:
+                break
+            dx = dy = 0.0
+            for e in fr.get("events", []):
+                et, bid = e.get("type"), e.get("bundleId")
+                if et == "active_app":
+                    game_active = bid in GAME_BUNDLES
+                    if not game_active:
+                        held.clear()
+                        prev_xy = None
+                    continue
+                if bid not in GAME_BUNDLES:
+                    continue
+                game_active = True
+                if et == "key":
+                    name = VK_MAP.get(e.get("keyCode"))
+                    if name:
+                        held[name] = 1 if e.get("isDown") else 0
+                elif et == "click":
+                    name = BTN_MAP.get(e.get("button"))
+                    if name:
+                        held[name] = 1 if e.get("isDown") else 0
+                elif et in ("mouse_move", "drag"):
+                    xy = (e.get("x"), e.get("y"))
+                    if None not in xy:
+                        if prev_xy is not None:
+                            ddx, ddy = xy[0] - prev_xy[0], xy[1] - prev_xy[1]
+                            if abs(ddx) <= warp_px and abs(ddy) <= warp_px:
+                                dx += ddx
+                                dy += ddy
+                        prev_xy = xy
+            kb = {k: v for k, v in held.items() if v}
+            acts.append({"mouse": {"dx": dx, "dy": dy}, "keyboard": kb, "gui": False})
+            in_game.append(game_active)
+    return acts, in_game
+
+
+def segments(in_game, min_frames):
+    """连续 in_game 帧区间 [(start, end)),长度 ≥ min_frames。"""
+    out, s = [], None
+    for i, g in enumerate(in_game + [False]):
+        if g and s is None:
+            s = i
+        elif not g and s is not None:
+            if i - s >= min_frames:
+                out.append((s, i))
+            s = None
+    return out
+
+
+def cut_video(src, dst, start_f, n_frames, fps, scale_h):
+    """帧精确切段 + 等比缩放重编码(-ss 放 -i 后逐帧精确)。"""
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", src,
+           "-ss", f"{start_f / fps:.3f}", "-frames:v", str(n_frames),
+           "-vf", f"scale=-2:{scale_h}", "-r", str(fps),
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-an", dst]
+    subprocess.run(cmd, check=True)
+
+
+def main():
+    args = parse_args()
+    os.makedirs(args.out, exist_ok=True)
+    os.makedirs(args.raw, exist_ok=True)
+    tree = http_json(f"{API}/tree/main/minecraft")
+    sessions = sorted(x["path"] for x in tree if x["type"] == "directory")[: args.n]
+    print(f"📥 minecraft 会话共 {len(tree)},转换前 {len(sessions)} 个 → {args.out}", flush=True)
+
+    adx, ady, n_seg, n_frames_total = [], [], 0, 0
+    for si, sess in enumerate(sessions):
+        sid = sess.split("/")[-1][:8]
+        print(f"[{si + 1}/{len(sessions)}] {sid}", flush=True)
+        fe = os.path.join(args.raw, f"{sid}_frame_events.json")
+        mp4 = os.path.join(args.raw, f"{sid}_clip.mp4")
+        try:
+            meta = http_json(f"{BASE}/{sess}/metadata.json")
+            download(f"{BASE}/{sess}/frame_events.json", fe, "frame_events")
+            acts, in_game = frame_actions(fe, args.warp_px)
+            segs = segments(in_game, args.min_frames)
+            if not segs:
+                print("   ⤫ 无足够长的游戏内片段,跳过", flush=True)
+                continue
+            download(f"{BASE}/{sess}/clip.mp4", mp4, "clip")
+        except (requests.RequestException, OSError) as ex:
+            print(f"   ⤫ 下载失败: {ex}", flush=True)
+            continue
+        task = meta.get("title", "minecraft gameplay")
+        for gi, (s, e) in enumerate(segs):
+            stem = os.path.join(args.out, f"{sid}_{gi:02d}")
+            try:
+                cut_video(mp4, stem + ".mp4", s, e - s, 30, args.scale_h)
+            except subprocess.CalledProcessError as ex:
+                print(f"   ⤫ ffmpeg 失败 seg{gi}: {ex}", flush=True)
+                continue
+            with open(stem + ".jsonl", "w", encoding="utf-8") as f:
+                for t in range(s, e):
+                    a = dict(acts[t])
+                    if t == s:
+                        a = {"task": task, **a}
+                    f.write(json.dumps(a) + "\n")
+                    adx.append(abs(a["mouse"]["dx"]))
+                    ady.append(abs(a["mouse"]["dy"]))
+            n_seg += 1
+            n_frames_total += e - s
+            print(f"   ✓ seg{gi}: 帧 {s}-{e}({(e - s) / 30:.0f}s)", flush=True)
+
+    if adx:
+        adx, ady = np.array(adx), np.array(ady)
+        print(f"\n📐 |dx| p50/p90/p95/p99 = "
+              f"{np.percentile(adx, [50, 90, 95, 99]).round(1).tolist()}")
+        print(f"   |dy| p50/p90/p95/p99 = "
+              f"{np.percentile(ady, [50, 90, 95, 99]).round(1).tolist()}")
+        print(f"   非零 |dx| 占比 {(adx > 0).mean():.1%}")
+        print(f"   👉 建议 --camera_scale {max(np.percentile(adx, 95), 1.0):.0f}")
+    print(f"\n✅ 完成:{n_seg} 段 / {n_frames_total / 30 / 60:.1f} 分钟游戏内数据 → {args.out}")
+
+
+if __name__ == "__main__":
+    main()

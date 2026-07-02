@@ -49,3 +49,12 @@
   genmean=23.13 recon=26.95 val_flow=0.1395（未收敛）EV(Δz)=−0.092 IG=−0.417
   开环@8 步优势 −0.89dB。初步观察：因果修复后 5k 步即达上轮 10k 步水平；IG 为负值得警惕
   （无动作反而更易预测？待四组齐后统一分析）。
+- **B motion_sample=4**（07:28-07:47）：gen=22.64 persist=22.76（差 **−0.12dB**）genmean=23.10
+  recon=26.45 val_flow=0.1578 **EV(Δz)=+0.037（转正）** IG=−0.308 开环优势 **−0.31dB**。
+  相对 A 全面向好：EV 首次为正、开环差距缩小 2/3。
+
+### 项目主线目标（用户 2026-07-02 明确）
+- **最终目的：快速学会 Minecraft 动作，达成 mine_stone（Stone Age）及以上成就。**
+  世界模型与变体对比是工具不是目的；路线为 离线世界模型（选出最优配方）→ VPT 动作先验（BC）
+  → CraftGround 在线 achievement_rewards（mine_wood→mine_stone 课程）+ PPO。已确认
+  `train/craftground/achievements.py` 含 mine_stone 依赖链、reward.py 有成就奖励与稠密内在奖励通道。

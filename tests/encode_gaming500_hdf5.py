@@ -44,6 +44,7 @@ import os
 import queue
 import subprocess
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -118,13 +119,18 @@ class Uploader:
                 print(f"☁️  [跳过上传] {path}(--no-upload 或无 token),保留本地", flush=True)
                 continue
             name = os.path.basename(path)
-            try:
-                self.api.upload_file(path_or_fileobj=path, path_in_repo=name,
-                                     repo_id=self.repo_id, repo_type="dataset")
-                os.remove(path)
-                print(f"☁️  ✓ 已上传并删本地: {name}", flush=True)
-            except Exception as ex:                      # 网络类失败留本地,下次启动重试
-                print(f"☁️  ⤫ 上传失败留本地待重试: {name}: {ex}", flush=True)
+            for i in range(5):                           # 原地退避重试:瞬时网络/5xx
+                try:                                     # 不该等到下次启动才补传
+                    self.api.upload_file(path_or_fileobj=path, path_in_repo=name,
+                                         repo_id=self.repo_id, repo_type="dataset")
+                    os.remove(path)
+                    print(f"☁️  ✓ 已上传并删本地: {name}", flush=True)
+                    break
+                except Exception as ex:
+                    print(f"☁️  ⤫ 上传失败({i + 1}/5): {name}: {ex}", flush=True)
+                    time.sleep(60 * (i + 1))
+            else:                                        # 5 次仍败:留本地,重启补传
+                print(f"☁️  ⤫ 放弃重试留本地: {name}", flush=True)
 
     def close(self):
         self.q.put(None)

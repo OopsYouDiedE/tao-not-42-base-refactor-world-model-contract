@@ -62,6 +62,8 @@ def parse_args():
     p.add_argument("--scale-h", type=int, default=360, help="重编码目标高(宽等比,-2 对齐)")
     p.add_argument("--crop-bottom", type=float, default=0.05,
                    help="裁掉底部高度比例(无边框窗口录屏常带 Windows 任务栏,实测样例约 4.5%%)")
+    p.add_argument("--purge-raw", action="store_true",
+                   help="每会话转换完成后删除原始 clip 缓存(全量语料时必开,原片约 1-2GB/会话)")
     p.add_argument("--match", default=None,
                    help="仅转换 metadata 标题/描述匹配此正则(不区分大小写)的会话,如 'surviv|tutorial'")
     p.add_argument("--seed", type=int, default=0)
@@ -252,6 +254,10 @@ def main():
             n_seg += 1
             n_frames_total += e - s
             print(f"   ✓ seg{gi}: 帧 {s}-{e}({(e - s) / 30:.0f}s)", flush=True)
+        if args.purge_raw:
+            for pth in (mp4, fe):
+                if os.path.exists(pth):
+                    os.remove(pth)
 
     if adx:
         adx, ady = np.array(adx), np.array(ady)

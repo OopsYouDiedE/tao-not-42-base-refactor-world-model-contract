@@ -72,3 +72,12 @@ nohup python -m train.minecraft.train_dreamer4 \
   过程入 docs/activity_log.md;runs/ 不入库。
 - 长跑必设 --clip_max_frames 9000(超长段 OOM 教训)与 RAM 水位监控;
   pkill 模式串会自匹配包装 shell,用拆串技巧(P="encode_""gaming500")。
+
+## 训练监控结论(2026-07-02 实战沉淀,详见 memory: training-run-ops-lessons)
+
+1. 帧率是第一健康指标:~330 帧/s 正常(GPU-bound);66-200 数据饥饿;无 step 行+GPU 低
+   多半是缓存预热(gaming500 段大,首批 3-6 分钟),别误杀。
+2. 启动前算内存账:workers×clip_cache×段帧数×49KB(128²)+ ckpt 保存 CPU 尖峰 ~8GB。
+3. 止损判据:连续 3 次评估全口径大幅落后且无收敛迹象才杀,单次评估差不算数。
+4. LR 无退火 ⇒ 中途收割零损失;同帧预算点是最干净收割点,看门狗盯日志自动杀。
+5. 评估里程碑随出随入库(checkpoint 是易失品,活下来的只有 git 里的数字)。

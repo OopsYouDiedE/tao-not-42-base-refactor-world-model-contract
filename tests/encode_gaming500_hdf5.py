@@ -78,6 +78,9 @@ def parse_args():
     p.add_argument("--shard-prefix", default="",
                    help="分片文件名前缀(多机同写一个 HF 仓库时用于隔离,如 'cpu1_')")
     p.add_argument("--min-frames", type=int, default=900)
+    p.add_argument("--seg-max-frames", type=int, default=27000,
+                   help="单段最大事件帧数(30Hz,超长游戏段切块;分片超额上界="
+                        "parallel×单块体积,0=不切)")
     p.add_argument("--warp-px", type=float, default=200.0)
     p.add_argument("--match", default=None)
     p.add_argument("--no-upload", action="store_true", help="只编码不上传(无 token 冒烟)")
@@ -285,6 +288,30 @@ def decode_stream(mp4, start_f, n_frames, scale_h, use_gpu):
 
 # ---------------------------------------------------------------- 主流程
 
+def chunk_segments(segs, max_frames, min_frames):
+    """超长游戏段按 max_frames 切块;不足 min_frames 的尾块并回前块。
+
+    Parameters
+    ----------
+    segs : list[tuple[int, int]]   30Hz 事件帧区间 [s, e)
+    max_frames : int               单块上限(0 = 不切)
+    min_frames : int               尾块下限(过短并回前块,前块 ≤ max+min)
+
+    Returns
+    -------
+    list[tuple[int, int]]
+    """
+    if max_frames <= 0:
+        return list(segs)
+    out = []
+    for s, e in segs:
+        cuts = list(range(s, e, max_frames)) + [e]
+        if len(cuts) > 2 and cuts[-1] - cuts[-2] < min_frames:
+            cuts.pop(-2)                               # 尾块过短并回前块
+        out += list(zip(cuts[:-1], cuts[1:]))
+    return out
+
+
 def interleave_by_game(games, per_game_sessions):
     """游戏间轮转交错:g1s1,g2s1,...,gNs1,g1s2,... 保证随时中断都覆盖各游戏。"""
     order, i = [], 0
@@ -371,7 +398,8 @@ def main():
                     msave()
                 return
             acts, in_game = cg.frame_actions(fe, args.warp_px, bundles)
-            segs = cg.segments(in_game, args.min_frames)
+            segs = chunk_segments(cg.segments(in_game, args.min_frames),
+                                  args.seg_max_frames, args.min_frames)
             if not segs:
                 with mlock:
                     manifest["sessions"][sid] = []

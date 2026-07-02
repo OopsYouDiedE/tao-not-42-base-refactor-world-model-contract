@@ -113,3 +113,17 @@ cache 追加式写入，天然断点续传。
 - token cache 把 tokenizer 冻死：若阶段 3 发现隐码容量不足（roll_adv 退化），
   需回炉阶段 1 提 token_dim 再重编码——cache 是加速器不是承诺。
 - Colab 换机后 NVDEC 可用性需开机自检（ffmpeg -hwaccels 探测，缺则回落 CPU 路径）。
+
+## 9. HDF5 归档管线(用户 2026-07-02 拍板,tests/encode_gaming500_hdf5.py)
+
+- **目标**:全 500h 语料图像 JPEG(360p/15Hz/q80,~20KB/帧)入 HDF5 分片,事件按源生
+  30Hz 全率无损双存(结构化数组 gzip + 契约 JSONL gzip 原文),流式上传 HF 私有数据集
+  `<user>/gaming500-360p-hdf5`(需 write token)。
+- **流控**(用户指定):解码帧积内存缓冲,超 10GB → 线程池 JPEG 压缩追加当前分片;
+  分片超 20GB → 封片,后台线程上传 HF 后删本地,另起新片;编码/加载均线程池
+  (imencode/imdecode 释放 GIL,线程即真并行)。
+- **体量账**:500h ≈ 2700 万帧 ≈ 550GB ≈ 28 片;50MB/s 上传时每片 ~7 分钟,与编码重叠。
+- **断点续跑**:manifest 记录"分片→段名"映射(封片时落盘)+ 会话完成态;崩溃残留的
+  未封分片启动时校验损坏即清,段不重复编码;上传失败留本地下次补传。
+- **与训练契约的关系**:HDF5 归档是"随机访问帧库"(免视频解码),mp4+jsonl 契约
+  仍是训练事实源;两者由同一会话/分段逻辑派生(convert_gaming500 按路径 import 复用)。

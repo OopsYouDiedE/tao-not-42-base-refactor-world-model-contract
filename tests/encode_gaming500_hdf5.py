@@ -9,8 +9,9 @@
   - **会话级并行**(--parallel,默认 3):每 worker 独立"下载→解析→解码→压缩"一个
     会话,分片写入用锁串行化;实测单流瓶颈在 ffmpeg 单核缩放与原片下载,并行 3 路
     吞吐 ×2-3(12 核 load 仅 ~5,NVDEC 余量 80%)。
-  - **多样性优先**:会话顺序为游戏间轮转交错(每游戏轮流出 1 个会话),管线随时
-    中断都保证"各游戏都已有样本",而非字母序头部游戏独占。
+  - **多样性优先 + 随机抽取**(用户 2026-07-02 拍板):会话顺序为游戏间轮转交错
+    (每游戏每轮出 1 个会话,轮内次序随机),游戏内会话随机抽取而非字母序头部;
+    管线随时中断都保证"各游戏都已有样本",会话多的游戏后续轮次自然占比更高。
   - 解码帧积各 worker 内存缓冲,超 buffer_gb/parallel 即由共享线程池 JPEG 压缩
     追加进当前分片;分片超 --shard-gb 即**滚动**——新段开进新分片,旧分片上仍在写
     的段自然写完后立即封片(后台线程上传 HF 后删本地)。不等"全局无在写段"窗口:
@@ -42,6 +43,7 @@ import importlib.util
 import json
 import os
 import queue
+import random
 import subprocess
 import threading
 import time
@@ -73,7 +75,7 @@ def parse_args():
     p.add_argument("--scale-h", type=int, default=360)
     p.add_argument("--quality", type=int, default=80, help="JPEG 质量")
     p.add_argument("--buffer-gb", type=float, default=10.0, help="内存原始帧缓冲上限(全 worker 合计)")
-    p.add_argument("--shard-gb", type=float, default=20.0, help="单分片封片阈值")
+    p.add_argument("--shard-gb", type=float, default=5.0, help="单分片封片阈值")
     p.add_argument("--threads", type=int, default=8, help="JPEG 编码线程数(共享池)")
     p.add_argument("--parallel", type=int, default=3, help="并行编码的会话 worker 数")
     p.add_argument("--shard-prefix", default="",
@@ -325,12 +327,14 @@ def chunk_segments(segs, max_frames, min_frames):
 
 
 def interleave_by_game(games, per_game_sessions):
-    """游戏间轮转交错:g1s1,g2s1,...,gNs1,g1s2,... 保证随时中断都覆盖各游戏。"""
+    """游戏间轮转交错(轮内次序随机):每轮各游戏出 1 个会话,保证随时中断都覆盖
+    各游戏(多样性优先);会话多的游戏在后续轮次自然占比更高(丰度加权)。"""
     order, i = [], 0
     while True:
         row = [s[i] for s in per_game_sessions.values() if i < len(s)]
         if not row:
             return order
+        random.shuffle(row)
         order += row
         i += 1
 
@@ -382,8 +386,9 @@ def main():
         except Exception as ex:
             print(f"⤫ 列举 {game} 失败: {ex}", flush=True)
             continue
-        per_game[game] = sorted(
-            x["path"] for x in tree if x["type"] == "directory")[: args.n]
+        paths = [x["path"] for x in tree if x["type"] == "directory"]
+        random.shuffle(paths)                          # 组内随机抽取,不取字母序头部
+        per_game[game] = paths[: args.n]
     sessions = interleave_by_game(games, per_game)
     print(f"📥 {len(sessions)} 个会话({len(per_game)} 游戏,轮转交错)→ {args.out}"
           f"(hz={args.hz} q={args.quality} 并行={args.parallel} "

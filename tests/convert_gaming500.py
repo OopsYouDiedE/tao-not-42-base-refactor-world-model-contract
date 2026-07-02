@@ -51,6 +51,10 @@ def parse_args():
     p.add_argument("--min-frames", type=int, default=900, help="游戏内片段帧数下限(30fps,900=30s)")
     p.add_argument("--warp-px", type=float, default=200.0, help="单事件位移超此值视为回中丢弃")
     p.add_argument("--scale-h", type=int, default=360, help="重编码目标高(宽等比,-2 对齐)")
+    p.add_argument("--crop-bottom", type=float, default=0.05,
+                   help="裁掉底部高度比例(无边框窗口录屏常带 Windows 任务栏,实测样例约 4.5%%)")
+    p.add_argument("--match", default=None,
+                   help="仅转换 metadata 标题/描述匹配此正则(不区分大小写)的会话,如 'surviv|tutorial'")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -136,11 +140,13 @@ def segments(in_game, min_frames):
     return out
 
 
-def cut_video(src, dst, start_f, n_frames, fps, scale_h):
-    """帧精确切段 + 等比缩放重编码(-ss 放 -i 后逐帧精确)。"""
+def cut_video(src, dst, start_f, n_frames, fps, scale_h, crop_bottom):
+    """帧精确切段 + 底部裁剪 + 等比缩放重编码(-ss 放 -i 后逐帧精确)。"""
+    vf = f"crop=iw:ih*{1 - crop_bottom:.3f}:0:0,scale=-2:{scale_h}" \
+        if crop_bottom > 0 else f"scale=-2:{scale_h}"
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", src,
            "-ss", f"{start_f / fps:.3f}", "-frames:v", str(n_frames),
-           "-vf", f"scale=-2:{scale_h}", "-r", str(fps),
+           "-vf", vf, "-r", str(fps),
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-an", dst]
     subprocess.run(cmd, check=True)
 
@@ -150,7 +156,21 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.raw, exist_ok=True)
     tree = http_json(f"{API}/tree/main/minecraft")
-    sessions = sorted(x["path"] for x in tree if x["type"] == "directory")[: args.n]
+    all_sessions = sorted(x["path"] for x in tree if x["type"] == "directory")
+    if args.match:
+        import re
+        pat = re.compile(args.match, re.I)
+        kept = []
+        for sess in all_sessions:
+            try:
+                m = http_json(f"{BASE}/{sess}/metadata.json")
+            except requests.RequestException:
+                continue
+            if pat.search(m.get("title", "") + " " + m.get("description", "")):
+                kept.append(sess)
+        print(f"   筛选 --match '{args.match}': {len(all_sessions)} → {len(kept)} 个会话", flush=True)
+        all_sessions = kept
+    sessions = all_sessions[: args.n]
     print(f"📥 minecraft 会话共 {len(tree)},转换前 {len(sessions)} 个 → {args.out}", flush=True)
 
     adx, ady, n_seg, n_frames_total = [], [], 0, 0
@@ -175,7 +195,7 @@ def main():
         for gi, (s, e) in enumerate(segs):
             stem = os.path.join(args.out, f"{sid}_{gi:02d}")
             try:
-                cut_video(mp4, stem + ".mp4", s, e - s, 30, args.scale_h)
+                cut_video(mp4, stem + ".mp4", s, e - s, 30, args.scale_h, args.crop_bottom)
             except subprocess.CalledProcessError as ex:
                 print(f"   ⤫ ffmpeg 失败 seg{gi}: {ex}", flush=True)
                 continue

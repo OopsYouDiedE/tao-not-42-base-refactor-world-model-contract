@@ -141,3 +141,15 @@
   写入 conclusion §8;重试方案(≤0.3+warmup)优先级后置。
 - gaming500_mc 动作数据验收通过(此前"按键全空"为探针字段用错的虚惊,实际 50.2%
   帧带按键、词表精确匹配);启动 mc_d4_b128_g500:同基线配方,唯一变量=数据源。
+
+### HDF5 归档管线上线 + g500 训练 OOM 双修
+- tests/encode_gaming500_hdf5.py:图像 JPEG(360p/15Hz/q80,实测 33.7KB/帧)入
+  HDF5 分片,事件 30Hz 全率无损双存;10GB 内存水位触发线程池压缩,20GB 封片
+  后台上传 HF(unjustify/gaming500-360p-hdf5,私有)并删本地;manifest 段级断点。
+  冒烟:2 分片 6 段,read_batch (16,360,640,3),封片/清残/防重全路径验证通过。
+- **g500 训练两次 OOM 根因修复**:gaming500 单段 30 分钟,128² uint8 整段缓存
+  2.6GB/段,旧参数 (9w×6c) 需 ~140GB;第二次死在 ckpt 保存的 ~8GB CPU 拷贝尖峰。
+  结构修复:vpt_dataset 新增 clip_max_frames(换段只解码随机起点连续 N 帧,
+  一次 keyframe seek),9000 帧上限=0.44GB/段,恢复 6w×4c 配置重启。
+- 用户提供 HF write token(用户名 unjustify),已建议任务完成后吊销轮换。
+- 全量编码管线启动:~160 个游戏目录全量,预计 ~900GB/45 分片,数天级,断点可续。

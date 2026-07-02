@@ -180,7 +180,7 @@ class VPTStreamDataset(IterableDataset):
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
                  split=None, holdout_n=1, buffer_size=0, buffer_reuse=1,
-                 clip_cache=4, clip_refresh=256, motion_sample=1):
+                 clip_cache=4, clip_refresh=256, motion_sample=1, clip_max_frames=0):
         super().__init__()
         # motion_sample:运动量锦标赛采样——每窗口抽 k 个候选,取采样帧差能量最大者
         # (k=1 关闭,保持均匀采样)。动机:均匀采样下静止转移占多数,persistence 基线
@@ -197,6 +197,9 @@ class VPTStreamDataset(IterableDataset):
         self.buffer_reuse = max(1, int(buffer_reuse))
         self.clip_cache = max(1, int(clip_cache))
         self.clip_refresh = max(1, int(clip_refresh))
+        # 超长段(如 gaming500 的 30 分钟录屏)整段缓存会爆内存:>0 时每次换段只解码
+        # 随机起点的连续 clip_max_frames 帧(一次 keyframe seek,分布仍覆盖全段)。
+        self.clip_max_frames = max(0, int(clip_max_frames))
         self.data_dir = data_dir
         self.rescan = split is None          # 滚动目录模式:换 clip 时重扫目录
         pairs = _pair_list(data_dir)
@@ -217,7 +220,7 @@ class VPTStreamDataset(IterableDataset):
               f"| camera_scale={camera_scale:.1f} | Δt~U{{1..{self.frame_skip}}} "
               f"| 缓存={self.clip_cache} 段/worker,每 {self.clip_refresh} 窗口滚动换入")
 
-    def _load_clip(self, mp4, jsonl):
+    def _load_clip(self, mp4, jsonl, rng=None):
         """顺序解码整段视频(img_size 分辨率,uint8)+ 动作表 → 常驻内存的 clip 条目。
 
         顺序读零 seek 浪费(随机 seek 要从最近关键帧白解上百帧,是 v2 实现 GPU
@@ -245,6 +248,10 @@ class VPTStreamDataset(IterableDataset):
         except (OSError, ValueError):
             return None
         cap = cv2.VideoCapture(mp4)
+        start, limit = 0, self.clip_max_frames
+        if limit and len(actions) > limit and rng is not None:
+            start = rng.randrange(len(actions) - limit + 1)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start)     # 每段仅一次 seek,代价可摊
         frames = []
         while True:
             ret, f = cap.read()
@@ -254,7 +261,12 @@ class VPTStreamDataset(IterableDataset):
                 f = cv2.resize(f, (self.img_size, self.img_size),
                                interpolation=cv2.INTER_AREA)
             frames.append(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
+            if limit and len(frames) >= limit:
+                break
         cap.release()
+        if start:
+            actions, gflags = actions[start:], gflags[start:]
+            gt = {k: v[start:] for k, v in gt.items()}
         n = min(len(frames), len(actions))
         if n == 0:
             return None
@@ -322,7 +334,7 @@ class VPTStreamDataset(IterableDataset):
                 return                       # 抽中已缓存的段:本轮放弃,下次再抽
 
             def _bg():
-                c = self._load_clip(mp4, jsonl)
+                c = self._load_clip(mp4, jsonl, rng)
                 if c is not None:
                     pend.append((mp4, c))
 
@@ -344,7 +356,7 @@ class VPTStreamDataset(IterableDataset):
                 pairs = _pair_list(self.data_dir) if self.rescan else self.pairs
                 if pairs:
                     mp4, jsonl = pairs[rng.randrange(len(pairs))]
-                    c = self._load_clip(mp4, jsonl)
+                    c = self._load_clip(mp4, jsonl, rng)
                     if c is not None:
                         clips[mp4] = c
                         served = 0

@@ -59,6 +59,8 @@ def parse_args():
     p.add_argument("--gen_steps", type=int, default=4)
     p.add_argument("--workers", type=int, default=3)
     p.add_argument("--clip_cache", type=int, default=4)
+    p.add_argument("--clip_max_frames", type=int, default=0,
+                   help="超长段防 OOM:>0 时每次换段只缓存随机起点的连续 N 帧(0=整段)")
     p.add_argument("--motion_sample", type=int, default=1,
                    help="运动量锦标赛采样:每窗口抽 k 个候选,取帧差能量最大者(k=1 关闭)。"
                         "persistence 赢在静止多数样本上,把梯度集中到高运动转移直击其票仓")
@@ -147,7 +149,8 @@ def main():
 
     ds_kw = dict(seq_len=args.seq_len, img_size=args.img_size,
                  camera_scale=args.camera_scale, frame_skip=args.frame_skip,
-                 clip_cache=args.clip_cache, seed=args.seed)
+                 clip_cache=args.clip_cache, seed=args.seed,
+                 clip_max_frames=args.clip_max_frames)
     # 运动量采样只作用于训练集;holdout 保持均匀采样(评估口径公正)
     train_ds = VPTStreamDataset(args.data_dir, split="train", holdout_n=args.holdout_n,
                                 motion_sample=args.motion_sample, **ds_kw)

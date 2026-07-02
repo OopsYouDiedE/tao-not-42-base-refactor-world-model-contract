@@ -177,6 +177,8 @@ class ShardWriter:
         q = [cv2.IMWRITE_JPEG_QUALITY, self.quality]
         blobs = list(self.pool.map(
             lambda f: cv2.imencode(".jpg", f, q)[1].reshape(-1), frames_bgr))
+        if g["jpeg"].attrs.get("w", 0) == 0:
+            g["jpeg"].attrs["w"] = frames_bgr[0].shape[1]
         d, n0 = g["jpeg"], g["jpeg"].shape[0]
         d.resize((n0 + len(blobs),))
         d[n0:] = blobs

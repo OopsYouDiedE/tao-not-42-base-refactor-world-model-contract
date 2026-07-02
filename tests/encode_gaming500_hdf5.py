@@ -129,7 +129,8 @@ class ShardWriter:
     """滚动分片 HDF5 写入器:JPEG 压缩在锁外并行,h5 写入锁内串行;
     封片延迟到"无在写段"时执行,避免关掉别的 worker 正在写的文件。"""
 
-    def __init__(self, out_dir, shard_bytes, quality, threads, uploader, manifest_cb):
+    def __init__(self, out_dir, shard_bytes, quality, threads, uploader, manifest_cb,
+                 sealed_shards=()):
         import h5py
         self.h5py, self.dir, self.limit = h5py, out_dir, shard_bytes
         self.quality, self.uploader = quality, uploader
@@ -139,16 +140,15 @@ class ShardWriter:
         self.open_segments = 0
         os.makedirs(out_dir, exist_ok=True)
         taken = []
-        for fn in os.listdir(out_dir):                 # 崩溃残留的未封分片:损坏即清
+        for fn in os.listdir(out_dir):
             if not fn.startswith("shard_"):
                 continue
             p = os.path.join(out_dir, fn)
-            try:
-                h5py.File(p, "r").close()
-                taken.append(int(fn.split("_")[1].split(".")[0]))
-            except OSError:
-                print(f"🧹 清理损坏分片 {fn}", flush=True)
-                os.remove(p)
+            if fn not in sealed_shards:                # 未封分片(崩溃残留):无论
+                print(f"🧹 清理未封分片 {fn}", flush=True)  # 可否打开都弃置——其段
+                os.remove(p)                           # 不在 manifest,必被重编,
+                continue                               # 留着即孤儿
+            taken.append(int(fn.split("_")[1].split(".")[0]))
         self.idx = max(taken) + 1 if taken else 0
         self.f, self.cur_segs = None, []
 
@@ -237,7 +237,9 @@ def decode_stream(mp4, start_f, n_frames, scale_h, use_gpu):
     cmd = (["ffmpeg", "-loglevel", "error"] + dec +
            ["-i", mp4, "-ss", f"{start_f / 30:.3f}", "-frames:v", str(n_frames),
             "-vf", f"scale={w}:{scale_h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"])
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=w * scale_h * 3 * 8)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            bufsize=w * scale_h * 3 * 8)  # stderr 静默:读满即关管道
+                                                          # 的 EPIPE 噪声无诊断价值
     nbytes = w * scale_h * 3
     try:
         for _ in range(n_frames):
@@ -292,7 +294,8 @@ def main():
             msave()
 
     writer = ShardWriter(args.out, int(args.shard_gb * 1e9), args.quality,
-                         args.threads, up, record_shard)
+                         args.threads, up, record_shard,
+                         sealed_shards=set(manifest["shards"]))
     # 已固化的段 = 所有已封分片记录的段名并集(跳过判据,比"会话 done"标记更强)
     done_segs = {s for segs in manifest["shards"].values() for s in segs}
 
@@ -347,8 +350,8 @@ def main():
         except Exception as ex:
             print(f"⤫ {sid} 下载失败: {ex}", flush=True)
             return
-        try:
-            seg_names = []
+        try:                                           # 单会话异常只弃当前会话,
+            seg_names = []                             # 不许杀死整个管线
             for gi, (s, e) in enumerate(segs):
                 name = f"{sid}_{gi:02d}"
                 seg_names.append(f"{game}/{name}")
@@ -380,6 +383,8 @@ def main():
                 counter["done"] += 1
                 msave()
                 print(f"[{counter['done']}/{len(sessions)}] ✔ {sid}", flush=True)
+        except Exception as ex:
+            print(f"⤫ {sid} 编码异常,弃置本会话: {type(ex).__name__}: {ex}", flush=True)
         finally:
             for pth in (mp4, fe):
                 if os.path.exists(pth):

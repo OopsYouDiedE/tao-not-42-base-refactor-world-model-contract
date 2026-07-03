@@ -77,9 +77,9 @@ def collect(agent, args):
     for t in range(T):
         obs_buf[:, t] = obs
         idx, onehot, state = agent.policy(obs, state, is_first, training=True)
-        obs, _, done, _ = envs.step(idx.cpu().numpy())
+        obs, _, done, _, _ = envs.step(idx.cpu().numpy())
         act_buf[:, t] = onehot
-        is_first = torch.as_tensor(done, device=device, dtype=torch.float32)
+        is_first = done.to(device=device, dtype=torch.float32)
         first_buf[:, t + 1] = is_first
     obs_buf[:, T] = obs
     return obs_buf, act_buf, first_buf

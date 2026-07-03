@@ -37,6 +37,9 @@
 #### [net/config.py](../net/config.py)
 * 结构 schema(纯 dataclass,无 IO):模型 d/N/K/J 与各部件选择的类型化配置,配 `build_*` 工厂。`net/` 不读 yaml、不 import 数据层。
 
+#### [net/dino_tokenizer.py](../net/dino_tokenizer.py)
+* **`DinoTokenizer`**: 冻结 DINOv3/v2 骨干(经 `load_backbone`) + 可训练 `SpatialConvDecoder`。解码头直接吃 patch 空间网格 `[B,enc_dim,G,G]` 逐级上采样回像素,不经巨型 fc(规避 `net/dreamer4` 解码器 Linear 随 img⁴ 增长的 OOM 点)。只训解码头,编码器 no_grad。消费端 `train/gaming500/train_tokenizer.py`;设计见 [design_gaming500_consume.md](design_gaming500_consume.md) §6。
+
 #### `net/dreamerv3/` (DreamerV3 世界模型,可训练)
 * 从 `blocks/` 算子库重建：`rssm.py`（`RSSM`：GRU 确定性 deter + 离散随机隐变量）、`world_model.py`（`WorldModel`：编码 + RSSM + 解码 + reward/cont 头）、`behavior.py`（`ImagBehavior`：想象 rollout 上的 actor-critic）、`planner.py`（稀疏规划）、`agent.py`（`DreamerV3` + `build_dreamerv3` 工厂）、`config.py`。方法级结构与训练手册见 [dreamer.md](dreamer.md) §1。
 
@@ -120,6 +123,11 @@
 * **`train_ppo_ad.py`**: Craftground PPO + Achievement Distillation (Model-Free) 训练主循环。超参由 argparse 持有（曾并存的 `training_config.py` dataclass 从未被实例化、默认值与 argparse 矛盾，已删除）。
 * **`train_dreamer4.py`**: CraftGround 在线 Dreamer4 世界模型训练（随机探索采集 + `StreamReplay` 逐环境交互流回放 + reward/cont 头；`--init` 支持离线 VPT checkpoint 热启动；held-out 环境评估）。
 
+### `train/gaming500/` (gaming-500-hours HDF5 帧库域)
+
+* **`dataset.py`**: `Gaming500Dataset`(扫描 HDF5 分片自建段索引,map 式序列窗口采样;`seq_len=1` 即 tokenizer 单帧模式)与 `unpack_keys`/`KEY_NAMES`(u32 键掩码 → 20 位 multihot)。动作按**原生形态**露出(原始像素 dx/dy、键掩码、frame_idx 变率对齐),不套 `train/minecraft` 的 VPT 22 维契约,理由见 [design_gaming500_consume.md](design_gaming500_consume.md)。
+* **`train_tokenizer.py`**: 冻结 DINO tokenizer 解码头预训练循环(CLI/main):`Gaming500Dataset(seq_len=1)` → `net/dino_tokenizer.DinoTokenizer`,只训解码头。
+
 ### `train/godot_meta_rl/` (Godot 40 环境 RL 子系统)
 
 * **`vec_env.py`**: `GodotVecEnv`（SB3 VecEnv 适配）/ `RolloutProgress`。当前 `train/godot_meta_rl/` 仅保留此对接桥。
@@ -149,13 +157,14 @@
 * **`blocks/`**：编解码 / RSSM GRU / 分布 / 序列等算子被 `net/dreamerv3`、`net/dreamer4` 复用；其余算子作为统一基座的候选组件来源。
 * **`net/backbone.py`**：`load_backbone` 加载冻结视觉骨干；**`net/config.py`**：结构 schema；**`net/vpt_lib/`**：vendored VPT。
 * **`train/minecraft/`**：`vpt_action`/`vpt_dataset`/`task_text` 数据契约 + `train_bc` 离线行为克隆训练循环（配 `net/bc/` 策略；数据下载脚本 `tests/download_vpt_data.py`）。
+* **`net/dreamer4/`**：世界模型结构 + 离线(`train/minecraft/train_dreamer4`)与在线(`train/craftground/train_dreamer4`)两条训练循环,实验结论见 conclusion_minecraft_dreamer4_run.md。
+* **`train/gaming500/` + `net/dino_tokenizer.py`**：gaming-500-hours HDF5 帧库读取契约 + 冻结 DINO tokenizer 解码头预训练。
 * **`train/craftground/`**：Minecraft 1.21 PPO + Achievement Distillation 可训练强化学习环境与算法域。
 * **`train/godot_meta_rl/` + `assets/godot_meta_rl/`**：Godot RL 子系统（见其文档）。
 * **`utils/io.py`**：YAML 读取 + HF token；**`utils/godot_rl/`**：Godot 跨平台共享内存基础设施。
 * **`tests/`**：`unit/`（SIGReg / 空间位置编码）+ `integration/`（DreamerV3 构建冒烟）。
 
 ### 2. 预留:实现存在,当前未接入主循环 (Inactive / Reserved)
-* **`net/dreamer4/`**：结构已落地、shape 契约跑通，但无训练循环（流匹配训练待补）。
 * **`blocks/` 中的预留算子**：`ConvGRUCell`、`GatedResidual`、`FiLM`、`PositionalEmbed`、`ProtoDecode`、`StochLatent`、`BoundedActivation`、`Accumulator`、`DiscreteRouter`、`SpatialPosEmbed`——保留为积木库,供未来感知/动力学/局部注视 fovea 采样等接入备选。几何/流采样组件(`Warp`/`GlobalTransformApply`/`BEVSplat`/`LocalCorr`/`SoftArgmaxFlow`/`box_iou`/`rot6d_to_matrix`/`make_4x4`)与 `blocks/yolo.py` 已于本次清理删除。
 
 ### 3. 已删除的死码分叉（第三轮清理）

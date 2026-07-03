@@ -41,7 +41,10 @@
 * **`DinoTokenizer`**: 冻结 DINOv3/v2 骨干(经 `load_backbone`) + 可训练 `SpatialConvDecoder`。解码头直接吃 patch 空间网格 `[B,enc_dim,G,G]` 逐级上采样回像素,不经巨型 fc(规避 `net/dreamer4` 解码器 Linear 随 img⁴ 增长的 OOM 点)。只训解码头,编码器 no_grad。消费端 `train/gaming500/train_tokenizer.py`;设计见 [design_gaming500_consume.md](design_gaming500_consume.md) §6。
 
 #### `net/dreamerv3/` (DreamerV3 世界模型,可训练)
-* 从 `blocks/` 算子库重建：`rssm.py`（`RSSM`：GRU 确定性 deter + 离散随机隐变量）、`world_model.py`（`WorldModel`：编码 + RSSM + 解码 + reward/cont 头）、`behavior.py`（`ImagBehavior`：想象 rollout 上的 actor-critic）、`planner.py`（稀疏规划）、`agent.py`（`DreamerV3` + `build_dreamerv3` 工厂）、`config.py`。方法级结构与训练手册见 [dreamer.md](dreamer.md) §1。
+* 从 `blocks/` 算子库重建：`rssm.py`（`RSSM`：GRU 确定性 deter + 离散随机隐变量）、`world_model.py`（`WorldModel`：编码 + RSSM + 解码 + reward/cont 头）、`behavior.py`（`ImagBehavior`：想象 rollout 上的 actor-critic；use_goal 时 actor **与 critic** 均目标条件化,`loss(reward_fn=…)` 提供语义 shaping 插槽）、`planner.py`（稀疏规划,value 打分同步目标条件化）、`agent.py`（`DreamerV3` + `build_dreamerv3` 工厂）、`config.py`。方法级结构与训练手册见 [dreamer.md](dreamer.md) §1。
+
+#### `net/guidance/` (LLM 指导层,结构)
+* `config.py`（`GuidanceConfig`：纯 dataclass）、`heads.py`（`SemanticRewardHead`：r̂(feat, goal) two-hot symexp 分布头,蒸馏 VLM 片段偏好的 shaping 奖励;`build_semantic_reward` 工厂;goal=None 构造性返回 0 = 北极星防火墙置零档）。偏好蒸馏训练循环在 train/(待接)。设计见 [design_llm_deep_integration.md](design_llm_deep_integration.md)。
 
 #### `net/dreamer4/` (Dreamer4 时空 Transformer 世界模型,可训练)
 * 从 `blocks/` 组装：`tokenizer.py`、`dynamics.py`（`SpaceTimeTransformer` + `ShortcutHead`）、`world_model.py`（含 `loss()`：tokenizer 重建 + shortcut forcing 流匹配 + 自一致 + 可选 reward/cont,与 `net/dreamerv3` 同置层先例;`eval_next_frame()`：少步流生成下一帧的 PSNR 评估）、`agent.py`（`build_dreamer4` 工厂）、`config.py`。训练循环:离线 `train/minecraft/train_dreamer4`、在线 `train/craftground/train_dreamer4`。详见 [dreamer.md](dreamer.md) §2。
@@ -136,6 +139,9 @@
 ---
 
 ## 第四部分：`utils/` & `tests/` (辅助、离线脚本与测试)
+
+#### [utils/guidance_bus.py](../utils/guidance_bus.py)
+* **`GuidanceBus` / `Guidance`**: 异步 LLM 指导总线（慢系统 VLM/LLM 与 30Hz 快反环的无阻塞接口）。LLM worker `publish_plan`/`advance`，采样环每 tick 非阻塞 `read()`；LLM 计划超 `stale_after_s` 自动降级静态计划；文本编码器依赖注入。设计见 [design_llm_deep_integration.md](design_llm_deep_integration.md) §3。
 
 #### [utils/io.py](../utils/io.py)
 * **`load_yaml(path)`**: 配置文件读取函数。读取 YAML 格式配置文件并返回 Python 原生 dict。

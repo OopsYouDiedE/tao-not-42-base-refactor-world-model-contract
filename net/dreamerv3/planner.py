@@ -68,7 +68,9 @@ class Planner:
         actions = torch.stack(actions)                            # [L, B·N, A]
 
         reward = wm.reward_dist(feats).mode().squeeze(-1)         # [L, B·N]
-        value = beh.value_dist(feats).mode().squeeze(-1)          # [L, B·N]
+        goal_h = (goal_rep.unsqueeze(0).expand(L, -1, -1)
+                  if goal_rep is not None else None)
+        value = beh.value_dist(feats, goal_h).mode().squeeze(-1)  # [L, B·N]
         disc = self.discount ** torch.arange(L, device=feats.device).float()
         ret = (disc[:, None] * reward).sum(0) + self.discount ** L * value[-1]  # [B·N]
 

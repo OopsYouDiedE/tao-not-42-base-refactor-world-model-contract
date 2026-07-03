@@ -89,7 +89,10 @@ class ImagBehavior(nn.Module):
         else:
             self.actor = MLP(feat_dim, cfg.num_actions, hidden=cfg.units,
                              layers=cfg.mlp_layers)
-        self.value = MLP(feat_dim, cfg.reward_bins, hidden=cfg.units,
+        # use_goal 时 critic 同样目标条件化(拼接文本嵌入):价值随子目标切换,
+        # 长视野任务被 LLM 计划切成短视野子段。见 knowledge/design_llm_deep_integration.md §2。
+        value_in = feat_dim + (cfg.goal_text_dim if cfg.use_goal else 0)
+        self.value = MLP(value_in, cfg.reward_bins, hidden=cfg.units,
                          layers=cfg.mlp_layers)
         self.slow_value = copy.deepcopy(self.value)
         for p in self.slow_value.parameters():
@@ -106,14 +109,22 @@ class ImagBehavior(nn.Module):
         logits = self.actor(feat, goal) if self.use_goal else self.actor(feat)
         return OneHotDist(logits.float(), unimix_ratio=self.cfg.unimix_ratio)
 
-    def value_dist(self, feat):
-        """feat → two-hot symexp 价值分布(在线 critic)。"""
-        logits = self.value(feat)
+    def _value_in(self, feat, goal):
+        """use_goal 时价值头输入 = cat(feat, goal);goal 必填(契约与 GoalActorHead 一致)。"""
+        if not self.use_goal:
+            return feat
+        if goal is None:
+            raise ValueError("use_goal=True 时 value_dist/slow_value_dist 必须传 goal")
+        return torch.cat([feat, goal], dim=-1)
+
+    def value_dist(self, feat, goal=None):
+        """feat(+goal) → two-hot symexp 价值分布(在线 critic)。"""
+        logits = self.value(self._value_in(feat, goal))
         return DiscDist(logits, device=logits.device)
 
-    def slow_value_dist(self, feat):
-        """feat → 慢靶 critic 价值分布(EMA 副本,作正则锚)。"""
-        logits = self.slow_value(feat)
+    def slow_value_dist(self, feat, goal=None):
+        """feat(+goal) → 慢靶 critic 价值分布(EMA 副本,作正则锚)。"""
+        logits = self.slow_value(self._value_in(feat, goal))
         return DiscDist(logits, device=logits.device)
 
     # ── 想象 ────────────────────────────────────────────────────────────────
@@ -145,11 +156,14 @@ class ImagBehavior(nn.Module):
         return feats, actions
 
     # ── 损失 ──────────────────────────────────────────────────────────────────
-    def loss(self, start, world_model, goal=None):
+    def loss(self, start, world_model, goal=None, reward_fn=None):
         """想象轨迹上的 actor + critic 损失(世界模型不接收梯度)。
 
         Args:
             goal: use_goal 时为 [B, T, goal_text_dim] 文本嵌入(每条起点的目标);否则 None。
+            reward_fn: 可选 shaping 奖励,(feats [H, N, feat], goal [H, N, gd] | None)
+                → [H, N, 1];no_grad 下调用并加到世界模型 reward 上
+                (语义奖励头,见 knowledge/design_llm_deep_integration.md §2)。
 
         Returns:
             actor_loss, value_loss: 标量。
@@ -162,10 +176,14 @@ class ImagBehavior(nn.Module):
         # 故切断 rollout 图既省显存又不改学习信号。
         with torch.no_grad():
             feats, actions = self.imagine(start, dynamics, goal_flat)
+            goal_h = (goal_flat.unsqueeze(0).expand(feats.shape[0], -1, -1)
+                      if goal_flat is not None else None)
             reward = world_model.reward_dist(feats).mode()              # [H, N, 1]
+            if reward_fn is not None:
+                reward = reward + reward_fn(feats, goal_h)
             cont = world_model.cont_dist(feats).mean                    # [H, N, 1] ∈(0,1)
             discount = self.cfg.discount * cont
-            value = self.value_dist(feats).mode()                       # [H, N, 1]
+            value = self.value_dist(feats, goal_h).mode()               # [H, N, 1]
             target = torch.stack(lambda_return(
                 reward[:-1], value[:-1], discount[:-1], bootstrap=value[-1],
                 lambda_=self.cfg.disc_lambda, axis=0), dim=1)           # [H-1, N, 1]
@@ -173,8 +191,6 @@ class ImagBehavior(nn.Module):
                 torch.cat([torch.ones_like(discount[:1]), discount[:-1]], 0), 0)
             offset, scale = self.reward_ema(target, self.ema_vals)
             adv = ((target - offset) / scale) - ((value[:-1] - offset) / scale)
-        goal_h = (goal_flat.unsqueeze(0).expand(feats.shape[0], -1, -1)
-                  if goal_flat is not None else None)
         policy = self.actor_dist(feats.detach(), goal_h)
         logpi = policy.log_prob(actions.detach())[:-1].unsqueeze(-1)    # [H-1, N, 1]
         entropy = policy.entropy()[:-1].unsqueeze(-1)
@@ -182,9 +198,10 @@ class ImagBehavior(nn.Module):
         actor_loss = (weights[:-1] * actor_loss).mean()
 
         # critic(two-hot 回归 λ-return + 慢靶正则)
-        value_dist = self.value_dist(feats[:-1].detach())
+        goal_c = goal_h[:-1] if goal_h is not None else None
+        value_dist = self.value_dist(feats[:-1].detach(), goal_c)
         with torch.no_grad():
-            slow_target = self.slow_value_dist(feats[:-1].detach()).mode()
+            slow_target = self.slow_value_dist(feats[:-1].detach(), goal_c).mode()
         value_loss = -value_dist.log_prob(target.detach())             # [H-1, N]
         value_loss = value_loss - value_dist.log_prob(slow_target.detach())
         value_loss = (weights[:-1].squeeze(-1) * value_loss).mean()

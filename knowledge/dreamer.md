@@ -25,7 +25,7 @@ symlog·two-hot·OneHot 等分布（blocks/distributions.py）、`static_scan`·
 | `config.py` | `DreamerV3Config` 纯 dataclass（RSSM/编解码/头/想象的结构超参，默认对齐上游 defaults） |
 | `rssm.py` | `RSSM`：`GRUCell` 确定性 deter + 离散 32×32 随机隐变量（`OneHotDist` unimix）；`observe`/`imagine_with_action`（`static_scan` 展开）/`kl_loss`（动力学/表征 KL + free-bits） |
 | `world_model.py` | `WorldModel`：`ConvEncoder` + `RSSM` + `ConvDecoder`（`MSEDist` 重建，图像在 [-0.5, 0.5]）+ reward（`DiscDist` two-hot symexp）+ cont（`Bernoulli`）头；`loss()` 计算重建+奖励+终止+KL |
-| `behavior.py` | `ImagBehavior`：想象 rollout 上的离散策略（`OneHotDist`）+ two-hot 价值（`DiscDist`）+ 慢靶 critic；`lambda_return` 计算价值目标，`RewardEMA`（5/95 分位）归一化优势，reinforce 策略梯度。rollout 与回报目标全程 `no_grad`（reinforce 不需路径梯度，可节省显存且不改变学习信号） |
+| `behavior.py` | `ImagBehavior`：想象 rollout 上的离散策略（`OneHotDist`）+ two-hot 价值（`DiscDist`）+ 慢靶 critic；`lambda_return` 计算价值目标，`RewardEMA`（5/95 分位）归一化优势，reinforce 策略梯度。rollout 与回报目标全程 `no_grad`（reinforce 不需路径梯度，可节省显存且不改变学习信号）。use_goal 时 actor 与 critic 均目标条件化（critic 拼接 goal 嵌入）；`loss(reward_fn=…)` 可注入语义 shaping 奖励（`net/guidance`，见 [design_llm_deep_integration.md](design_llm_deep_integration.md)） |
 | `agent.py` | `DreamerV3`（持有 wm+behavior，`policy()` 递归单步交互）+ `build_dreamerv3(**overrides)` 工厂 |
 
 依赖方向遵约：`net/dreamerv3/` 只 import `blocks` 与本包，**不含训练循环/优化器/数据加载**。

@@ -34,8 +34,9 @@ Phase 1 全 token 流匹配动力学 ── R1 ── R2b ── R3(机制先走
   的 Spearman;R2b(Phase 1 后,gaming500 全 token 动力学同口径,逐游戏分层)。
 - **判据**:Spearman ≥ 0.5 采纳为想象截断/降权信号;< 0.3 弃用,回退 K 头集成。
 - **成本**:R2a 当天可出;R2b 数小时。
-- **状态(2026-07-03)**:R2a 已开跑,4k 步首点 k≤3 正相关(0.64/0.58/0.38)、k≥4 归零,
-  裁决等 60k 复测——见 [conclusion_r2a_divergence_probe.md]。
+- **状态(2026-07-03)**:**R2a PASS**——60k/62k 两次独立复测 mean per-k ρ = 0.52 / 0.57,
+  有效 k 区间从 4k 时的 k≤3 扩到全深度 k=1..15;R3 解锁。
+  见 [conclusion_r2a_divergence_probe.md]。
 
 ## R3 — 不确定性定价的自适应想象视野
 

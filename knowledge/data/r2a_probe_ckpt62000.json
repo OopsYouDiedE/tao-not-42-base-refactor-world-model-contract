@@ -1,0 +1,27 @@
+{
+ "ckpt": "runs/crafter_r2a/checkpoints/ckpt_00062000.pt",
+ "total_steps": 62000,
+ "n_windows": 462,
+ "horizon": 15,
+ "n_samples": 8,
+ "spearman_per_k": [
+  0.5633,
+  0.5303,
+  0.5869,
+  0.597,
+  0.6387,
+  0.616,
+  0.5918,
+  0.5844,
+  0.5553,
+  0.5463,
+  0.551,
+  0.5484,
+  0.5647,
+  0.5379,
+  0.5407
+ ],
+ "spearman_mean_per_k": 0.5702,
+ "spearman_pooled_ref": 0.624,
+ "verdict": "PASS(采纳为截断信号)"
+}

@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """R2/B1:Action 塔流匹配 BC —— fovea-twotower-step1 §4 的核心对比。
 
-同一脚本两种跑法,唯一差别是历史通道:
+同一脚本三种跑法,唯一差别是历史通道:
     --seed 1   R2 主案:GDN 状态播种自冻结 Context 塔;
-    --seed 0   B1 消融:零状态(只见当前帧)。
-其余(同源初始化、数据、超参、评测)完全一致;两组指标之差 = 播种通道收益(S3a)。
+    --seed 0   B1 消融:零状态(只见当前帧);
+    --seed 2   B1.5 对照(选跑,R2>B1 后):错配播种——batch 内 roll 1,
+               拿别人的历史状态播给你。若 R2(匹配)≈ R2(错配),播种收益只是
+               状态统计先验而非本局历史内容,S3a 结论降级。
+其余(同源初始化、数据、超参、评测)完全一致;--rng 固定全局随机种子,
+各组间初始化/数据顺序/流匹配 ε 全配对,唯一自由变量 = 播种条件。
 
-评测(holdout,4 步 Euler 采样):
-    f1_attack / f1_keys(20 键宏平均)/ r2_mouse(对数域 dx,dy)。
+评测(holdout,4 步 Euler 采样,固定 generator 消除评测噪声方差):
+    f1_attack(S3a 主指标)/ f1_keys(20 键宏平均)/ r2_mouse(对数域 dx,dy)。
 
 用法:
     PYTHONPATH=. python train/fovea_twotower/train_r2.py \
@@ -31,32 +35,39 @@ H = 8                                                  # chunk 长(0.8s@10Hz)
 
 
 @torch.no_grad()
-def context_states(ctx, lat, act, t, want):
-    """冻结塔吃 0..t 帧交错流 → (第 t 帧潜变量, GDN 状态|None)。"""
-    if not want:
+def context_states(ctx, lat, act, t, mode):
+    """冻结塔吃 0..t 帧交错流 → (第 t 帧潜变量, GDN 状态|None)。
+
+    mode: 0=零状态(B1) 1=匹配播种(R2) 2=错配播种(B1.5,batch 内 roll 1)。"""
+    if mode == 0:
         return lat[:, t], None
     _, states = ctx.encode(lat[:, :t + 1], act[:, :t], want_states=True)
+    if mode == 2:
+        states = [{"recurrent_state": st["recurrent_state"].roll(1, dims=0),
+                   "conv_state": tuple(c.roll(1, dims=0) for c in st["conv_state"])}
+                  for st in states]
     return lat[:, t], states
 
 
-def prep(batch, dino, ctx, use_seed, dev):
+def prep(batch, dino, ctx, mode, dev):
     lat, act = batch_to_stream(batch, dino, dev)
     L = lat.shape[1]
     t = L - 1 - H                                      # 留 H 个未来区间当目标
-    lat_now, states = context_states(ctx, lat, act, t, use_seed)
+    lat_now, states = context_states(ctx, lat, act, t, mode)
     z1 = act[:, t:t + H]                               # [B,H,24] 目标 chunk
     return lat_now, states, z1
 
 
 @torch.no_grad()
-def evaluate(model, ctx, dino, dl, use_seed, dev, n_max=640):
+def evaluate(model, ctx, dino, dl, mode, dev, n_max=640):
     tp = fp = fn = 0
     tp_a = fp_a = fn_a = 0
     sse = sst = 0.0
     mice, n = [], 0
+    gen = torch.Generator(dev).manual_seed(1234)       # 固定采样噪声,评测可比
     for batch in dl:
-        lat_now, states, z1 = prep(batch, dino, ctx, use_seed, dev)
-        pred = model.sample(lat_now, seed=states, steps=4)
+        lat_now, states, z1 = prep(batch, dino, ctx, mode, dev)
+        pred = model.sample(lat_now, seed=states, steps=4, generator=gen)
         kp, kt = (pred[..., 2:22] > 0.5), (z1[..., 2:22] > 0.5)
         tp += (kp & kt).sum().item()
         fp += (kp & ~kt).sum().item()
@@ -84,8 +95,10 @@ def main():
     p.add_argument("--data", default="runs/data/g500_160p")
     p.add_argument("--ctx", default="runs/ftt_r1/ckpt.pt")
     p.add_argument("--out", required=True)
-    p.add_argument("--seed", type=int, choices=[0, 1], required=True,
-                   help="1=播种(R2) 0=零状态(B1)")
+    p.add_argument("--seed", type=int, choices=[0, 1, 2], required=True,
+                   help="1=播种(R2) 0=零状态(B1) 2=错配播种(B1.5)")
+    p.add_argument("--rng", type=int, default=0,
+                   help="全局随机种子;各条件用同一 --rng 即完全配对")
     p.add_argument("--steps", type=int, default=6000)
     p.add_argument("--bs", type=int, default=8)
     p.add_argument("--seq", type=int, default=64)
@@ -95,7 +108,8 @@ def main():
     p.add_argument("--workers", type=int, default=6)
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
-    dev, use_seed = "cuda", bool(args.seed)
+    dev, mode = "cuda", args.seed
+    torch.manual_seed(args.rng)                        # 配对:init/数据顺序/ε 全同
 
     mk = lambda split, sh: DataLoader(
         Gaming500Dataset(args.data, seq_len=args.seq, img_size=126,
@@ -129,7 +143,7 @@ def main():
         except StopIteration:
             it = iter(dl)
             continue
-        lat_now, states, z1 = prep(batch, dino, ctx, use_seed, dev)
+        lat_now, states, z1 = prep(batch, dino, ctx, mode, dev)
         B = z1.shape[0]
         eps = torch.randn_like(z1)
         tau = torch.rand(B, device=dev, dtype=z1.dtype)
@@ -151,7 +165,7 @@ def main():
             logf.flush()
         if step % args.eval_every == 0 or step == args.steps:
             model.eval()
-            rec = {"step": step, **evaluate(model, ctx, dino, dl_ev, use_seed, dev)}
+            rec = {"step": step, **evaluate(model, ctx, dino, dl_ev, mode, dev)}
             model.train()
             print(f"[R2 seed={args.seed}] EVAL {rec}", flush=True)
             logf.write(json.dumps(rec) + "\n")

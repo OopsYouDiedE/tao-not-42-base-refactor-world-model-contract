@@ -106,14 +106,19 @@ def main():
     p.add_argument("--warmup", type=int, default=300)
     p.add_argument("--eval-every", type=int, default=1000)
     p.add_argument("--workers", type=int, default=6)
+    p.add_argument("--crop", default=None, choices=[None, "resize", "center", "random"],
+                   help="默认沿用 ctx ckpt 训练时的 crop 口径")
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
     dev, mode = "cuda", args.seed
     torch.manual_seed(args.rng)                        # 配对:init/数据顺序/ε 全同
+    crop = args.crop or torch.load(args.ctx, map_location="cpu").get(
+        "args", {}).get("crop", "resize")
 
     mk = lambda split, sh: DataLoader(
         Gaming500Dataset(args.data, seq_len=args.seq, img_size=126,
-                         stride=args.seq // 2, split=split, holdout_frac=0.1),
+                         stride=args.seq // 2, crop_mode=crop,
+                         split=split, holdout_frac=0.1),
         batch_size=args.bs, shuffle=sh, drop_last=sh, num_workers=args.workers,
         pin_memory=True, persistent_workers=True)
     dl, dl_ev = mk("train", True), mk("holdout", False)

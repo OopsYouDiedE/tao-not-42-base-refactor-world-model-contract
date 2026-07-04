@@ -51,6 +51,8 @@ def main():
     p.add_argument("--steps", type=int, default=12000)
     p.add_argument("--bs", type=int, default=8)
     p.add_argument("--seq", type=int, default=64, help="窗口帧数(10Hz → 6.4s)")
+    p.add_argument("--crop", default="resize", choices=["resize", "center", "random"],
+                   help="resize=全图方形缩放; center=屏幕中心原生裁剪(凹区口径)")
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--warmup", type=int, default=500)
     p.add_argument("--eval-every", type=int, default=1000)
@@ -62,7 +64,7 @@ def main():
 
     mk = lambda split: Gaming500Dataset(
         args.data, seq_len=args.seq, img_size=126, stride=args.seq,
-        split=split, holdout_frac=args.holdout_frac)
+        crop_mode=args.crop, split=split, holdout_frac=args.holdout_frac)
     dl = DataLoader(mk("train"), batch_size=args.bs, shuffle=True, drop_last=True,
                     num_workers=args.workers, pin_memory=True, persistent_workers=True)
     dl_ev = DataLoader(mk("holdout"), batch_size=args.bs, num_workers=2)

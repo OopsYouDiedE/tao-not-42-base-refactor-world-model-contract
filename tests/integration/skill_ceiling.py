@@ -28,7 +28,8 @@ import time
 import numpy as np
 import torch
 
-from tests.integration.collect_s8 import MineForwardPolicy, RandomPolicy, _raycast
+from tests.integration.collect_s8 import (DEG2PX, V2_KEYS, MineForwardPolicy,
+                                          RandomPolicy, _raycast, frame_pair)
 from tests.integration.test_utils import crop128
 from train.fovea_twotower.gate_fasthead import decode_action
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, N_MOUSE
@@ -56,6 +57,11 @@ def build_course(block, tool, wall_z):
     if tool:
         cmds.append(f"item replace entity @p weapon.mainhand with minecraft:{tool} 1")
     return cmds
+
+
+def _np_rgb(rgb):
+    """ZEROCOPY 下 obs['rgb'] 是 CUDA uint8 张量;RAW 下是 numpy。统一成 HWC numpy。"""
+    return rgb.cpu().numpy() if hasattr(rgb, "cpu") else rgb
 
 
 def inv_count(full, keys):
@@ -101,7 +107,7 @@ class LearnedFastHead:
     def __call__(self, t, noop, obs=None):
         if t == 0:
             self._reset()
-        f = self.policy.encode_frames(crop128(obs["rgb"]).to(self.device))[:, 0]
+        f = self.policy.encode_frames(crop128(_np_rgb(obs["rgb"])).to(self.device))[:, 0]
         self.fh.append(f)
         self.ah.append(torch.from_numpy(self.prev).to(self.device).view(1, -1))
         fseq = torch.stack(self.fh[-self.max_len:], 1)
@@ -128,7 +134,7 @@ def make_policy(name, rng, device="cpu", ckpt=None, max_len=64, greedy=False, ba
 
 
 def run(skill, policy_name, episodes, steps, settle, port, seed, out,
-        ckpt=None, max_len=64, greedy=False, backbone="dinov3"):
+        ckpt=None, max_len=64, greedy=False, backbone="dinov3", save_demo=None):
     from craftground import make
     from craftground.initial_environment_config import InitialEnvironmentConfig, WorldType
     from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
@@ -156,8 +162,15 @@ def run(skill, policy_name, episodes, steps, settle, port, seed, out,
         policy = persistent or make_policy(policy_name, rng)
         base = inv_count(obs["full"], sk["success"]) if sk["success"] else 0
         died = False
+        frames, dxs, dys, keys_l = [], [], [], []            # demo 录制(save_demo 时)
         for t in range(steps):
+            if save_demo:
+                frames.append(frame_pair(_np_rgb(obs["rgb"]))[0])   # [3,126,126] u8
             a = policy(t, noop, obs)
+            if save_demo:
+                dxs.append(float(a.get("camera_yaw", 0.0)) * DEG2PX)
+                dys.append(float(a.get("camera_pitch", 0.0)) * DEG2PX)
+                keys_l.append([float(bool(a.get(k, False))) for k in V2_KEYS])
             obs, *_ = env.step(a)
             if bool(getattr(obs["full"], "is_dead", False)):
                 died = True
@@ -168,6 +181,17 @@ def run(skill, policy_name, episodes, steps, settle, port, seed, out,
         else:
             got = inv_count(obs["full"], sk["success"]) - base
             ok = got > 0
+        if save_demo and frames and (not sk["success"] or ok):   # 只存成功示范(clean BC)
+            frames.append(frame_pair(_np_rgb(obs["rgb"]))[0])  # 末帧无动作(s8 契约:frames T,dx T-1)
+            os.makedirs(save_demo, exist_ok=True)
+            np.savez_compressed(
+                os.path.join(save_demo, f"{skill}_ep{ep:03d}.npz"),
+                frames=np.stack(frames).astype(np.uint8),
+                dx=np.array(dxs, np.float32), dy=np.array(dys, np.float32),
+                keys=np.array(keys_l, np.uint8),
+                gui=np.zeros(len(dxs), np.uint8),
+                score=np.float32(max(got, 1)), policy_strong=np.int64(1),
+                start_hard=np.int64(ep % 2))
         rows.append({"ep": ep, "wall_z": wall_z, "success": bool(ok), "got": int(got), "died": died})
         print(f"[{skill}/{policy_name}] ep{ep} wall_z={wall_z} success={ok} got={got}", flush=True)
     env.close()
@@ -196,10 +220,12 @@ def main():
     p.add_argument("--port", type=int, default=8801)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default=None)
+    p.add_argument("--save_demo", default=None, help="存教师示范(s8 格式)到该目录,供 BC")
     args = p.parse_args()
     out = args.out or f"runs/ceiling/{args.skill}_{args.policy}.json"
     run(args.skill, args.policy, args.episodes, args.steps, args.settle,
-        args.port, args.seed, out, args.ckpt, args.max_len, args.greedy, args.backbone)
+        args.port, args.seed, out, args.ckpt, args.max_len, args.greedy, args.backbone,
+        args.save_demo)
 
 
 if __name__ == "__main__":

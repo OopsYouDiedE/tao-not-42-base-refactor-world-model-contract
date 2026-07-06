@@ -17,31 +17,11 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from net.fovea_twotower import ContextTower, act_featurize
+from net.backbone import build_backbone
+from net.config import BackboneConfig
+from net.fovea_twotower import ContextTower
+from train.fovea_twotower.data_utils import batch_to_stream
 from train.gaming500.dataset import Gaming500Dataset
-
-IMN_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-IMN_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-
-
-def dino_encode(dino, img_u8, bs=256):
-    """[N,3,126,126] uint8 → [N,81,384] bf16(冻结,分块防峰值)。"""
-    outs = []
-    for i in range(0, img_u8.shape[0], bs):
-        x = img_u8[i:i + bs].float().div_(255)
-        x = (x - IMN_MEAN.to(x.device)) / IMN_STD.to(x.device)
-        with torch.no_grad(), torch.autocast("cuda", torch.bfloat16):
-            outs.append(dino.forward_features(x)["x_norm_patchtokens"])
-    return torch.cat(outs).bfloat16()
-
-
-def batch_to_stream(batch, dino, dev):
-    img = batch["img"].to(dev, non_blocking=True)      # [B,L,3,S,S] u8
-    B, L = img.shape[:2]
-    lat = dino_encode(dino, img.flatten(0, 1)).view(B, L, 81, 384)
-    act = act_featurize(*(batch[k].to(dev) for k in
-                          ("dx", "dy", "keys", "gui", "dt"))).bfloat16()
-    return lat, act
 
 
 def main():
@@ -69,8 +49,7 @@ def main():
                     num_workers=args.workers, pin_memory=True, persistent_workers=True)
     dl_ev = DataLoader(mk("holdout"), batch_size=args.bs, num_workers=2)
 
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     model = ContextTower().to(dev).bfloat16()
     n_par = sum(x.numel() for x in model.parameters()) / 1e6
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95),

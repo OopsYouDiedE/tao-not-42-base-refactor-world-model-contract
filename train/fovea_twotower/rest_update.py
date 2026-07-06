@@ -27,7 +27,7 @@ import torch.nn as nn
 
 from net.bc import BCConfig
 from net.config import BackboneConfig
-from train.fovea_twotower.text_cond_policy import TextCondPolicy
+from net.bc import TextCondPolicy
 from train.minecraft.train_bc import bc_losses
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, N_MOUSE
 

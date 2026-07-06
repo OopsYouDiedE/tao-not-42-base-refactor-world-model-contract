@@ -17,15 +17,11 @@ import time
 import torch
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ContextTower
-from train.fovea_twotower.train_r1 import batch_to_stream
+from train.fovea_twotower.data_utils import batch_to_stream_msg
 from train.gaming500.dataset import Gaming500Dataset, N_MSG
-
-
-def batch_to_stream_msg(batch, dino, dev):
-    lat, act = batch_to_stream(batch, dino, dev)
-    msg = batch["msg"].to(dev, non_blocking=True).bfloat16()
-    return lat, act, msg
 
 
 def main():
@@ -53,8 +49,7 @@ def main():
                     num_workers=args.workers, pin_memory=True, persistent_workers=True)
     dl_ev = DataLoader(mk("holdout"), batch_size=args.bs, num_workers=2)
 
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     model = ContextTower(n_msg=N_MSG, aux_msg=args.aux_msg).to(dev).bfloat16()
     n_par = sum(x.numel() for x in model.parameters()) / 1e6
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95),

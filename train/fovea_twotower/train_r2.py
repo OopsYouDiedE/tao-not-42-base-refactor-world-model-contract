@@ -27,8 +27,10 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ActionTower, ContextTower
-from train.fovea_twotower.train_r1 import batch_to_stream
+from train.fovea_twotower.data_utils import batch_to_stream
 from train.gaming500.dataset import Gaming500Dataset
 
 H = 8                                                  # chunk 长(0.8s@10Hz)
@@ -123,8 +125,7 @@ def main():
         pin_memory=True, persistent_workers=True)
     dl, dl_ev = mk("train", True), mk("holdout", False)
 
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     ctx = ContextTower().to(dev).bfloat16().eval()
     ctx.load_state_dict(torch.load(args.ctx, map_location=dev)["model"])
     for q in ctx.parameters():

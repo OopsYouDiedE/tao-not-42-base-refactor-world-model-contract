@@ -30,27 +30,14 @@ from net.bc import BCConfig
 from net.config import BackboneConfig
 from tests.integration.collect_s8 import (WALL_Z_VARIANTS, V2_KEYS, build_c2_course,
                                           score_c2, _mined_iron, _raycast)
+from net.bc import TextCondPolicy
+from tests.integration.test_utils import crop128, crop_square
 from train.fovea_twotower.gate_fasthead import bin_to_camera
-from train.fovea_twotower.text_cond_policy import TextCondPolicy
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, CAMERA_SCALE, N_MOUSE
 
 PX2DEG = 0.15
 I_ATTACK = V2_KEYS.index("attack")      # 7:挥击(挖)
 I_FWD = V2_KEYS.index("forward")        # 0:前进键
-
-
-def crop_square(rgb, size):
-    arr = np.asarray(rgb)
-    if arr.ndim == 3 and arr.shape[0] in (1, 3) and arr.shape[2] not in (1, 3):
-        arr = arr.transpose(1, 2, 0)
-    h, w = arr.shape[:2]; s = min(h, w)
-    crop = arr[(h - s) // 2:(h + s) // 2, (w - s) // 2:(w + s) // 2]
-    return cv2.resize(crop, (size, size), interpolation=cv2.INTER_AREA)
-
-
-def crop128(rgb):
-    im = crop_square(rgb, 128)
-    return torch.from_numpy(im.transpose(2, 0, 1)).float().view(1, 1, 3, 128, 128) / 255.0
 
 
 def decode_temp(cam_logits, key_logits, noop, cam_temp, key_temp, rng):

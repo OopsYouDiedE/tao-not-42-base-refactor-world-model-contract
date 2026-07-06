@@ -23,8 +23,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from train.fovea_twotower.train_w1 import batch_to_stream_msg
-from train.fovea_twotower.eval_s7 import build_eval_model, pool_ssm
+from net.backbone import build_backbone
+from net.config import BackboneConfig
+from train.fovea_twotower.data_utils import batch_to_stream_msg
+from train.fovea_twotower.eval_utils import pool9, ridge_r2, paired_r2_ci
+from train.fovea_twotower.model_utils import build_eval_model, pool_ssm
 from train.fovea_twotower.train_w4 import MODEL_ID
 from train.gaming500.dataset import Gaming500Dataset, N_MSG
 
@@ -34,13 +37,6 @@ KS = [2, 5, 10, 20]                                    # 帧;10Hz → 0.2/0.5/1/
 T_ANCHOR = 43                                          # 64 帧窗:前 44 帧前缀,留 20 帧未来
 DX_TH = 0.5                                            # 可控性锚点阈(featurize 域,同 eval_s5)
 P = 81 + 1 + 1                                         # 帧块周期(vis|msg|act)= 83
-
-
-def pool9(z):
-    """[B,81,384] → [B,3456]:9×9 → 3×3 均池(同 eval_s5)。"""
-    B = z.shape[0]
-    z = z.view(B, 9, 9, -1).view(B, 3, 3, 3, 3, -1).mean((2, 4))
-    return z.flatten(1)
 
 
 @torch.no_grad()
@@ -97,29 +93,6 @@ def collect(model, dino, dl, n_max, dev):
     return out
 
 
-def ridge_r2(Xtr, Ytr, Xte, Yte):
-    from sklearn.linear_model import Ridge
-    from sklearn.preprocessing import StandardScaler
-    sc = StandardScaler().fit(Xtr)
-    rg = Ridge(alpha=10.0).fit(sc.transform(Xtr), Ytr)
-    pred = rg.predict(sc.transform(Xte))
-    se = ((pred - Yte) ** 2).sum(1)
-    sst = ((Yte - Yte.mean(0)) ** 2).sum(1)
-    return 1 - se.sum() / sst.sum(), se, sst
-
-
-def paired_r2_ci(se_a, se_b, sst, boot=500):
-    rng = np.random.default_rng(0)
-    N = len(sst)
-    ds = []
-    for _ in range(boot):
-        i = rng.integers(0, N, N)
-        ds.append((1 - se_a[i].sum() / sst[i].sum())
-                  - (1 - se_b[i].sum() / sst[i].sum()))
-    lo, hi = np.percentile(ds, [2.5, 97.5])
-    return float(lo), float(hi)
-
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", default="runs/ftt_w4b/ckpt.pt")
@@ -134,8 +107,7 @@ def main():
 
     model, ck = build_eval_model(args.ckpt, DEV)
     crop = ck.get("args", {}).get("crop", "center")
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(DEV).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(DEV).eval()
     mk = lambda split, sh: DataLoader(
         Gaming500Dataset(DATA, seq_len=64, img_size=126, stride=32,
                          crop_mode=crop, periph=True, split=split,

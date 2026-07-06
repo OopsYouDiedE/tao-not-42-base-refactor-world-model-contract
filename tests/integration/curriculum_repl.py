@@ -28,21 +28,12 @@ import shutil
 import numpy as np
 from PIL import Image
 
+from tests.integration.test_utils import dump_inventory, save_png
+
 
 def log(dir_, msg):
     with open(os.path.join(dir_, "server.log"), "a") as f:
         f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
-
-
-def dump_inventory(full_obs):
-    inv = []
-    try:
-        for it in full_obs.inventory:
-            if getattr(it, "count", 0) > 0:
-                inv.append({"key": it.translation_key, "count": it.count})
-    except Exception as e:  # noqa
-        inv = [{"error": repr(e)}]
-    return inv
 
 
 def player_xyz(full_obs):
@@ -50,16 +41,6 @@ def player_xyz(full_obs):
         return [round(full_obs.x, 2), round(full_obs.y, 2), round(full_obs.z, 2)]
     except Exception:  # noqa
         return None
-
-
-def save_png(rgb, path):
-    arr = np.asarray(rgb)
-    if arr.dtype != np.uint8:
-        arr = np.clip(arr, 0, 255).astype(np.uint8)
-    if arr.ndim == 3 and arr.shape[0] in (1, 3) and arr.shape[2] not in (1, 3):
-        arr = arr.transpose(1, 2, 0)
-    Image.fromarray(arr).save(path)
-    return list(arr.shape)
 
 
 def main():

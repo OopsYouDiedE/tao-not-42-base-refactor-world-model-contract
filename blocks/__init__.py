@@ -11,7 +11,7 @@ from blocks.regularization import StochLatent, SIGReg, BoundedActivation
 from blocks.attention import (PreLNAttn, ProtoDecode, SlotCompetitiveAttn,
                               MHABlock)
 from blocks.conv import Conv2dSamePad, ImgChLayerNorm
-from blocks.encoder import ConvEncoder
+from blocks.encoder import ConvEncoder, pool9
 from blocks.decoder import ConvDecoder
 from blocks.mlp import MLP
 from blocks.impala import FanInInitReLULayer, ImpalaCNN
@@ -27,7 +27,7 @@ from blocks.distributions import (
 __all__ = [
     "ConvGRUCell",
     "GatedResidual", "FiLM", "PreLNAttn", "PositionalEmbed", "ProtoDecode",
-    "SlotCompetitiveAttn", "MHABlock", "ConvEncoder", "ConvDecoder", "MLP",
+    "SlotCompetitiveAttn", "MHABlock", "ConvEncoder", "pool9", "ConvDecoder", "MLP",
     "FanInInitReLULayer", "ImpalaCNN", "FanInMLP", "CategoricalActionHead",
     "NormalizeEwma", "ScaledMSEHead",
     "StochLatent", "SIGReg", "BoundedActivation", "Accumulator", "DiscreteRouter",

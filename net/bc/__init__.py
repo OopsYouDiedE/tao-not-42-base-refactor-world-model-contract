@@ -5,6 +5,6 @@
     BCConfig — 结构配置 dataclass。
 """
 from net.bc.config import BCConfig
-from net.bc.policy import BCPolicy, build_bc_policy
+from net.bc.policy import BCPolicy, CondPolicy, TextCondPolicy, build_bc_policy
 
-__all__ = ["BCConfig", "BCPolicy", "build_bc_policy"]
+__all__ = ["BCConfig", "BCPolicy", "CondPolicy", "TextCondPolicy", "build_bc_policy"]

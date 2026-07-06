@@ -21,10 +21,10 @@ import torch
 
 from net.bc import BCConfig
 from net.config import BackboneConfig
+from net.bc import TextCondPolicy
 from tests.integration.collect_s8 import build_c2_course
-from tests.integration.rollout_groups import crop128
+from tests.integration.test_utils import crop128
 from train.fovea_twotower.gate_fasthead import bin_to_camera
-from train.fovea_twotower.text_cond_policy import TextCondPolicy
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, CAMERA_SCALE, N_MOUSE
 
 PX2DEG = 0.15

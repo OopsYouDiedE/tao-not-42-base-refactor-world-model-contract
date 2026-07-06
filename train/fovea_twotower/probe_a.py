@@ -26,8 +26,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ContextTower
-from train.fovea_twotower.train_r1 import batch_to_stream
+from train.fovea_twotower.data_utils import batch_to_stream
 from train.gaming500.dataset import Gaming500Dataset, KEY_NAMES
 
 I_ATTACK = KEY_NAMES.index("key_attack")
@@ -94,8 +96,7 @@ def main():
     ck = torch.load(args.ckpt, map_location=dev)
     model.load_state_dict(ck["model"])
     crop = args.crop or ck.get("args", {}).get("crop", "resize")
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     mk = lambda split: DataLoader(
         Gaming500Dataset(args.data, seq_len=args.seq, img_size=126,
                          stride=args.seq // 2, crop_mode=crop,

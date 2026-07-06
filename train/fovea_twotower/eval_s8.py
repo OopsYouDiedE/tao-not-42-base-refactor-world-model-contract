@@ -195,7 +195,7 @@ def synth_data(n=1200, d=64, n_start=40, seed=0):
 def encode_traj_dir(ckpt, traj_dir, dev):
     """逐条轨迹过冻结 W4 塔 → STATE(pool_ssm)。返回 reps[N,D] 及元数据数组。"""
     import torch
-    from train.fovea_twotower.eval_s7 import build_eval_model, pool_ssm
+    from train.fovea_twotower.model_utils import build_eval_model, pool_ssm
     model, ck = build_eval_model(ckpt, dev)
     files = sorted(glob.glob(os.path.join(traj_dir, "*.npz")))
     assert files, f"{traj_dir} 下无 .npz 轨迹"

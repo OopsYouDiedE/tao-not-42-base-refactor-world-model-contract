@@ -24,7 +24,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from train.fovea_twotower.train_r1 import batch_to_stream
+from net.backbone import build_backbone
+from net.config import BackboneConfig
+from train.fovea_twotower.data_utils import batch_to_stream_msg
 from train.gaming500.dataset import Gaming500Dataset, N_MSG
 
 N_ACT = 24
@@ -33,12 +35,6 @@ D_LAT = 384
 MODEL_ID = "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16"
 # LoRA 目标(已核对 modeling_nemotron_h.py:Mamba2Mixer=in/out_proj, Attention=q/k/v/o_proj)
 LORA_TARGETS = ["in_proj", "out_proj", "q_proj", "k_proj", "v_proj", "o_proj"]
-
-
-def batch_to_stream_msg(batch, dino, dev):
-    lat, act = batch_to_stream(batch, dino, dev)
-    msg = batch["msg"].to(dev, non_blocking=True).bfloat16()
-    return lat, act, msg
 
 
 class W4Adapter(nn.Module):
@@ -185,8 +181,7 @@ def main():
                     num_workers=args.workers, pin_memory=True, persistent_workers=True)
     dl_ev = DataLoader(mk("holdout"), batch_size=1, num_workers=2)
 
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     model = build_model(dev, args.aux_msg, grad_ckpt=True, lora_r=args.lora_r)
     ssm_params = []
     if args.unfreeze_ssm:

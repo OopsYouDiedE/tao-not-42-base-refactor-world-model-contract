@@ -12,7 +12,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ActionTower, ContextTower
+from train.fovea_twotower.eval_utils import auc
 from train.fovea_twotower.train_r2 import H, prep
 from train.gaming500.dataset import Gaming500Dataset, KEY_NAMES
 
@@ -57,15 +60,6 @@ def keys_macro_auc(TK, PK, idx=None):
     return float(np.mean(vals)) if vals else float("nan")
 
 
-def auc(y, s):
-    from sklearn.metrics import roc_auc_score
-    y = y.ravel() if y.ndim > 1 else y
-    s = s.ravel() if s.ndim > 1 else s
-    if len(np.unique(y)) < 2:
-        return float("nan")
-    return roc_auc_score(y, s)
-
-
 def load_tower(path, ctx):
     m = ActionTower(horizon=H).to(DEV).bfloat16()
     m.load_state_dict(torch.load(path, map_location=DEV)["model"])
@@ -74,8 +68,7 @@ def load_tower(path, ctx):
 
 def main():
     torch.manual_seed(0)
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(DEV).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(DEV).eval()
     ctx = ContextTower().to(DEV).bfloat16().eval()
     ctx.load_state_dict(torch.load(CTX, map_location=DEV)["model"])
     mk = lambda: DataLoader(

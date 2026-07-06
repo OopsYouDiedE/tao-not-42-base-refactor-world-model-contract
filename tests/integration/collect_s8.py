@@ -306,13 +306,14 @@ def run_collect(args):
 # ── latify ───────────────────────────────────────────────────────────
 def run_latify(args):
     import torch
-    from train.fovea_twotower.train_r1 import dino_encode
+    from train.fovea_twotower.data_utils import dino_encode
+    from net.backbone import build_backbone
+    from net.config import BackboneConfig
     from net.fovea_twotower.tower import act_featurize
     from train.gaming500.dataset import _periph_msgs
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     os.makedirs(args.out, exist_ok=True)
     files = sorted(glob.glob(os.path.join(args.raw, "*.npz")))
     assert files, f"{args.raw} 下无 raw npz"

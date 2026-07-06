@@ -67,3 +67,18 @@ class ConvEncoder(nn.Module):
         else:
             x = x.reshape(*lead, *x.shape[1:])             # [..., C', H', W']
         return x
+
+
+def pool9(z, grid=9, out=3):
+    """token 网格空间均池:[B, grid², C] → [B, out²·C]。
+
+    默认 9×9→3×3(每 3×3 patch 块取均值),压维但保留空间粗布局。要求 grid 能被
+    out 整除。与任务无关的纯空间降维算子,不含领域字眼。
+
+    Shape: z [B, grid*grid, C] → [B, out*out*C];Dtype 原样透传。
+    """
+    B, N, C = z.shape
+    assert N == grid * grid, f"期望 {grid*grid} token,得到 {N}"
+    r = grid // out
+    z = z.view(B, out, r, out, r, C).mean((2, 4))          # [B, out, out, C]
+    return z.reshape(B, out * out * C)

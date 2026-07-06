@@ -107,3 +107,66 @@ class BCPolicy(nn.Module):
 def build_bc_policy(cfg: Optional[BCConfig] = None, injected_backbone=None) -> BCPolicy:
     """工厂:按 BCConfig 构建 BCPolicy(缺省配置=默认结构)。"""
     return BCPolicy(cfg or BCConfig(), injected_backbone=injected_backbone)
+
+
+class CondPolicy(BCPolicy):
+    """BCPolicy + 标量回报条件(return-conditioned 快头)。
+
+    forward(feats, prev_action, ret):在输入相加处多一项 ret_embed(标量回报→d),
+    其余(骨干/头/时序干)全复用父类。用于"用信号操纵执行能力"的条件化 BC。
+    """
+
+    def __init__(self, cfg: BCConfig, injected_backbone=None):
+        super().__init__(cfg, injected_backbone)
+        self.ret_embed = nn.Linear(1, cfg.d)
+
+    def forward(self, feats, prev_action, ret):
+        """feats [B,T,enc], prev_action [B,T,A], ret [B] → (cam_logits, key_logits)。"""
+        B, T = feats.shape[:2]
+        r = self.ret_embed(ret.view(B, 1, 1).expand(B, T, 1).to(feats.dtype))
+        x = self.feat_proj(feats) + self.act_embed(prev_action) + r + self.pos[:, :T]
+        for blk in self.trunk:
+            x = blk(x)
+        x = self.out_norm(x)
+        cam = self.cam_head(x).view(B, T, self.cfg.n_mouse, self.cfg.camera_bins)
+        return cam, self.key_head(x)
+
+
+class TextCondPolicy(BCPolicy):
+    """BCPolicy + 文本指令条件(ReST/RAFT 的策略)。
+
+    text_embed 初始化为零 → 载入纯挖 BC 权重后策略起手忽略指令、照常执行;
+    ReST 逐轮把判优优胜轨迹 + 其指令一起 BC 回灌,才把"指令→行为"的服从装进来。
+    forward(feats, prev_action, text_emb):text_emb [B,text_dim] 每条轨迹一个指令向量。
+    """
+
+    def __init__(self, cfg: BCConfig, injected_backbone=None, text_dim: int = 384):
+        super().__init__(cfg, injected_backbone)
+        self.text_embed = nn.Linear(text_dim, cfg.d)
+        nn.init.zeros_(self.text_embed.weight)      # 起手忽略指令 → 载 c2bc 即纯挖策略
+        nn.init.zeros_(self.text_embed.bias)
+
+    def forward(self, feats, prev_action, text_emb):
+        """feats [B,T,enc], prev_action [B,T,A], text_emb [B,text_dim] → (cam, key)。"""
+        B, T = feats.shape[:2]
+        if T > self.cfg.max_len:
+            raise ValueError(f"seq_len {T} 超过 max_len {self.cfg.max_len}")
+        c = self.text_embed(text_emb.to(feats.dtype)).view(B, 1, self.cfg.d)
+        x = self.feat_proj(feats) + self.act_embed(prev_action) + c + self.pos[:, :T]
+        for blk in self.trunk:
+            x = blk(x)
+        x = self.out_norm(x)
+        cam = self.cam_head(x).view(B, T, self.cfg.n_mouse, self.cfg.camera_bins)
+        return cam, self.key_head(x)
+
+    def load_c2bc(self, ckpt_path, device, strict_body=True):
+        """载入纯挖 BC 权重(ftt_c2bc);text_embed 保持零初始化。返回 (missing, unexpected)。"""
+        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+        sd = ck.get("policy", ck.get("model", ck))
+        missing, unexpected = self.load_state_dict(sd, strict=False)
+        body_missing = [m for m in missing
+                        if not m.startswith("backbone.") and not m.startswith("text_embed.")]
+        if strict_body:
+            assert not body_missing, f"非 backbone/text_embed 的缺失键: {body_missing[:8]}"
+        assert not unexpected, f"意外键: {unexpected[:8]}"
+        return missing, unexpected

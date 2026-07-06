@@ -23,8 +23,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ContextTower
-from train.fovea_twotower.train_w1 import batch_to_stream_msg
+from train.fovea_twotower.data_utils import batch_to_stream_msg
 from train.gaming500.dataset import Gaming500Dataset, N_MSG
 
 K_BACK = 30                                            # 事件回溯窗(3s)
@@ -110,8 +112,7 @@ def main():
                          ).to(dev).bfloat16().eval()
     model.load_state_dict(ck["model"])
     crop = ck.get("args", {}).get("crop", "center")
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     mk = lambda split: DataLoader(
         Gaming500Dataset(args.data, seq_len=args.seq, img_size=126,
                          stride=args.seq // 2, crop_mode=crop, periph=True,

@@ -21,44 +21,13 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from train.fovea_twotower.train_w1 import batch_to_stream_msg
-from train.fovea_twotower.train_w4 import W4Adapter, MODEL_ID, LORA_TARGETS
+from net.backbone import build_backbone
+from net.config import BackboneConfig
+from train.fovea_twotower.data_utils import batch_to_stream_msg
+from train.fovea_twotower.model_utils import build_eval_model, pool_ssm
+from train.fovea_twotower.train_w4 import MODEL_ID
 from train.fovea_twotower.probe_b import fit_acc, fit_r2, K_BACK, K_FRESH
 from train.gaming500.dataset import Gaming500Dataset, N_MSG
-
-
-def build_eval_model(ckpt_path, dev, lora_r=16):
-    """重建 W4 塔并载入 ckpt(投影/头/LoRA);eval 且不启梯度检查点(留 use_cache 通路)。"""
-    from transformers import AutoModelForCausalLM
-    from peft import LoraConfig, get_peft_model
-    full = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, trust_remote_code=True, torch_dtype=torch.bfloat16)
-    backbone = full.backbone
-    del full.lm_head
-    for p in backbone.parameters():
-        p.requires_grad_(False)
-    lcfg = LoraConfig(r=lora_r, lora_alpha=2 * lora_r, lora_dropout=0.0,
-                      target_modules=LORA_TARGETS, bias="none")
-    backbone = get_peft_model(backbone, lcfg)
-    d = backbone.base_model.model.config.hidden_size
-    ck = torch.load(ckpt_path, map_location="cpu")
-    aux = ck.get("args", {}).get("aux_msg", 0.0)
-    model = W4Adapter(backbone, d, n_msg=N_MSG, aux_msg=aux)
-    missing, unexpected = model.load_state_dict(ck["model"], strict=False)
-    # 只允许"冻结主干的非 LoRA 权重"缺失(它们从 HF 复原);其余缺失/多余都要报警
-    bad_missing = [k for k in missing
-                   if k.startswith("backbone.") and "lora_" not in k]
-    assert not unexpected, f"unexpected keys in ckpt: {unexpected[:5]}"
-    assert len(bad_missing) == len(missing), \
-        f"非主干权重缺失(适配器/LoRA 没载上):{set(missing) - set(bad_missing)}"
-    return model.to(dev).bfloat16().eval(), ck
-
-
-def pool_ssm(states):
-    """states = [ssm_state]×21,各 (B, ...) → 每层对非状态轴均值 → (B, state)。拼接。
-    对 3D (B,inter,state) 与 4D (B,head,hdim,state) 皆稳健(flatten 中间维再均值)。"""
-    feats = [s.float().flatten(1, -2).mean(1) for s in states]  # 每层 (B, state_size)
-    return torch.cat(feats, 1)
 
 
 @torch.no_grad()
@@ -112,8 +81,7 @@ def main():
 
     model, ck = build_eval_model(args.ckpt, dev)
     crop = ck.get("args", {}).get("crop", "center")
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(dev).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(dev).eval()
     mk = lambda split: DataLoader(
         Gaming500Dataset(args.data, seq_len=args.seq, img_size=126,
                          stride=args.seq // 2, crop_mode=crop, periph=True,

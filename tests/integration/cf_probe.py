@@ -22,8 +22,8 @@ import torch
 
 from net.bc import BCConfig
 from net.config import BackboneConfig
+from net.bc import TextCondPolicy
 from tests.integration.collect_s8 import V2_KEYS
-from train.fovea_twotower.text_cond_policy import TextCondPolicy
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, N_MOUSE
 
 I_ATTACK = V2_KEYS.index("attack")

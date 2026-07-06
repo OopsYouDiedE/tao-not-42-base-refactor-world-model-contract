@@ -18,7 +18,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ActionTower, ContextTower
+from train.fovea_twotower.eval_utils import auc
 from train.fovea_twotower.train_w2 import H, prep
 from train.gaming500.dataset import Gaming500Dataset, KEY_NAMES, N_MSG
 
@@ -74,13 +77,6 @@ def gather(model, ctx, dino, dl, emb, n_max=2000):
     return ({k: {m: c(v[m]) for m in v} for k, v in out.items()}, c(DXT), c(ATT))
 
 
-def auc(y, s):
-    from sklearn.metrics import roc_auc_score
-    if len(np.unique(y)) < 2:
-        return float("nan")
-    return roc_auc_score(y, s)
-
-
 def boot_ci(fn, N, boot=500):
     rng = np.random.default_rng(0)
     vs = [fn(rng.integers(0, N, N)) for _ in range(boot)]
@@ -90,8 +86,7 @@ def boot_ci(fn, N, boot=500):
 
 def main():
     torch.manual_seed(0)
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(DEV).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(DEV).eval()
     ck = torch.load(CTX, map_location=DEV)
     ctx = ContextTower(n_msg=N_MSG).to(DEV).bfloat16().eval()
     ctx.load_state_dict(ck["model"])

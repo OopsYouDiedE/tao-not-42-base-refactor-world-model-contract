@@ -13,7 +13,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from net.backbone import build_backbone
+from net.config import BackboneConfig
 from net.fovea_twotower import ActionTower, ContextTower
+from train.fovea_twotower.eval_utils import auc, paired_ci
 from train.fovea_twotower.train_w2 import H, prep
 from train.gaming500.dataset import Gaming500Dataset, KEY_NAMES, N_MSG
 
@@ -48,14 +51,6 @@ def gather(model, ctx, dino, dl, mode, n_max=2000):
     return c(DX), c(DXp), c(ATT), c(ATTp), c(KP), c(KT), c(EV)
 
 
-def auc(y, s):
-    from sklearn.metrics import roc_auc_score
-    y, s = np.asarray(y).ravel(), np.asarray(s).ravel()
-    if len(np.unique(y)) < 2:
-        return float("nan")
-    return roc_auc_score(y, s)
-
-
 def keys_auc(TK, PK, idx=None):
     if idx is not None:
         TK, PK = TK[idx], PK[idx]
@@ -70,22 +65,9 @@ def load_tower(path):
     return m.eval()
 
 
-def paired_ci(fn_a, fn_b, N, boot=500):
-    rng = np.random.default_rng(0)
-    ds = []
-    for _ in range(boot):
-        i = rng.integers(0, N, N)
-        d = fn_a(i) - fn_b(i)
-        if np.isfinite(d):
-            ds.append(d)
-    lo, hi = np.percentile(ds, [2.5, 97.5])
-    return float(lo), float(hi)
-
-
 def main():
     torch.manual_seed(0)
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
-                          verbose=False).to(DEV).eval()
+    dino = build_backbone(BackboneConfig(kind="dinov2"))[0].to(DEV).eval()
     ck = torch.load(CTX, map_location=DEV)
     ctx = ContextTower(n_msg=N_MSG).to(DEV).bfloat16().eval()
     ctx.load_state_dict(ck["model"])

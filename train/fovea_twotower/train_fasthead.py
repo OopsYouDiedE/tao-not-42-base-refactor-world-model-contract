@@ -27,7 +27,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 
-from net.bc import BCConfig, build_bc_policy
+from net.bc import BCConfig, CondPolicy, build_bc_policy
 from net.config import BackboneConfig
 from train.minecraft.train_bc import bc_losses
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, N_MOUSE, camera_to_bin
@@ -75,13 +75,62 @@ class FeatWindowDataset(IterableDataset):
                    "action": torch.from_numpy(action[s:s + L].astype(np.float32))}
 
 
+class CondWindowDataset(IterableDataset):
+    """return-conditioned 窗口:采样等长窗口 + 该轨迹回报(score/cond_scale)。
+
+    回报分层各半采样:pos=score>0(采矿成功,稀少)/ zero=score==0(多数),
+    否则多数 0 分会淹没条件信号(见 knowledge/fovea 命题③)。yield 额外带 'ret'。
+    """
+
+    def __init__(self, data_dir, seq_len, split="train", holdout_n=8, seed=0,
+                 cond_scale=2.0):
+        files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
+        assert files, f"{data_dir} 无 npz"
+        self.files = files[:-holdout_n] if split == "train" else files[-holdout_n:]
+        self.seq_len = seq_len
+        self.seed = seed
+        self.cond_scale = cond_scale
+        self.pos, self.zero = [], []
+        for f in self.files:
+            with np.load(f) as z:
+                if z["feats"].shape[0] >= seq_len + 1:
+                    (self.pos if float(z["score"]) > 0 else self.zero).append(f)
+        assert self.pos and self.zero, f"分层不足 pos={len(self.pos)} zero={len(self.zero)}"
+
+    def __iter__(self):
+        wi = get_worker_info()
+        rng = np.random.default_rng(self.seed + (wi.id if wi else 0))
+        cache = {}
+        while True:
+            pool = self.pos if rng.random() < 0.5 else self.zero   # 分层各半
+            f = pool[rng.integers(len(pool))]
+            if f not in cache:
+                z = np.load(f)
+                cache[f] = (z["feats"], z["action"], float(z["score"]))
+            feats, action, score = cache[f]
+            s = int(rng.integers(0, feats.shape[0] - self.seq_len))
+            L = self.seq_len
+            yield {"feats": torch.from_numpy(feats[s:s + L].astype(np.float32)),
+                   "action": torch.from_numpy(action[s:s + L].astype(np.float32)),
+                   "ret": torch.tensor(score / self.cond_scale, dtype=torch.float32)}
+
+
 def make_batch(sample, device):
-    """sample → (feats [B,L,enc], prev_act [B,L,A], target [B,L,A])。prev=右移补零。"""
+    """sample → (feats [B,L,enc], prev_act [B,L,A], target [B,L,A], ret [B]|None)。
+
+    prev=右移补零;ret 仅 return-conditioned(--cond)数据集出现,否则 None。
+    """
     feats = sample["feats"].to(device, non_blocking=True).float()
     target = sample["action"].to(device, non_blocking=True).float()
     prev = torch.zeros_like(target)
     prev[:, 1:] = target[:, :-1]
-    return feats, prev, target
+    ret = sample["ret"].to(device).float() if "ret" in sample else None
+    return feats, prev, target, ret
+
+
+def _forward(policy, feats, prev, ret):
+    """条件/非条件策略前向统一入口:ret 非空走 CondPolicy(feats,prev,ret)。"""
+    return policy(feats, prev, ret) if ret is not None else policy(feats, prev)
 
 
 @torch.no_grad()
@@ -92,9 +141,9 @@ def evaluate(policy, hold_iter, n_batches, device, use_amp):
     cam_ce_sum = key_bce_sum = 0.0
     all_bins = []
     for _ in range(n_batches):
-        feats, prev, target = make_batch(next(hold_iter), device)
+        feats, prev, target, ret = make_batch(next(hold_iter), device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
-            cam_logits, key_logits = policy(feats, prev)
+            cam_logits, key_logits = _forward(policy, feats, prev, ret)
         cam_ce, key_bce, cam_tgt = bc_losses(cam_logits, key_logits, target)
         cam_ce_sum += cam_ce.item()
         key_bce_sum += key_bce.item()
@@ -125,6 +174,10 @@ def parse_args():
     p.add_argument("--data", default="runs/data/g500_mc_feat")
     p.add_argument("--holdout_n", type=int, default=3)
     p.add_argument("--seq_len", type=int, default=128)
+    p.add_argument("--cond", action="store_true", default=False,
+                   help="return-conditioned 快头 BC:分层采样 + CondPolicy(ret_embed 条件头)")
+    p.add_argument("--cond_scale", type=float, default=2.0,
+                   help="回报归一化尺度(条件输入=score/cond_scale);仅 --cond 生效")
     p.add_argument("--backbone", choices=["dinov3", "dinov2"], default="dinov3",
                    help="须与 encode 时一致(feats 契约);gate 时现场编码同款")
     p.add_argument("--d", type=int, default=384)
@@ -177,8 +230,11 @@ def main():
 
     enc_dim = 384 if args.backbone == "dinov3" else 384
     ds_kw = dict(seq_len=args.seq_len, holdout_n=args.holdout_n, seed=args.seed)
-    train_ds = FeatWindowDataset(args.data, split="train", **ds_kw)
-    hold_ds = FeatWindowDataset(args.data, split="holdout", **ds_kw)
+    DS = CondWindowDataset if args.cond else FeatWindowDataset
+    if args.cond:
+        ds_kw["cond_scale"] = args.cond_scale
+    train_ds = DS(args.data, split="train", **ds_kw)
+    hold_ds = DS(args.data, split="holdout", **ds_kw)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size,
                               num_workers=args.workers, pin_memory=True,
                               persistent_workers=args.workers > 0)
@@ -191,7 +247,8 @@ def main():
                    max_len=max(128, args.seq_len), action_dim=ACTION_DIM,
                    n_mouse=N_MOUSE, camera_bins=CAMERA_BINS)
     inj = _StubBackbone(enc_dim) if args.no_backbone else None
-    policy = build_bc_policy(cfg, injected_backbone=inj).to(device)
+    policy = (CondPolicy(cfg, injected_backbone=inj) if args.cond
+              else build_bc_policy(cfg, injected_backbone=inj)).to(device)
     trainable = [p for p in policy.parameters() if p.requires_grad]
     n_train = sum(p.numel() for p in trainable)
     print(f"✅ 可训练 {n_train / 1e6:.2f}M(时序头,骨干{'占位' if inj else '冻结'})")
@@ -230,9 +287,9 @@ def main():
     t0 = time.time()
     try:
         for step in range(start_step, args.total_steps):
-            feats, prev, target = make_batch(next(train_iter), device)
+            feats, prev, target, ret = make_batch(next(train_iter), device)
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
-                cam_logits, key_logits = policy(feats, prev)
+                cam_logits, key_logits = _forward(policy, feats, prev, ret)
             cam_ce, key_bce, _ = bc_losses(cam_logits, key_logits, target)
             loss = cam_ce + args.key_loss_coeff * key_bce
             optimizer.zero_grad(set_to_none=True)

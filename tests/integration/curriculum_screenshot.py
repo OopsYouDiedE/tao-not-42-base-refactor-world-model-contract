@@ -27,6 +27,8 @@ from craftground.initial_environment_config import InitialEnvironmentConfig
 from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
 from craftground.screen_encoding_modes import ScreenEncodingMode
 
+from tests.integration.test_utils import dump_inventory, save_png
+
 
 # ---- 三套课程的构造命令(不带前导 "/";mod 会补;避开保留词 respawn/fastreset/exit/random-summon)----
 CURRICULA = {
@@ -63,29 +65,6 @@ _JUNK = ["dirt", "cobblestone", "gravel", "andesite", "diorite", "granite",
 for _slot in range(36):
     CURRICULA["C3_fill_junk_organize"].append(
         f"item replace entity @p container.{_slot} with minecraft:{_JUNK[_slot % len(_JUNK)]} 64")
-
-
-def dump_inventory(full_obs):
-    """从 obs['full'](protobuf ObservationSpaceMessage)读库存 translation_key+count。"""
-    inv = []
-    try:
-        for it in full_obs.inventory:
-            if getattr(it, "count", 0) > 0:
-                inv.append({"key": it.translation_key, "count": it.count})
-    except Exception as e:  # noqa
-        inv = [{"error": repr(e)}]
-    return inv
-
-
-def save_png(rgb, path):
-    """obs['rgb'] → PNG。RAW 编码下应为 (H,W,3) uint8。"""
-    arr = np.asarray(rgb)
-    if arr.dtype != np.uint8:
-        arr = np.clip(arr, 0, 255).astype(np.uint8)
-    if arr.ndim == 3 and arr.shape[0] in (1, 3) and arr.shape[2] not in (1, 3):
-        arr = arr.transpose(1, 2, 0)  # (C,H,W)→(H,W,C) 兜底
-    Image.fromarray(arr).save(path)
-    return arr.shape
 
 
 def run_curriculum(name, commands, out_dir, settle_frames, port):

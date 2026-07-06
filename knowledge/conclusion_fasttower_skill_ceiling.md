@@ -27,6 +27,18 @@
 - 渲染:ZEROCOPY(:1,需 root 起 `Xorg :1 -config xorg.conf.headless -ac`)obs['rgb']=CUDA 张量,
   boot 13s/17.9fps,快于 RAW(:99,39s)。
 
+## GRPO 微调:能不能把快塔从 BC 往教师推?(train/fovea_twotower/grpo_skill.py)
+BC 暖启动 → 随机 rollout → 组内相对优势 A=(R−mean)/std → 策略梯度(只训时序头),奖励=闭环挖到数。
+| 技能 | BC(视觉) | GRPO best | 教师 | GRPO 效果 |
+|---|---|---|---|---|
+| chop_wood(oak_log 可见) | 0.50 | **0.81** | 0.97 | **↑ 往教师推**(rollout succ 0.5–0.75,奖励信号足) |
+| mine_stone(石头贴石头墙,不可见) | 0.31 | **0.06** | 1.00 | **↓ 退化**(rollout succ 0–0.25,奖励稀疏,组内常全 0 无梯度) |
+| mine_iron | ~0.9(greedy) | — | 0.80 | 近天花板,headroom 小,未细跑 |
+
+**受控对照结论:GRPO 能否起效由"目标是否视觉可见(能否产生奖励信号)"闸门决定,不是 RL 本身行不行。**
+可见目标(木头)GRPO 从 0.50 推到 0.81;不可见目标(石头)反而退化。→ **感知是硬墙,救法是改感知
+(给对比/YOLO 目标框),不是加 RL**。这是对"aim+attack 能学、瓶颈在感知"最强的一次闭环验证。
+
 ## 下一步(按终审优先级)
 1. **GRPO 把快塔从 BC 的 0.3–0.7 往教师 0.8–1.0 推**(尤其 stone:换非石头后墙给对比,或加 YOLO 目标框)。
 2. 加**合成/盖屋**技能,探 aim+attack 之外的动作模态天花板(很可能才是真上限)。

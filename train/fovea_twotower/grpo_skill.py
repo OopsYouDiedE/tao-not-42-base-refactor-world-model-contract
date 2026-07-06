@@ -70,27 +70,32 @@ def rollout(policy, env, noop, sk, wall_z, steps, settle, device, greedy, rng):
             "reward": float(got), "success": got > 0}
 
 
-def grpo_step(policy, opt, group, device):
-    """组内相对优势策略梯度。group=list of rollout dict。返回 (loss, mean_R, succ_rate)。"""
+def grpo_step(policy, opt, group, device, W=64):
+    """组内相对优势策略梯度。梯度用与 rollout 一致的 ≤W 滑窗(取末位),批量化 forward。
+
+    每 step t 的动作 logprob 由窗口 feats[t-W+1:t+1] 末位算(逐字复刻 rollout,免 pos 越界)。
+    只训 t≥W-1 的满窗步(占多数);短局(T≤W)整条一窗。返回 (loss, mean_R, succ_rate)。
+    """
     R = np.array([g["reward"] for g in group], np.float32)
     adv = (R - R.mean()) / (R.std() + 1e-4)
-    if R.std() < 1e-6:                                         # 全同 → 无梯度,跳过
+    if R.std() < 1e-6:                                         # 全同 → 无优势,跳过
         return 0.0, float(R.mean()), float(np.mean([g["success"] for g in group]))
     opt.zero_grad(set_to_none=True)
     total = 0.0
     for g, A in zip(group, adv):
-        feats = g["feats"][None].to(device)                    # [1,T,384]
-        prev = g["prev"][None].to(device)
+        feats, prev = g["feats"].to(device), g["prev"].to(device)   # [T,384],[T,22]
+        camb, kon = g["cam_b"].to(device), g["key_on"].to(device)   # [T,2],[T,20]
+        T = feats.shape[0]
+        starts = list(range(W - 1, T)) if T > W else [T - 1]        # 末位所在步
+        fw = torch.stack([feats[max(0, t - W + 1):t + 1] for t in starts])  # [N,≤W,384]
+        aw = torch.stack([prev[max(0, t - W + 1):t + 1] for t in starts])
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device == "cuda"):
-            cam_logits, key_logits = policy(feats, prev)        # [1,T,2,bins],[1,T,20]
-        T = feats.shape[1]
-        camb = g["cam_b"].to(device)                            # [T,2]
-        logp_cam = F.log_softmax(cam_logits[0].float(), -1)     # [T,2,bins]
-        lp = logp_cam.gather(-1, camb[..., None]).squeeze(-1).sum(-1)   # [T]
-        kon = g["key_on"].to(device)                            # [T,20]
-        logp_key = -F.binary_cross_entropy_with_logits(
-            key_logits[0].float(), kon, reduction="none").sum(-1)      # [T]
-        loss = -(lp + logp_key).mean() * float(A) / len(group)
+            cam_logits, key_logits = policy(fw, aw)               # [N,≤W,2,bins],[N,≤W,20]
+        cl, kl = cam_logits[:, -1].float(), key_logits[:, -1].float()   # [N,2,bins],[N,20]
+        cb, ko = camb[starts], kon[starts]                        # [N,2],[N,20]
+        lp = F.log_softmax(cl, -1).gather(-1, cb[..., None]).squeeze(-1).sum(-1)   # [N]
+        lk = -F.binary_cross_entropy_with_logits(kl, ko, reduction="none").sum(-1)  # [N]
+        loss = -(lp + lk).mean() * float(A) / len(group)
         loss.backward()
         total += float(loss)
     torch.nn.utils.clip_grad_norm_([p for p in policy.parameters() if p.requires_grad], 1.0)

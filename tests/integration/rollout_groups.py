@@ -42,7 +42,7 @@ I_FWD = V2_KEYS.index("forward")        # 0:前进键
 
 def decode_temp(cam_logits, key_logits, noop, cam_temp, key_temp, rng):
     """温度采样末步 logits → (V2 动作 dict, act_vec[22])。act_vec=[norm_yaw,norm_pitch,key×20]
-    与 encode_c2_feats 的 BC 目标契约一致(相机存归一 bin 值,非度)。
+    与 encode_feats(c2 源)的 BC 目标契约一致(相机存归一 bin 值,非度)。
     相机/按键温度解耦:看向指令需相机高温多样(视角随机游走出各方向),挖矿指令需相机
     低温保准星稳(否则漂移无法连破)——单一温度两头难顾,故分开。"""
     a = dict(noop)

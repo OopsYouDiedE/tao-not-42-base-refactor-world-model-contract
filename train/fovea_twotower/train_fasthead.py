@@ -2,11 +2,11 @@
 """快头行为克隆(BC):吃**预编码 CLS 特征**直训,免 mp4 解码 + 免 DINO 前向。
 
 train/minecraft/train_bc.py 的预编码版——同一 BCPolicy、同一动作契约与损失,唯一差异
-是数据源:不再逐 batch 现场 encode_frames,而是读 tests/encode_g500_feats.py 产出的
+是数据源:不再逐 batch 现场 encode_frames,而是读 tests/encode_feats.py --source-type g500 产出的
 runs/data/g500_mc_feat/*.npz(feats fp16 [T,384] + action fp32 [T,22]=[dx/scale,dy/scale,keys×20])。
 预编码把 DINO 前向从训练热路径移除,sps 由此从"每步一次骨干前向"跃到"纯时序头前向"。
 
-动作/时间对齐(与 encode_g500_feats 逐字段一致):action[t] = 观测 o_t→o_{t+1} 的聚合动作;
+动作/时间对齐(与 encode_feats g500 源逐字段一致):action[t] = 观测 o_t→o_{t+1} 的聚合动作;
 策略在 o_t(与 a_{<t})下预测 a_t。窗口 [s, s+L) 的 L 个 action 全为有效转移(采样保证
 s+L-1 ≤ T-2),故直接 feats=[B,L,384] 喂 forward,prev=右移一位补零。
 

@@ -68,12 +68,53 @@ def _resize_crop(img, size, mode, rng):
     return crop
 
 
-def _decode_frame(blob, size, mode, seed):
-    """JPEG 字节 → [3,size,size] uint8 RGB(CHW)。"""
+def _decode_frame(blob, size, mode, seed, want_gray=False):
+    """JPEG 字节 → [3,size,size] uint8 RGB(CHW);want_gray 时附带 45×80 全帧灰度
+    (step2 周边消息通道用:解码本来就发生,多一次缩放 ~0.1ms)。"""
     bgr = cv2.imdecode(blob, cv2.IMREAD_COLOR)         # 存的是 BGR
+    gray = (cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), (80, 45),
+                       interpolation=cv2.INTER_AREA) if want_gray else None)
     bgr = _resize_crop(bgr, size, mode, np.random.default_rng(seed))
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    return torch.from_numpy(rgb).permute(2, 0, 1).contiguous()
+    chw = torch.from_numpy(rgb).permute(2, 0, 1).contiguous()
+    return (chw, gray) if want_gray else chw
+
+
+# ---- step2 周边消息通道(fovea-twotower-step2 §1,变化通道 v0) ----
+N_MSG = 11            # 8方位one-hot + log显著度 + log背景(pan代理) + valid
+_MSG_PEAK_TH = 45.0   # 事件门:3×3平滑后 peak−bg 阈值(360p 校准,事件率≈8.6%)
+_MSG_BG_TH = 3.0      # 准静态门:bg 中值低于此才判事件(粗代自运动补偿)
+
+
+def _periph_msgs(grays):
+    """[L] 张 45×80 灰度 → [L,N_MSG] float32。第 0 帧无差分,valid=0。
+
+    帧差 3×3 平滑去单像素噪声;掩膜=游戏视口中环(排除边缘 HUD 带:小地图/
+    击杀播报/弹药栏永动,会淹没真实事件)再挖去中心凹区(模型看得见);
+    周边取背景中值 bg 与峰值 peak;peak−bg 过阈且 bg 准静态 → 事件,
+    方位=峰值位置相对屏心的 8 扇区。"""
+    L = len(grays)
+    out = np.zeros((L, N_MSG), np.float32)
+    cy, cx = 45 // 2, 80 // 2
+    mask = np.zeros((45, 80), bool)
+    mask[8:37, 10:70] = True                           # 视口中环(HUD 边带除外)
+    mask[cy - 8:cy + 8, cx - 8:cx + 8] = False         # 凹区(模型看得见)不算周边
+    prev = grays[0].astype(np.float32)
+    for j in range(1, L):
+        cur = grays[j].astype(np.float32)
+        dimg = cv2.blur(np.abs(cur - prev), (3, 3))
+        prev = cur
+        dimg[~mask] = 0.0
+        bg = float(np.median(dimg[mask]))
+        pk = float(dimg.max())
+        out[j, 9] = np.log1p(bg) / 4.0                 # pan 代理
+        out[j, 10] = 1.0                               # valid
+        if pk - bg > _MSG_PEAK_TH and bg < _MSG_BG_TH:
+            y, x = divmod(int(dimg.argmax()), 80)
+            ang = np.arctan2(y - cy, x - cx)
+            out[j, int(((ang + np.pi) / (2 * np.pi) * 8)) % 8] = 1.0
+            out[j, 8] = min(np.log1p(pk - bg) / 4.0, 1.5)
+    return out
 
 
 class Gaming500Dataset(Dataset):
@@ -111,13 +152,15 @@ class Gaming500Dataset(Dataset):
     """
 
     def __init__(self, root, seq_len=16, img_size=128, stride=None, crop_mode="resize",
-                 seed=0, split="all", holdout_frac=0.03, cache=False, cache_threads=16):
+                 seed=0, split="all", holdout_frac=0.03, cache=False, cache_threads=16,
+                 periph=False):
         super().__init__()
         self.root = root
         self.seq_len = max(1, int(seq_len))
         self.img_size = int(img_size)
         self.stride = int(stride) if stride else self.seq_len
         self.crop_mode = crop_mode
+        self.periph = bool(periph)                     # step2:附带周边消息 msg [L,N_MSG]
         self.seed = int(seed)
         self._files = {}                               # pid → {path: h5py.File}(惰性/进程隔离)
         self._lock = threading.Lock()
@@ -227,10 +270,19 @@ class Gaming500Dataset(Dataset):
         g = self._handle(path)[seg]
         L = self.seq_len
 
-        imgs = [_decode_frame(g["jpeg"][t0 + k], self.img_size, self.crop_mode,
-                              self.seed + i + k) for k in range(L)]
+        if self.periph:
+            pairs = [_decode_frame(g["jpeg"][t0 + k], self.img_size, self.crop_mode,
+                                   self.seed + i + k, want_gray=True) for k in range(L)]
+            imgs = [p[0] for p in pairs]
+            msg = torch.from_numpy(_periph_msgs([p[1] for p in pairs]))
+        else:
+            imgs = [_decode_frame(g["jpeg"][t0 + k], self.img_size, self.crop_mode,
+                                  self.seed + i + k) for k in range(L)]
+            msg = None
         img = torch.stack(imgs, 0)                     # [L,3,H,W] uint8
         sample = {"img": img, "game": seg.split("/")[0], "task": self.tasks.get(seg, "")}
+        if msg is not None:
+            sample["msg"] = msg                        # [L,N_MSG] float32
         if L == 1:                                     # tokenizer 单帧:不做动作对齐
             return sample
 

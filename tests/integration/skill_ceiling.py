@@ -26,13 +26,17 @@ import os
 import time
 
 import numpy as np
+import torch
 
 from tests.integration.collect_s8 import MineForwardPolicy, RandomPolicy, _raycast
+from tests.integration.test_utils import crop128
+from train.fovea_twotower.gate_fasthead import decode_action
+from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, N_MOUSE
 
 # 技能 = (目标方块 | None=生存, 工具 | None, 成功库存关键词子串)
 SKILLS = {
     "survive":      dict(block=None,          tool=None,             success=None),
-    "chop_wood":    dict(block="oak_log",     tool=None,             success=["log", "plank"]),
+    "chop_wood":    dict(block="oak_log",     tool="wooden_axe",     success=["log", "plank"]),
     "mine_stone":   dict(block="stone",       tool="wooden_pickaxe", success=["cobblestone"]),
     "mine_iron":    dict(block="iron_ore",    tool="stone_pickaxe",  success=["iron"]),
     "mine_diamond": dict(block="diamond_ore", tool="iron_pickaxe",   success=["diamond"]),
@@ -66,22 +70,71 @@ def inv_count(full, keys):
     return n
 
 
-def make_policy(name, rng, ckpt=None):
+class LearnedFastHead:
+    """载 BCPolicy(dinov3)快塔,逐帧 crop128→encode_frames→因果时序头→decode_action。
+
+    每 episode(t==0)重置历史窗;跨 episode 复用同一模型(免重复载权重)。视觉闭环控制。
+    """
+
+    def __init__(self, ckpt, device, max_len, greedy, rng, backbone="dinov3"):
+        from net.bc import BCConfig, build_bc_policy
+        from net.config import BackboneConfig
+        ck = torch.load(ckpt, map_location=device, weights_only=False)
+        cs = ck.get("cfg", {})
+        cfg = BCConfig(backbone=BackboneConfig(kind=backbone), d=cs.get("d", 384),
+                       heads=cs.get("heads", 6), layers=cs.get("layers", 4), dropout=0.0,
+                       max_len=max(128, max_len), action_dim=ACTION_DIM,
+                       n_mouse=N_MOUSE, camera_bins=CAMERA_BINS)
+        self.policy = build_bc_policy(cfg).to(device).eval()
+        missing, unexpected = self.policy.load_state_dict(ck["policy"], strict=False)
+        assert not [m for m in missing if not m.startswith("backbone.")], missing[:6]
+        assert not unexpected, unexpected[:6]
+        self.device, self.max_len, self.greedy, self.rng = device, max_len, greedy, rng
+        print(f"✅ learned 快塔载入 {ckpt}(step={ck.get('step')})", flush=True)
+        self._reset()
+
+    def _reset(self):
+        self.fh, self.ah = [], []
+        self.prev = np.zeros(ACTION_DIM, np.float32)
+
+    @torch.no_grad()
+    def __call__(self, t, noop, obs=None):
+        if t == 0:
+            self._reset()
+        f = self.policy.encode_frames(crop128(obs["rgb"]).to(self.device))[:, 0]
+        self.fh.append(f)
+        self.ah.append(torch.from_numpy(self.prev).to(self.device).view(1, -1))
+        fseq = torch.stack(self.fh[-self.max_len:], 1)
+        aseq = torch.stack(self.ah[-self.max_len:], 1)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
+            cam, key = self.policy(fseq.float(), aseq.float())
+        a, key_on = decode_action(cam[0, -1], key[0, -1], noop, self.greedy, self.rng)
+        self.prev = np.zeros(ACTION_DIM, np.float32)
+        self.prev[N_MOUSE:] = key_on
+        return a
+
+
+def make_policy(name, rng, device="cpu", ckpt=None, max_len=64, greedy=False, backbone="dinov3"):
     if name == "teacher":
         return MineForwardPolicy(rng, epsilon=0.0)          # 纯闭环(无探索噪声)
     if name == "random":
         return RandomPolicy(rng)
     if name == "noop":
         return lambda t, noop, obs=None: dict(noop)
-    raise ValueError(f"未知 policy {name}(learned ckpt 载入后续接)")
+    if name == "learned":
+        assert ckpt, "learned 需 --ckpt"
+        return LearnedFastHead(ckpt, device, max_len, greedy, rng, backbone)
+    raise ValueError(f"未知 policy {name}")
 
 
-def run(skill, policy_name, episodes, steps, settle, port, seed, out):
+def run(skill, policy_name, episodes, steps, settle, port, seed, out,
+        ckpt=None, max_len=64, greedy=False, backbone="dinov3"):
     from craftground import make
     from craftground.initial_environment_config import InitialEnvironmentConfig, WorldType
     from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
     from craftground.screen_encoding_modes import ScreenEncodingMode
     sk = SKILLS[skill]
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     env = make(initial_env_config=InitialEnvironmentConfig(
         image_width=640, image_height=360, screen_encoding_mode=ScreenEncodingMode.RAW,
         world_type=WorldType.SUPERFLAT, seed="ceiling", request_raycast=True,
@@ -90,6 +143,9 @@ def run(skill, policy_name, episodes, steps, settle, port, seed, out):
     noop = no_op_v2()
     env.reset()
     rng = np.random.default_rng(seed)
+    # learned 快塔跨 episode 复用同一模型(t==0 内部重置);teacher/random 每局新建
+    persistent = (make_policy(policy_name, rng, device, ckpt, max_len, greedy, backbone)
+                  if policy_name == "learned" else None)
     rows = []
     for ep in range(episodes):
         wall_z = WALL_Z[ep % len(WALL_Z)]
@@ -97,7 +153,7 @@ def run(skill, policy_name, episodes, steps, settle, port, seed, out):
                                     "extra_commands": build_course(sk["block"], sk["tool"], wall_z)})
         for _ in range(settle):
             obs, *_ = env.step(noop)
-        policy = make_policy(policy_name, rng)
+        policy = persistent or make_policy(policy_name, rng)
         base = inv_count(obs["full"], sk["success"]) if sk["success"] else 0
         died = False
         for t in range(steps):
@@ -129,7 +185,11 @@ def run(skill, policy_name, episodes, steps, settle, port, seed, out):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--skill", choices=list(SKILLS), required=True)
-    p.add_argument("--policy", default="teacher", help="teacher/noop/random")
+    p.add_argument("--policy", default="teacher", help="teacher/noop/random/learned")
+    p.add_argument("--ckpt", default=None, help="learned 快塔 ckpt(BCPolicy)")
+    p.add_argument("--backbone", default="dinov3", choices=["dinov3", "dinov2"])
+    p.add_argument("--max_len", type=int, default=64)
+    p.add_argument("--greedy", action="store_true", default=False)
     p.add_argument("--episodes", type=int, default=20)
     p.add_argument("--steps", type=int, default=220)
     p.add_argument("--settle", type=int, default=10)
@@ -139,7 +199,7 @@ def main():
     args = p.parse_args()
     out = args.out or f"runs/ceiling/{args.skill}_{args.policy}.json"
     run(args.skill, args.policy, args.episodes, args.steps, args.settle,
-        args.port, args.seed, out)
+        args.port, args.seed, out, args.ckpt, args.max_len, args.greedy, args.backbone)
 
 
 if __name__ == "__main__":

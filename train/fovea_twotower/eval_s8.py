@@ -201,11 +201,12 @@ def encode_traj_dir(ckpt, traj_dir, dev):
     assert files, f"{traj_dir} 下无 .npz 轨迹"
     reps, score, start_id, policy_strong, start_hard = [], [], [], [], []
     with torch.no_grad():
+        mdtype = next(model.parameters()).dtype   # 塔为 bf16;latify 存 fp16/fp32,须对齐免 LayerNorm 类型炸
         for fp in files:
             z = np.load(fp)
-            lat = torch.tensor(z["lat"]).unsqueeze(0).to(dev)
-            act = torch.tensor(z["act"]).unsqueeze(0).to(dev)
-            msg = torch.tensor(z["msg"]).unsqueeze(0).to(dev)
+            lat = torch.tensor(z["lat"]).unsqueeze(0).to(dev, mdtype)
+            act = torch.tensor(z["act"]).unsqueeze(0).to(dev, mdtype)
+            msg = torch.tensor(z["msg"]).unsqueeze(0).to(dev, mdtype)
             _, states = model.encode(lat, act, msg, want_states=True)
             reps.append(pool_ssm(states).float().cpu().numpy()[0])
             score.append(float(z["score"]))

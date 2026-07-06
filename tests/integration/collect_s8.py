@@ -47,6 +47,34 @@ COURSE = "runs/curriculum_repl/courses/C2_cave_mine_iron.json"
 HEADSTART_MARK = "stone_pickaxe"   # hard 起点=剥离含此标记的命令(拿走工具)
 
 
+def build_c2_course(wall_z=7, pickaxe=True):
+    """参数化 C2 课程(wall_z=7 逐字复现 courses/C2_cave_mine_iron.json)。
+
+    wall_z 变墙距=变**起点**(DINO 潜空间外观 + 接近距离都随之变):S8a 需多个可区分起点
+    (start_id=variant*2+hard),墙距是最省的起点变量,强策略靠 raycast 自适应仍能采到。
+    pickaxe=False → hard 起点:不发石镐,徒手挖铁矿掉落为零(score 恒 0,S8b 难起点)。"""
+    cmds = [
+        "gamemode survival @p",
+        "difficulty peaceful",
+        "tp @p ~ ~ ~ 0 0",
+        f"fill ~-3 ~-1 ~-2 ~3 ~4 ~{wall_z} minecraft:air",
+        f"fill ~-3 ~-2 ~-2 ~3 ~-2 ~{wall_z} minecraft:stone",       # 地板
+        f"fill ~-3 ~-1 ~{wall_z} ~3 ~4 ~{wall_z} minecraft:stone",  # 后墙
+        f"setblock ~0 ~ ~{wall_z} minecraft:iron_ore",              # 眼平中心矿(强策略必挖点)
+        f"setblock ~1 ~ ~{wall_z} minecraft:iron_ore",
+        f"setblock ~-1 ~ ~{wall_z} minecraft:iron_ore",
+        f"setblock ~0 ~1 ~{wall_z} minecraft:iron_ore",
+        f"setblock ~-1 ~1 ~{wall_z} minecraft:iron_ore",
+        "clear @p",
+    ]
+    if pickaxe:
+        cmds.append("item replace entity @p weapon.mainhand with minecraft:stone_pickaxe 1")
+    return cmds
+
+
+WALL_Z_VARIANTS = (5, 6, 7, 8, 9, 10)   # 起点变体的墙距序列
+
+
 # ── 策略 ──────────────────────────────────────────────────────────────
 class RandomPolicy:
     """weak:每步独立采样;概率偏 forward/attack 但无方向性。"""
@@ -55,7 +83,7 @@ class RandomPolicy:
     def __init__(self, rng):
         self.rng = rng
 
-    def __call__(self, t, noop):
+    def __call__(self, t, noop, obs=None):
         a = dict(noop)
         a["forward"] = bool(self.rng.random() < 0.3)
         a["jump"] = bool(self.rng.random() < 0.1)
@@ -65,27 +93,90 @@ class RandomPolicy:
         return a
 
 
+def _raycast(full):
+    """(命中方块 translation_key 或 "", 玩家眼到方块中心的欧氏距离 或 大数)。"""
+    import math
+    try:
+        tb = full.raycast_result.target_block
+        key = tb.translation_key or ""
+        if not key:
+            return "", 1e9
+        d = math.sqrt((tb.x + 0.5 - full.x) ** 2 + (tb.y + 0.5 - full.y) ** 2
+                      + (tb.z + 0.5 - full.z) ** 2)
+        return key, d
+    except Exception:  # noqa
+        return "", 1e9
+
+
 class MineForwardPolicy:
-    """strong(C2 口径):课程把矿脉摆在正前方 z+7、视线初始化 (0,0)——
-    前进数步到墙前,然后持续攻击;小幅扫视覆盖 2×2 脉面。--epsilon 概率换随机动作
-    (给分数造梯度,score 不再二值)。"""
+    """strong(C2 口径):闭环采矿。课程把铁矿脉摆在正前方 z+7,眼平 (x0,y0) 一块正对
+    准星,视线初始化 (0,0)。用 raycast_result 反馈,分两相:
+      · 接近:准星命中的方块还够不到(dist>REACH)→ forward 走近,pitch 归零;
+      · 采矿:够得到(dist≤REACH)→ **停 forward**(旧版全程 forward 会把玩家顶穿
+        单层矿墙、把 raw_iron 掉落甩在身后拾取不到=score=0 病根),attack 持续挖。
+        **准星命中 iron_ore 时锁死相机**(破坏需同格连续 ~23 tick,任何移动都会清零),
+        破完该矿→raycast 不再是矿→按 SCAN 抬 pitch 找上一列 y1 矿,如此逐块吃掉脉面;
+        每几步补一记 forward 轻触,把落地矿吸进 1 格拾取半径。
+    --epsilon 概率换随机动作(给 score 造梯度)。"""
     strong = 1
+    REACH = 3.2                          # 可挖距离(生存 ~4.5,留裕度确保贴脸)
+    SCAN = (0.0, -12.0, -24.0, -36.0)    # 未命中矿时的 pitch 搜索档(负=上抬,扫 y0→y1)
+    SCAN_DWELL = 22                       # 每档停留(> 破坏时长才不空扫)
+    FWD_BUDGET = 16                       # **到墙后**允许的 forward 步数上限:够钻穿单层墙+吸拾,
+                                          # 用尽即锁死(否则破洞后 raycast 见远处→无限前进跑出矿脉丢掉落)
 
     def __init__(self, rng, epsilon=0.15):
         self.rng = rng
         self.eps = epsilon
         self._rand = RandomPolicy(rng)
+        self._pitch = 0.0                # 当前累计 pitch(相对初始 0)
+        self._scan_i = 0
+        self._scan_t = 0
+        self._arrived = False            # 首次够到墙后置位:此后不再无限接近
+        self._fwd_left = self.FWD_BUDGET
 
-    def __call__(self, t, noop):
+    def __call__(self, t, noop, obs=None):
         if self.rng.random() < self.eps:
             return self._rand(t, noop)
         a = dict(noop)
-        if t < 10:                                   # 走近墙面
+        full = obs["full"] if obs is not None else None
+        if full is None:                             # 无反馈兜底:走+挖
             a["forward"] = True
-        else:                                        # 贴墙持续挖,缓慢扫过脉面
             a["attack"] = True
-            a["camera_yaw"] = float(6 * np.sin(t / 25.0))
-            a["camera_pitch"] = float(3 * np.sin(t / 40.0))
+            return a
+        key, dist = _raycast(full)
+        near = dist <= self.REACH
+        if near:
+            self._arrived = True
+        # 偏航自纠:课程令玩家正对墙(yaw≈0),epsilon 随机偏航会累积把朝向带偏→forward 走歪、
+        # 采矿脱靶(校准 e0 score=0 病根)。用 full.yaw 反馈把朝向拉回 0(命中矿锁死时不纠,免脱靶)。
+        yaw = float(getattr(full, "yaw", 0.0))
+        dyaw = float(np.clip(-0.5 * yaw, -20.0, 20.0))
+        if not self._arrived:                        # ── 接近相(仅到墙前):走近,准星归眼平+朝向归零 ──
+            a["forward"] = True
+            a["camera_pitch"] = float(-self._pitch)
+            a["camera_yaw"] = dyaw
+            self._pitch = 0.0
+            return a
+        # ── 采矿相(已到墙):停走为主,持续挖,逐块吃脉面,落地矿靠限额 forward 吸拾 ──
+        a["attack"] = True
+        if near and "iron_ore" in key:               # 命中矿:锁死相机专心破坏
+            a["camera_pitch"] = 0.0
+            self._scan_t = 0
+        elif near:                                   # 够到但非矿:抬头搜索脉面 + 朝向归零
+            a["camera_yaw"] = dyaw
+            self._scan_t += 1
+            if self._scan_t >= self.SCAN_DWELL:
+                self._scan_t = 0
+                self._scan_i = (self._scan_i + 1) % len(self.SCAN)
+                target = self.SCAN[self._scan_i]
+                a["camera_pitch"] = float(target - self._pitch)
+                self._pitch = target
+        else:                                        # 前方已空(钻穿/无块):限额内前进吸拾+朝向归零
+            a["camera_yaw"] = dyaw
+            if self._fwd_left > 0:
+                a["forward"] = True
+                self._fwd_left -= 1
         return a
 
 
@@ -124,6 +215,15 @@ def score_c2(full_obs):
     return float(n)
 
 
+def _mined_iron(full_obs):
+    """诊断:mined_statistics 里破坏过的 iron_ore 计数(map<key,int>)。"""
+    try:
+        ms = full_obs.mined_statistics
+        return int(sum(v for k, v in dict(ms).items() if "iron" in k))
+    except Exception:  # noqa
+        return -1
+
+
 # ── collect ──────────────────────────────────────────────────────────
 def run_collect(args):
     from craftground import make
@@ -131,13 +231,16 @@ def run_collect(args):
     from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
     from craftground.screen_encoding_modes import ScreenEncodingMode
 
-    course = json.load(open(args.course))["commands"]
-    course_hard = [c for c in course if HEADSTART_MARK not in c]
+    variants = WALL_Z_VARIANTS[:args.variants]
     os.makedirs(args.out, exist_ok=True)
 
+    from craftground.initial_environment_config import WorldType
     cfg = InitialEnvironmentConfig(
         image_width=640, image_height=360,
         screen_encoding_mode=ScreenEncodingMode.RAW,   # 软件 GL,无 CUDA 互操作
+        world_type=WorldType.SUPERFLAT, seed="s8fovea",  # 平坦+定 seed:出生点确定,课程房间每回合一致(DEFAULT 会嵌进山体/洞穴)
+        request_raycast=True,                          # populate raycast_result:闭环采矿靠它对准/判距(默认 False=矿永挖不到)
+        mined_stat_keys=["iron_ore"],                  # 诊断:mined_statistics 记录破坏的铁矿数(mod 自动补 minecraft: 前缀,勿重复)
         initial_extra_commands=["gamemode survival @p"])
     env = make(initial_env_config=cfg,
                action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
@@ -150,13 +253,15 @@ def run_collect(args):
     cells = [(ps, sh) for ps in (1, 0) for sh in (0, 1)]   # (policy_strong, start_hard)
     n_done = 0
     for ep in range(args.n_per_cell):
-        for ps, sh in cells:
-            name = f"c2_p{ps}h{sh}_s{args.seed}_e{ep}"
+        for v_idx, wall_z in enumerate(variants):
+          for ps, sh in cells:
+            name = f"c2_v{v_idx}_p{ps}h{sh}_s{args.seed}_e{ep}"
             outp = os.path.join(args.out, name + ".npz")
             if os.path.exists(outp):
                 continue
             t0 = time.time()
-            cmds = course_hard if sh else course
+            start_id = v_idx * 2 + sh                # (变体,难度)=一个"同起点"簇(S8a 桶)
+            cmds = build_c2_course(wall_z, pickaxe=not sh)
             obs, _ = env.reset(options={"fast_reset": True,
                                         "extra_commands": list(cmds)})
             for _ in range(args.settle):               # 命令异步,留沉降帧
@@ -168,13 +273,14 @@ def run_collect(args):
             frames.append(f0)
             grays.append(g0)
             for t in range(args.steps):
-                a = pol(t, noop)
+                a = pol(t, noop, obs)
                 obs, *_ = env.step(a)
                 fr, gr = frame_pair(obs["rgb"])
                 frames.append(fr)
                 grays.append(gr)
                 rows.append(act_row(a))
             sc = score_c2(obs["full"])
+            mined_iron = _mined_iron(obs["full"])   # 诊断:破坏了几块铁矿(区分"没挖到"vs"没拾取")
             dx = np.array([r[0] for r in rows], np.float32)
             dy = np.array([r[1] for r in rows], np.float32)
             keys = np.stack([r[2] for r in rows])
@@ -183,12 +289,15 @@ def run_collect(args):
                 outp, frames=np.stack(frames), gray=np.stack(grays),
                 dx=dx, dy=dy, keys=keys, gui=gui,
                 dt=np.full(len(rows), 2.0, np.float32),
-                score=sc, start_id=int(args.seed * 1000 + ep),
+                score=sc, start_id=int(start_id),
                 policy_strong=ps, start_hard=sh,
-                meta=json.dumps({"course": os.path.basename(args.course),
-                                 "epsilon": args.epsilon, "steps": args.steps}))
+                meta=json.dumps({"course": "c2_parametric", "wall_z": wall_z,
+                                 "variant": v_idx, "epsilon": args.epsilon,
+                                 "steps": args.steps}))
             n_done += 1
-            print(f"[collect] ✓ {name} score={sc} T={len(frames)} "
+            fz = obs["full"]
+            print(f"[collect] ✓ {name} score={sc} mined_iron={mined_iron} "
+                  f"pos=({fz.x:.1f},{fz.y:.1f},{fz.z:.1f}) T={len(frames)} "
                   f"{time.time()-t0:.0f}s [{n_done} done]", flush=True)
     env.close()
     print(f"[collect] DONE {n_done} trajs → {args.out}", flush=True)
@@ -234,8 +343,10 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=["collect", "latify"], default="collect")
     p.add_argument("--out", default="runs/data/s8_raw")
-    p.add_argument("--course", default=COURSE)
-    p.add_argument("--n-per-cell", type=int, default=8, help="2×2 每格轨迹数")
+    p.add_argument("--course", default=COURSE, help="(已弃用:课程改内建参数化 build_c2_course)")
+    p.add_argument("--variants", type=int, default=6,
+                   help="起点变体数(墙距 WALL_Z_VARIANTS 前 N;每变体×难度=一个 S8a 起点桶)")
+    p.add_argument("--n-per-cell", type=int, default=8, help="每(变体×2×2 格)轨迹数")
     p.add_argument("--steps", type=int, default=240, help="每轨迹步数(软渲染 ~1.6s/帧)")
     p.add_argument("--settle", type=int, default=10, help="课程命令沉降帧")
     p.add_argument("--epsilon", type=float, default=0.15, help="强策略的随机掺入")

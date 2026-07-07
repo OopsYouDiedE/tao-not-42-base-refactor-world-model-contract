@@ -115,6 +115,73 @@ class EgoMapNorth:
         return _sample(self.f, self.cnt, self._to_cell(pts))
 
 
+class _RelocMixin:
+    """地图反向自定位:当前观测 vs 存图窗口互相关,峰=里程计平移误差。
+
+    前提(MC 成立):yaw=本体感受精确(相机动作积分),漂移只在平移
+    (碰撞/动量)——匹配退化为纯平移,北锚定下无旋转搜索维。
+    坐标账(闭环推导,勿再改符号):存图内容位于 rel_est+e_hist(写入时误差),
+    当前观测位于 rel_est+e_now → patch(x)=map(x-(e_now-e_hist)),
+    score(s)=Σ patch(x)·map(x+s) 峰在 s*=-(e_now-e_hist)=**ê(修正量)**;
+    施加:p̂ += ê 且 map.step(ê),效果 e_now→e_hist。锚点逻辑:绝对定位
+    依赖建图早期 e_hist≈0("家附近先建准")——SLAM 同款。"""
+
+    def relocalize(self, pts, feats, window=4, min_ratio=1.15,
+                   subcell=True, min_pts=1.0):
+        H = W = self.size
+        pf = torch.zeros(self.c, H, W)
+        pc = torch.zeros(1, H, W)
+        _splat(pf, pc, self._to_cell(pts), feats)
+        if pc.sum() < min_pts:
+            return None
+        mmask = (self.cnt[0] > 0.05).float()
+        scores = {}
+        for dy in range(-window, window + 1):
+            for dx in range(-window, window + 1):
+                ms = torch.roll(self.f, (-dy, -dx), (1, 2))     # map(x+s)
+                mk = torch.roll(mmask, (-dy, -dx), (0, 1))
+                num = float((pf * ms).sum())
+                den = float(np.sqrt((pf * pf).sum() *
+                                    ((ms * ms) * mk).sum()) + 1e-6)
+                scores[(dx, dy)] = num / den
+        (bx, by), best = max(scores.items(), key=lambda kv: kv[1])
+        second = max(v for k, v in scores.items()
+                     if abs(k[0] - bx) + abs(k[1] - by) > 1)
+        if best < 1e-6 or best / (second + 1e-9) < min_ratio:
+            return None                                          # 峰不够锐,弃
+        # 亚格精化:峰邻域一维抛物线拟合(整格量化会给修正加 ±0.5 格抖动)
+        def para(m1, c0, p1):
+            d = m1 - 2 * c0 + p1
+            return 0.5 * (m1 - p1) / d if abs(d) > 1e-9 else 0.0
+        fx = fy = 0.0
+        if subcell and abs(bx) < window and abs(by) < window:
+            fx = para(scores[(bx - 1, by)], best, scores[(bx + 1, by)])
+            fy = para(scores[(bx, by - 1)], best, scores[(bx, by + 1)])
+        return np.array([bx + np.clip(fx, -.5, .5),
+                         by + np.clip(fy, -.5, .5)]) / self.res   # 修正量ê(单位)
+
+
+class EgoMapNorthLoc(_RelocMixin, EgoMapNorth):
+    """自定位版;write_cap>0 = 先写者胜(格累计权重达 cap 即封笔)。
+
+    动机:互相关修正把 e_now 拉向存图误差 e_hist;等权持续写入会让 e_hist
+    随漂移污染。封笔使 e_hist 冻结在首访时刻(家附近≈0)——锚定加权最简版。"""
+
+    def __init__(self, *a, write_cap=0.0, **kw):
+        super().__init__(*a, **kw)
+        self.write_cap = write_cap
+
+    def write(self, pts, feats):
+        if self.write_cap <= 0:
+            return super().write(pts, feats)
+        cell = self._to_cell(pts)
+        xi = cell[:, 0].round().long().clamp(0, self.size - 1)
+        yi = cell[:, 1].round().long().clamp(0, self.size - 1)
+        open_ = self.cnt[0, yi, xi] < self.write_cap
+        if open_.any():
+            super().write(pts[open_], feats[open_])
+
+
 class EgoMapClip(EgoMapNorth):
     """北锚定 + clipmap 分级:L 级各 size×size,级 l 半径 half·2^l/2^(L-1)。
 
@@ -146,3 +213,64 @@ class EgoMapClip(EgoMapNorth):
                 out[ok] = m.read(pts[ok])
                 done |= ok
         return out
+
+
+def _bearing_cn(v):
+    """世界位移向量 → 八向中文方位(北=+y,东=+x)。"""
+    dirs = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"]
+    a = (np.degrees(np.arctan2(v[0], v[1])) + 360) % 360
+    return dirs[int((a + 22.5) // 45) % 8]
+
+
+class MapQuery:
+    """慢塔查询 API:几何计算全在此(确定性代码),慢塔只消费模板文本。
+
+    契约(scale-plan §4.9 铁律同款):慢塔永远不碰坐标算术——距离/方位/
+    覆盖由本层算好,LLM 做离散规划。channels 前 n_cls 维=类 softmax。"""
+
+    def __init__(self, m, class_names):
+        self.m, self.names = m, class_names
+
+    def _grid(self, mp):
+        cnt = mp.cnt[0]
+        f = mp.f / (cnt[None] + 1e-6)
+        return f, cnt
+
+    def nearest(self, cls, thr=0.45):
+        """最近的 cls 实例:距离+方位(模板文本) / None。"""
+        k = self.names.index(cls)
+        best = None
+        for mp in (self.m.maps if hasattr(self.m, "maps") else [self.m]):
+            f, cnt = self._grid(mp)
+            mask = (f[k] > thr) & (cnt > 0.05)
+            if not mask.any():
+                continue
+            ys, xs = torch.nonzero(mask, as_tuple=True)
+            wx = (xs.float() + 0.5) / mp.res - mp.half - mp.off[0] / mp.res
+            wy = (ys.float() + 0.5) / mp.res - mp.half - mp.off[1] / mp.res
+            d = torch.sqrt(wx ** 2 + wy ** 2)
+            i = int(d.argmin())
+            cand = (float(d[i]), np.array([float(wx[i]), float(wy[i])]))
+            if best is None or cand[0] < best[0]:
+                best = cand
+        if best is None:
+            return None, f"视界内未见{cls}"
+        d, v = best
+        return v, f"最近{cls}:{_bearing_cn(v)}{d:.0f}格"
+
+    def survey(self, sectors=8):
+        """探索覆盖:八扇区已写格占比 → 未探索方向列表(文本)。"""
+        mp = self.m.maps[-1] if hasattr(self.m, "maps") else self.m
+        cnt = mp.cnt[0]
+        H = W = mp.size
+        yy, xx = torch.meshgrid(torch.arange(H), torch.arange(W),
+                                indexing="ij")
+        wx = (xx.float() + 0.5) / mp.res - mp.half
+        wy = (yy.float() + 0.5) / mp.res - mp.half
+        ang = (torch.rad2deg(torch.atan2(wx, wy)) + 360) % 360
+        sec = ((ang + 22.5) // 45).long() % sectors
+        names8 = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"]
+        unexp = [names8[s] for s in range(sectors)
+                 if float((cnt > 0.05)[sec == s].float().mean()) < 0.15]
+        return unexp, ("未探索方向:" + "/".join(unexp) if unexp
+                       else "四周已大体探索")

@@ -62,11 +62,13 @@ class RelTokDataset(IterableDataset):
     """等长窗口无限采样;按局切 train/holdout(不跨局)。"""
 
     def __init__(self, data, seq_len, split="train", holdout_n=6, seed=0,
-                 switch_os=0.5):
+                 switch_os=0.5, max_train_files=0):
         files = sorted(f for d in data.split(",")                  # 逗号=多目录聚合
                        for f in glob.glob(os.path.join(d, "*.npz")))
         assert len(files) > holdout_n, f"{data} 轨迹不足"
         self.files = files[:-holdout_n] if split == "train" else files[-holdout_n:]
+        if split == "train" and max_train_files > 0:
+            self.files = self.files[:max_train_files]              # C2 示范量曲线
         self.seq_len, self.seed, self.switch_os = seq_len, seed, switch_os
 
     def __iter__(self):
@@ -154,6 +156,10 @@ def main():
     p.add_argument("--holdout_n", type=int, default=6)
     p.add_argument("--prev_dropout", type=float, default=0.5)
     p.add_argument("--switch_os", type=float, default=0.5)
+    p.add_argument("--d", type=int, default=256, help="C2 规模曲线:256/384/512")
+    p.add_argument("--layers", type=int, default=3, help="C2 规模曲线:3/5/7")
+    p.add_argument("--max_train_files", type=int, default=0,
+                   help=">0 截断训练轨迹数(C2 示范量曲线)")
     p.add_argument("--eval_interval", type=int, default=250)
     p.add_argument("--run_dir", default="runs/trackcmd_bc")
     p.add_argument("--seed", type=int, default=0)
@@ -162,13 +168,14 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    cfg = TrackNavConfig(parse_dim=PARSE_DIM_REL, goal_dim=1, d=256, layers=3,
-                         heads=4, max_len=max(128, args.seq_len))
+    cfg = TrackNavConfig(parse_dim=PARSE_DIM_REL, goal_dim=1, d=args.d,
+                         layers=args.layers, heads=4,
+                         max_len=max(128, args.seq_len))
     tower = build_tracknav(cfg).to(device)
     print(f"[trackcmd_bc] {sum(x.numel() for x in tower.parameters())/1e6:.2f}M", flush=True)
 
     kw = dict(seq_len=args.seq_len, holdout_n=args.holdout_n, seed=args.seed,
-              switch_os=args.switch_os)
+              switch_os=args.switch_os, max_train_files=args.max_train_files)
     tr = iter(DataLoader(RelTokDataset(args.data, split="train", **kw),
                          batch_size=args.batch_size, num_workers=2,
                          persistent_workers=True))

@@ -138,3 +138,17 @@ metadata:
 | Y1 前端对决(跟踪) | runs/frontduel_eval_{yoloe,dinoc,dinop}.json | yoloe 6.3°[5.3,7.8]/lock 1.00 vs dinoc 11.7°[8.1,13.3]/0.42 vs dinop 13.3°/0.32 | **双门 PASS**(≤0.7×最强DINO 且 lock≥+0.2,均先登记;CI 不相交) | **预登记PASS**(n=19/臂;边界=小策略头+冻结前端形态) |
 | Y1 对立假设 | dinop 臂 | patch 槽注意垫底 | "价值只在空间结构"被否,增益=域内校准语义 token | 预登记对照,坚固方向 |
 | Y2 地形探针 | runs/terrain_probe.json | floor 0.497/wall 0.802/**hole 0.266** | **FAIL**(门 hole≥0.5 先登记)→ 后备结论生效:地形需另配深度/几何通道 | 如实 FAIL 记录(归因:hole 52%判成 floor;远洞 IoU 0.028=距离即失明) |
+
+## Y2b/Y2c 地形归因链(07-08,terrain_probe_dino.py / terrain_probe_depth.py)
+
+| 臂 | hole mIoU | 裁决 | 结论强度 |
+|---|---|---|---|
+| Y2b DINOv2 patch | 0.353(近0.364/远0.179) | FAIL | 如实FAIL(通病坐实:非YOLOE特例) |
+| Y2c depthonly(解析log深度) | 0.156 | FAIL | 如实FAIL(深度非判别特征:平移不变头+掠射角) |
+| Y2c embdepth | 0.310 | FAIL | 同上 |
+| **Y2c heightonly(反投影高度)** | **0.807** | **PASS** | **预登记PASS**(门0.5先登记;oracle几何上界,可部署性待Y2d) |
+| Y2c embheight | 0.367 | FAIL | 如实FAIL(1几何通道淹没于512语义通道→分支融合,朴素拼接封死) |
+
+因果链:RGB嵌入盲(0.27/0.35)→原始深度盲(0.16)→**高度图开眼(0.81)**——负空间
+根因=缺正确坐标系的几何表征。工程注:引擎深度缓冲 llvmpipe 下退化恒1.0 不可用;
+解析光线步进 0.03s/帧(占用格=GT工厂同源)。Y2d(RGB→高度图蒸馏,部署形态)登记待做。

@@ -80,7 +80,8 @@ def nearest_err_dist(pose, gt_blocks, cls):
     return err, d
 
 
-def run_episode(env, noop, tok_head, actor, rng, wall_z, steps, switch_t):
+def run_episode(env, noop, tok_head, actor, rng, wall_z, steps, switch_t,
+                step_delay=0.0, action_repeat=1):
     offsets = sample_offsets(rng)
     obs, _ = env.reset(options={"fast_reset": True,
                                 "extra_commands": build_calib_course(wall_z, offsets)})
@@ -125,7 +126,15 @@ def run_episode(env, noop, tok_head, actor, rng, wall_z, steps, switch_t):
         else:                                                       # frozen
             a = dict(noop)
         prev_goal = goal
+        if step_delay > 0:                     # 设备速度鲁棒性探针:模拟慢设备推理延迟
+            import time as _t
+            _t.sleep(step_delay)
         obs, *_ = env.step(a)
+        for _ in range(action_repeat - 1):     # 跳帧探针:动作保持 k tick=等效帧率 1/k
+            a_hold = dict(a)                   # (可变帧率敏感度;相机增量只发一次,
+            a_hold["camera_yaw"] = 0.0         # 按键保持——模拟"没赶上 tick")
+            a_hold["camera_pitch"] = 0.0
+            obs, *_ = env.step(a_hold)
         rgb = np.asarray(obs["rgb"])
         if rgb.shape[0] in (1, 3):
             rgb = rgb.transpose(1, 2, 0)
@@ -152,6 +161,10 @@ def main():
                    default=["student", "teacher", "frozen", "random"])
     p.add_argument("--vectors", default="runs/g1_vectors.pt")
     p.add_argument("--conv_head", default="runs/g1_conv_head.pt")
+    p.add_argument("--step_delay", type=float, default=0.0,
+                   help="每步注入延迟秒数(设备速度鲁棒性探针)")
+    p.add_argument("--action_repeat", type=int, default=1,
+                   help="动作保持 k tick(可变帧率敏感度探针)")
     p.add_argument("--seed", type=int, default=11)
     p.add_argument("--port", type=int, default=8538)
     p.add_argument("--out", default="runs/trackcmd_closedloop.json")
@@ -192,7 +205,8 @@ def main():
                 student.reset()
             m = run_episode(env, noop, tok_head, actor, rng,
                             WALL_Z_VARIANTS[ep % len(WALL_Z_VARIANTS)],
-                            args.steps, args.switch_t)
+                            args.steps, args.switch_t, args.step_delay,
+                            args.action_repeat)
             if m:
                 ms.append(m)
                 print(f"[{arm}] ep{ep} err p1/p2={m['err_p1']:.1f}/{m['err_p2']:.1f}° "

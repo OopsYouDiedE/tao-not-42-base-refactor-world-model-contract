@@ -162,6 +162,8 @@ def main():
                    help="每步注入延迟秒数(设备速度鲁棒性探针)")
     p.add_argument("--action_repeat", type=int, default=1,
                    help="动作保持 k tick(可变帧率敏感度探针)")
+    p.add_argument("--teacher_area_near", type=float, default=0.0,
+                   help=">0 覆盖教师停靠阈(到达判据公平重测用 ~0.10)")
     p.add_argument("--seed", type=int, default=11)
     p.add_argument("--port", type=int, default=8538)
     p.add_argument("--out", default="runs/trackcmd_closedloop.json")
@@ -193,7 +195,9 @@ def main():
         elif arm == "teacher":
             actor = {"kind": "teacher", "fn": AimTeacher(rng, epsilon=0.0)}
         elif arm == "token_teacher":
-            actor = {"kind": "token_teacher", "fn": TokenTeacher(rng, epsilon=0.0)}
+            actor = {"kind": "token_teacher",
+                     "fn": TokenTeacher(rng, epsilon=0.0,
+                                        area_near=args.teacher_area_near or None)}
         else:
             actor = {"kind": arm}
         ms = []

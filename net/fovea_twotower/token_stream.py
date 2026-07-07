@@ -108,7 +108,11 @@ class TokenTeacher:
     TAU, AREA_NEAR, CENT = 0.22, 0.038, 0.05   # 0.030 停太远够不着 2.8 格线;0.045 贴脸切换后找不到新目标(v10 教师 p2=86°)
     GAIN, HOLD = 0.5, 4          # 低增益防过冲丢目标;短记忆抗检测闪断
 
-    def __init__(self, rng, epsilon=0.05):
+    def __init__(self, rng, epsilon=0.05, area_near=None):
+        # area_near 可覆盖:审计发现默认 0.038 使教师停在 ~5.1 格,被到达判据线
+        # 2.8 格挡在外面——"学生到达反超教师"疑为参数假象;公平重测用 ~0.10
+        if area_near is not None:
+            self.AREA_NEAR = float(area_near)
         self.rng, self.eps = rng, epsilon
         self.search_dir = 1.0
         self.last_off, self.hold_left = None, 0

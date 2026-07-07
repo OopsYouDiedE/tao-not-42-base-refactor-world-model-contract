@@ -104,7 +104,9 @@ def calibrate(env, noop, tok_head, rng, wall_z, steps=120):
             if gt_d < 25:
                 pairs.append((tok[4] * 640 * 384, gt_d, cx_px, rel_brg))
         obs, *_ = env.step(a)
-    v = float(np.median([s for s in speeds if s > 0.02]))       # 碰撞步剔除
+    sp = np.sort([x for x in speeds if x > 0.02])
+    v = float(np.median(sp[int(0.4 * len(sp)):]))   # 上60%中位:撞墙滑行步会
+                                                    # 拖低全体中位(seed23 教训 0.11/0.16)
     ar = np.array(pairs)
     k = float(np.median(ar[:, 1] * np.sqrt(ar[:, 0])))
     px = ar[:, 2] - 320
@@ -140,7 +142,7 @@ def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
     p_dead = np.zeros(2)
     pn_dead, pn_reloc = np.zeros(2), np.zeros(2)
     e_dead, en_dead, en_reloc = [], [], []
-    prev_fwd_yaw = None
+    prev_fwd_yaw, slip = None, False
     for t in range(steps):
         goal = int(g1 if t < switch_t else g2)
         pose = _pose(obs["full"])
@@ -150,8 +152,13 @@ def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
             d_odo = cal["v"] * yaw_dir(prev_fwd_yaw)
             p_dead += d_odo
             m_clean.step(d_odo)
-            dn = np.zeros(2) if rng.random() < 0.15 else \
-                d_odo * (1 + rng.normal(0, 0.2, 2))
+            # 突发滑移:进入p=0.04/退出p=0.3,滑移期里程计只记30%位移
+            # (零均值独立丢步被往返轨迹抵消,seed23 教训 ndead≈dead)
+            if slip:
+                slip = rng.random() > 0.3
+            else:
+                slip = rng.random() < 0.08
+            dn = d_odo * (0.1 if slip else 1.0) * (1 + rng.normal(0, 0.3, 2))
             pn_dead += dn
             pn_reloc += dn
             m_noisy.step(dn)
@@ -196,16 +203,19 @@ def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
     home_ok = brg_ok(-p_dead, -p_gt)          # 集成交付=干净臂纯死算
     rels = [np.array([b[0] + .5 - pose[0], b[2] + .5 - pose[2]])
             for b in gt[CLASSES[int(g2)]]]
-    q_ok = None
+    q_ok = q_any = None
     if rels:
         gt_rel = min(rels, key=np.linalg.norm)
         v, txt = MapQuery(m_clean, CLASSES).nearest(CLASSES[int(g2)])
         if v is not None:
-            vv = np.array([float(v[0]), float(v[1])]) - p_dead   # 图系→自身相对
-            q_ok = brg_ok(vv, gt_rel)
+            vv = np.array([float(v[0]), float(v[1])])   # 已是相对自身(图中心)向量
+                                                        # smoke4 教训:勿再减 p̂
+            q_ok = brg_ok(vv, gt_rel)                   # 严:指向 GT 最近实例
+            q_any = any(brg_ok(vv, r) for r in rels)    # 宽:指向任一真实实例
+                                                        # (区分"最近实例歧义"vs"图错")
     return dict(dead_end=e_dead[-1],
                 ndead_end=en_dead[-1], nreloc_end=en_reloc[-1],
-                home_ok=home_ok, query_ok=q_ok)
+                home_ok=home_ok, query_ok=q_ok, query_any=q_any)
 
 
 def main():
@@ -259,11 +269,13 @@ def main():
     nreloc = float(np.median([r["nreloc_end"] for r in ms]))
     homes = [r["home_ok"] for r in ms if r["home_ok"] is not None]
     qs = [r["query_ok"] for r in ms if r["query_ok"] is not None]
+    qa = [r["query_any"] for r in ms if r["query_any"] is not None]
     out = dict(n=len(ms), dead_end_med=round(dead, 2),
                noisy_dead_end_med=round(ndead, 2),
                noisy_reloc_end_med=round(nreloc, 2),
                home_rate=round(float(np.mean(homes)), 2) if homes else None,
                query_rate=round(float(np.mean(qs)), 2) if qs else None,
+               query_any_rate=round(float(np.mean(qa)), 2) if qa else None,
                calib=cal,
                gates={
                    "G-A1(集成:home>=0.7且query>=0.6)":

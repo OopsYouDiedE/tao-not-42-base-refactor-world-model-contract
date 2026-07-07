@@ -30,9 +30,12 @@ from tests.integration.collect_calib640 import (WALL_Z_VARIANTS, _pose,
                                                 sample_offsets)
 from train.fovea_twotower.eval_track_cmd import StudentPolicy
 
-DEG_PER_PX = 0.15
 C = len(CLASSES)
-RELOC_CFG = dict(window=6, min_ratio=1.15, subcell=False, min_pts=1.0)
+# 真实感知噪声下峰接受更严(1.15→1.3):错误修正比漏修正贵(smoke 教训)
+# 修正增益按卡尔曼直觉压低:真实感知定位噪声(~3-5格)>>短程死算漂移(~1格),
+# 单次修正不可信,低阻尼×高频=噪声平均、信号积累
+RELOC_CFG = dict(window=6, min_ratio=1.3, subcell=False, min_pts=3.0)
+DAMP = 0.35
 
 
 def yaw_dir(yaw_deg):
@@ -41,11 +44,16 @@ def yaw_dir(yaw_deg):
     return np.array([-np.sin(r), np.cos(r)])
 
 
-def det_world_xz(tok, pose, area_k, brg_sign):
-    """token → 世界系相对 (x,z):方位=yaw+sign·像素偏角,距离=k/√面积。"""
+def det_world_xz(tok, pose, cal):
+    """token → 世界系相对 (x,z):方位=yaw+拟合斜率·像素偏移,距离=k/√面积。
+
+    斜率必须标定拟合:0.15°/px 是相机动作口径非屏幕几何(smoke 教训,
+    残差 19.3°);距离>write_maxd 不写图(径向误差随距放大,超相关窗窗宽)。"""
     cx_px, area = tok[0] * 640, max(tok[4] * 640 * 384, 1.0)
-    brg = pose[3] + brg_sign * (cx_px - 320) * DEG_PER_PX
-    d = area_k / np.sqrt(area)
+    brg = pose[3] + cal["deg_per_px"] * (cx_px - 320)
+    d = cal["area_k"] / np.sqrt(area)
+    if d > cal.get("write_maxd", 12.0):
+        return None
     return yaw_dir(brg) * d
 
 
@@ -75,25 +83,36 @@ def calibrate(env, noop, tok_head, rng, wall_z, steps=120):
             ci = int(np.argmax(tok[6:6 + C]))
             if tok[6 + ci] < 0.4 or tok[4] <= 0:
                 continue
-            rels = [np.array([b[0] + .5 - pose[0], b[2] + .5 - pose[2]])
-                    for b in gt[CLASSES[ci]]]
-            if not rels:
+            # 配对按方位消歧:候选=该类全部 GT 块;粗斜率 0.15 选最近方位,
+            # 次近方位差 <10° 的歧义帧丢弃(smoke 教训:按距离配对错配污染拟合)
+            cx_px = tok[0] * 640
+            rough = pose[3] + 0.15 * (cx_px - 320)
+            cands = []
+            for b in gt[CLASSES[ci]]:
+                rel = np.array([b[0] + .5 - pose[0], b[2] + .5 - pose[2]])
+                gt_brg = np.degrees(np.arctan2(-rel[0], rel[1]))    # MC yaw 系
+                dbrg = abs((gt_brg - rough + 180) % 360 - 180)
+                cands.append((dbrg, rel, gt_brg))
+            if not cands:
                 continue
-            rel = min(rels, key=np.linalg.norm)
+            cands.sort(key=lambda c: c[0])
+            if cands[0][0] > 30 or (len(cands) > 1 and cands[1][0] - cands[0][0] < 10):
+                continue
+            _, rel, gt_brg = cands[0]
             gt_d = float(np.linalg.norm(rel))
-            gt_brg = np.degrees(np.arctan2(-rel[0], rel[1]))     # MC yaw 系
             rel_brg = (gt_brg - pose[3] + 180) % 360 - 180
-            if abs(rel_brg) < 50 and gt_d < 25:
-                pairs.append((tok[4] * 640 * 384, gt_d, tok[0] * 640, rel_brg))
+            if gt_d < 25:
+                pairs.append((tok[4] * 640 * 384, gt_d, cx_px, rel_brg))
         obs, *_ = env.step(a)
     v = float(np.median([s for s in speeds if s > 0.02]))       # 碰撞步剔除
     ar = np.array(pairs)
     k = float(np.median(ar[:, 1] * np.sqrt(ar[:, 0])))
-    err_p = np.median(np.abs(ar[:, 3] - (ar[:, 2] - 320) * DEG_PER_PX))
-    err_m = np.median(np.abs(ar[:, 3] + (ar[:, 2] - 320) * DEG_PER_PX))
-    sign = 1.0 if err_p <= err_m else -1.0
-    return dict(v=v, area_k=k, brg_sign=sign, n_pairs=len(pairs),
-                brg_resid=float(min(err_p, err_m)))
+    px = ar[:, 2] - 320
+    slope = float(np.sum(px * ar[:, 3]) / np.sum(px * px))      # 过原点最小二乘
+    resid = float(np.median(np.abs(ar[:, 3] - slope * px)))
+    dist_resid = float(np.median(np.abs(k / np.sqrt(ar[:, 0]) - ar[:, 1])))
+    return dict(v=v, area_k=k, deg_per_px=slope, n_pairs=len(pairs),
+                brg_resid=resid, dist_resid=dist_resid, write_maxd=10.0)
 
 
 def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
@@ -114,9 +133,13 @@ def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
     g1, g2 = rng.choice(C, 2, replace=False)
     pose0 = _pose(obs["full"])
     origin = np.array([pose0[0], pose0[2]])
-    m = EgoMapNorthLoc(C, 128, 32.0)
-    p_dead, p_reloc = np.zeros(2), np.zeros(2)
-    e_dead, e_reloc = [], []
+    # 双域:干净臂(m_clean,纯死算,验集成交付=回家/查询);退化臂(m_noisy,
+    # 里程计丢步p=0.15+增益噪声0.2=MC粗糙地形/频繁碰撞域,验自定位机制)
+    m_clean = EgoMapNorthLoc(C, 128, 32.0)
+    m_noisy = EgoMapNorthLoc(C, 128, 32.0)
+    p_dead = np.zeros(2)
+    pn_dead, pn_reloc = np.zeros(2), np.zeros(2)
+    e_dead, en_dead, en_reloc = [], [], []
     prev_fwd_yaw = None
     for t in range(steps):
         goal = int(g1 if t < switch_t else g2)
@@ -126,27 +149,36 @@ def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
         if prev_fwd_yaw is not None:
             d_odo = cal["v"] * yaw_dir(prev_fwd_yaw)
             p_dead += d_odo
-            p_reloc += d_odo
-            m.step(d_odo)
+            m_clean.step(d_odo)
+            dn = np.zeros(2) if rng.random() < 0.15 else \
+                d_odo * (1 + rng.normal(0, 0.2, 2))
+            pn_dead += dn
+            pn_reloc += dn
+            m_noisy.step(dn)
         toks = tok_head(as_hwc(obs["rgb"]))
         pts, fts = [], []
         for tok in toks:
             ci = int(np.argmax(tok[6:6 + C]))
             if tok[6 + ci] < 0.4 or tok[4] <= 0:
                 continue
-            pts.append(det_world_xz(tok, pose, cal["area_k"], cal["brg_sign"]))
+            p = det_world_xz(tok, pose, cal)
+            if p is None:
+                continue
+            pts.append(p)
             fts.append(np.eye(C)[ci])
         if pts:
             pts_t = torch.from_numpy(np.array(pts)).float()
             fts_t = torch.from_numpy(np.array(fts)).float()
             if t % every == 0 and t > 10:
-                e_hat = m.relocalize(pts_t, fts_t, **RELOC_CFG)
+                e_hat = m_noisy.relocalize(pts_t, fts_t, **RELOC_CFG)
                 if e_hat is not None:
-                    p_reloc += e_hat
-                    m.step(e_hat)
-            m.write(pts_t, fts_t)
+                    pn_reloc += DAMP * e_hat
+                    m_noisy.step(DAMP * e_hat)
+            m_clean.write(pts_t, fts_t)
+            m_noisy.write(pts_t, fts_t)
         e_dead.append(float(np.linalg.norm(p_dead - p_gt)))
-        e_reloc.append(float(np.linalg.norm(p_reloc - p_gt)))
+        en_dead.append(float(np.linalg.norm(pn_dead - p_gt)))
+        en_reloc.append(float(np.linalg.norm(pn_reloc - p_gt)))
         rel = goal_relative(toks[None], np.array([goal]))[0]
         a = student(rel, noop)
         prev_fwd_yaw = pose[3] if a.get("forward") else None
@@ -161,19 +193,18 @@ def run_episode(env, noop, tok_head, student, rng, wall_z, cal,
                                          (np.linalg.norm(v_est) * np.linalg.norm(v_gt)),
                                          -1, 1)))
         return bool(d <= tol)
-    home_ok = brg_ok(-p_reloc, -p_gt)
+    home_ok = brg_ok(-p_dead, -p_gt)          # 集成交付=干净臂纯死算
     rels = [np.array([b[0] + .5 - pose[0], b[2] + .5 - pose[2]])
             for b in gt[CLASSES[int(g2)]]]
     q_ok = None
     if rels:
         gt_rel = min(rels, key=np.linalg.norm)
-        v, txt = MapQuery(m, CLASSES).nearest(CLASSES[int(g2)])
+        v, txt = MapQuery(m_clean, CLASSES).nearest(CLASSES[int(g2)])
         if v is not None:
-            vv = np.array([float(v[0]), float(v[1])]) - p_reloc  # 图系→自身相对
+            vv = np.array([float(v[0]), float(v[1])]) - p_dead   # 图系→自身相对
             q_ok = brg_ok(vv, gt_rel)
-    return dict(dead_end=e_dead[-1], reloc_end=e_reloc[-1],
-                dead_med=float(np.median(e_dead[30:])),
-                reloc_med=float(np.median(e_reloc[30:])),
+    return dict(dead_end=e_dead[-1],
+                ndead_end=en_dead[-1], nreloc_end=en_reloc[-1],
                 home_ok=home_ok, query_ok=q_ok)
 
 
@@ -217,23 +248,29 @@ def main():
                         cal, args.steps, args.switch_t)
         if r:
             ms.append(r)
-            print(f"[a1] ep{ep} dead={r['dead_end']:.2f} reloc={r['reloc_end']:.2f} "
+            print(f"[a1] ep{ep} dead={r['dead_end']:.2f} "
+                  f"n_dead={r['ndead_end']:.2f} n_reloc={r['nreloc_end']:.2f} "
                   f"home={'✓' if r['home_ok'] else '✗' if r['home_ok'] is not None else '-'} "
                   f"query={'✓' if r['query_ok'] else '✗' if r['query_ok'] is not None else '-'}",
                   flush=True)
     env.close()
     dead = float(np.median([r["dead_end"] for r in ms]))
-    reloc = float(np.median([r["reloc_end"] for r in ms]))
+    ndead = float(np.median([r["ndead_end"] for r in ms]))
+    nreloc = float(np.median([r["nreloc_end"] for r in ms]))
     homes = [r["home_ok"] for r in ms if r["home_ok"] is not None]
     qs = [r["query_ok"] for r in ms if r["query_ok"] is not None]
-    out = dict(n=len(ms), dead_end_med=round(dead, 2), reloc_end_med=round(reloc, 2),
+    out = dict(n=len(ms), dead_end_med=round(dead, 2),
+               noisy_dead_end_med=round(ndead, 2),
+               noisy_reloc_end_med=round(nreloc, 2),
                home_rate=round(float(np.mean(homes)), 2) if homes else None,
                query_rate=round(float(np.mean(qs)), 2) if qs else None,
                calib=cal,
                gates={
-                   "G-A1(reloc<=dead)": bool(reloc <= dead),
-                   "G-A2(home方位45°>=0.7)": bool(homes and np.mean(homes) >= 0.7),
-                   "G-A3(query方位45°>=0.6)": bool(qs and np.mean(qs) >= 0.6)})
+                   "G-A1(集成:home>=0.7且query>=0.6)":
+                       bool(homes and qs and np.mean(homes) >= 0.7
+                            and np.mean(qs) >= 0.6),
+                   "G-A2(自定位高漂移:nreloc<=0.6×ndead)":
+                       bool(nreloc <= 0.6 * ndead)})
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)
     print(json.dumps(out, indent=2, ensure_ascii=False), flush=True)

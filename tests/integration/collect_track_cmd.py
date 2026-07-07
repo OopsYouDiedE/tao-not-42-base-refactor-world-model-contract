@@ -25,172 +25,15 @@ import os
 import time
 
 import numpy as np
-import torch
 
-from tests.integration.collect_calib640 import (WALL_Z_VARIANTS, _pose, _ray,
+from net.fovea_twotower.token_stream import (CLASSES, AimTeacher,  # noqa: F401
+                                             TokenHead, TokenTeacher,
+                                             aim_solution, as_hwc)
+from tests.integration.collect_calib640 import (WALL_Z_VARIANTS, _pose,
                                                 anchor_gt_blocks,
                                                 build_calib_course,
                                                 sample_offsets)
 from tests.integration.collect_s8 import DEG2PX, V2_KEYS
-
-CLASSES = ["iron_ore", "coal_ore", "dirt"]
-MAX_CAM = 18.0                 # 单步相机增量上限(deg)
-REACH_STOP = 2.8               # 到达即停的距离
-EYE_H = 1.62
-
-
-def aim_solution(pose, tgt):
-    """位姿 + 目标点(前脸中心) → (期望yaw, 期望pitch, 角误差deg, 距离)。
-
-    MC 约定:yaw=0 朝 +z,forward=(-sin y·cos p, -sin p, cos y·cos p)。"""
-    x, y, z, yaw, pitch = pose
-    eye = np.array([x, y + EYE_H, z])
-    v = np.asarray(tgt, float) - eye
-    d = float(np.linalg.norm(v))
-    vy = v / (d + 1e-9)
-    des_yaw = float(np.degrees(np.arctan2(-vy[0], vy[2])))
-    des_pitch = float(np.degrees(-np.arcsin(np.clip(vy[1], -1, 1))))
-    yr, pr = np.radians(yaw), np.radians(pitch)
-    fwd = np.array([-np.sin(yr) * np.cos(pr), -np.sin(pr), np.cos(yr) * np.cos(pr)])
-    err = float(np.degrees(np.arccos(np.clip(fwd @ vy, -1, 1))))
-    return des_yaw, des_pitch, err, d
-
-
-def wrap180(a):
-    return (a + 180.0) % 360.0 - 180.0
-
-
-class AimTeacher:
-    """指令类最近方块前脸中心 → 比例控制相机 + 对准前进;epsilon 掺随机(覆盖度)。"""
-
-    def __init__(self, rng, epsilon=0.08):
-        self.rng, self.eps = rng, epsilon
-
-    def __call__(self, noop, pose, gt_blocks, goal_cls):
-        a = dict(noop)
-        blocks = gt_blocks[goal_cls]
-        cands = [aim_solution(pose, (b[0] + .5, b[1] + .5, b[2])) for b in blocks]
-        des_yaw, des_pitch, err, d = min(cands, key=lambda c: c[3])
-        if self.rng.random() < self.eps:
-            a["camera_yaw"] = float(self.rng.normal(0, 10))
-            a["camera_pitch"] = float(self.rng.normal(0, 6))
-            a["forward"] = bool(self.rng.random() < 0.3)
-            return a, err, d
-        a["camera_yaw"] = float(np.clip(0.6 * wrap180(des_yaw - pose[3]),
-                                        -MAX_CAM, MAX_CAM))
-        a["camera_pitch"] = float(np.clip(0.6 * (des_pitch - pose[4]),
-                                          -MAX_CAM, MAX_CAM))
-        if err < 10.0 and d > REACH_STOP:
-            a["forward"] = True
-        return a, err, d
-
-
-class TokenTeacher:
-    """观测一致教师(v6):只消费学生同款 token,不用位姿 oracle → BC 可学性由构造保证。
-
-    教训(v2–v5 连败根因):位姿投影教师在目标出视野时仍能直转目标——学生 token 里
-    此时无任何方向信息,重获取不可学(mamba_seed 特权教师教训的隐蔽复发)。
-    行为:goal token 可见(p_goal>τ)→ 瞄准其 (cx,cy)(水平 FOV≈100°/竖直 70° 映射),
-    居中且 area<近距阈 → forward;不可见 → 匀速 yaw 搜索(方向随段随机)+ pitch 缓回。"""
-    HFOV, VFOV = 100.0, 70.0
-    TAU, AREA_NEAR, CENT = 0.22, 0.038, 0.05   # 0.030 停太远够不着 2.8 格线;0.045 贴脸切换后找不到新目标(v10 教师 p2=86°)
-    GAIN, HOLD = 0.5, 4          # 低增益防过冲丢目标;短记忆抗检测闪断
-
-    def __init__(self, rng, epsilon=0.05):
-        self.rng, self.eps = rng, epsilon
-        self.search_dir = 1.0
-        self.last_off, self.hold_left = None, 0
-
-    def new_segment(self):
-        # 搜索方向恒右转:随机方向=不可观测潜变量,同观测下标签 ±15° 对冲,
-        # BC 条件均值=0 → 学生永远学不会发起搜索(v12 切换率钉死 0.17 的根因)
-        self.search_dir = 1.0
-        self.last_off, self.hold_left = None, 0
-
-    def __call__(self, noop, toks, goal_idx, pitch_now):
-        a = dict(noop)
-        if self.rng.random() < self.eps:
-            a["camera_yaw"] = float(self.rng.normal(0, 10))
-            a["camera_pitch"] = float(self.rng.normal(0, 6))
-            return a
-        pg = toks[:, 6 + goal_idx] * (toks[:, 4] > 0).astype(np.float32)
-        score = pg * toks[:, 5]                         # 面积×概率:大连通域更可信
-        j = int(np.argmax(score))                       # (取最高p会咬小噪点)
-        off = None
-        if pg[j] > self.TAU:
-            off = (toks[j, 0] - 0.5, toks[j, 1] - 0.5, toks[j, 5])
-            self.last_off, self.hold_left = off, self.HOLD
-        elif self.hold_left > 0:                        # 闪断:按记忆位置继续压
-            self.hold_left -= 1
-            off = self.last_off
-        if off is not None:
-            offx, offy, area = off
-            if abs(offx) > 0.02:                        # 死区防抖
-                a["camera_yaw"] = float(np.clip(offx * self.HFOV * self.GAIN,
-                                                -MAX_CAM, MAX_CAM))
-            if abs(offy) > 0.02:
-                a["camera_pitch"] = float(np.clip(offy * self.VFOV * self.GAIN,
-                                                  -MAX_CAM, MAX_CAM))
-            if abs(offx) < self.CENT and abs(offy) < self.CENT \
-                    and area < self.AREA_NEAR:
-                a["forward"] = True
-        else:                                           # 不可见:搜索
-            a["camera_yaw"] = float(15.0 * self.search_dir)
-            a["camera_pitch"] = float(np.clip(-0.3 * pitch_now, -8, 8))
-            if toks[:, 5].max() > 0.20:                 # 贴脸(超大连通域):后退拉开视野
-                a["back"] = True                        # (v10 教训:贴墙切换重获取不可能)
-        return a
-
-
-class TokenHead:
-    """G1 验收的 conv 分割头 → 连通域 → 每帧 [K, 6+C+1] token(几何 + 概率)。
-
-    v6 教训:pf 提案池化命名假阳性泛滥(灰墙冒充铁,教师锁假目标 err 89°)——
-    G1 已量化:提案并集 0.15 vs conv 稠密 0.53。token 必须从**验收过的分割通道**
-    的连通域构建;pf 提案留给开放集,不再承担核心类命名。"""
-
-    def __init__(self, vectors="runs/g1_vectors.pt", K=8, device="cuda",
-                 conv_head="runs/g1_conv_head.pt", min_area=150):
-        import cv2 as _cv2
-        from net.fovea_twotower.yolo_unified import UnifiedYoloe26, pad384
-        from train.fovea_twotower.eval_g1 import ConvSegHead
-        self.cv2 = _cv2
-        self.u = UnifiedYoloe26(device=device, pf_w=None)
-        self.pad = pad384
-        self.head = ConvSegHead().to(device).eval()
-        self.head.load_state_dict(torch.load(conv_head, map_location=device,
-                                             weights_only=False))
-        self.K, self.D, self.min_area = K, 6 + len(CLASSES) + 1, min_area
-
-    @torch.no_grad()
-    def __call__(self, rgb_hwc):
-        img = self.pad(np.ascontiguousarray(rgb_hwc))
-        prob = self.head(self.u.embed(img)[0].float())[0].softmax(0)  # [C+1,384,640]
-        lab = prob.argmax(0).cpu().numpy().astype(np.uint8)
-        prob_np = prob.cpu().numpy()
-        cands = []
-        for ci in range(len(CLASSES)):
-            n, cc, stats, cent = self.cv2.connectedComponentsWithStats(
-                (lab == ci).astype(np.uint8), 8)
-            for j in range(1, n):
-                x, y, w, h, area = stats[j]
-                if area < self.min_area:
-                    continue
-                if cent[j][0] > 0.70 * 640 and cent[j][1] > 0.58 * 384:
-                    continue        # 右下角=第一人称手持物/手臂常驻区(C1b 教训:
-                                    # 石镐被认成 dirt,教师原地转圈追自己的手)
-                m = cc == j
-                p = prob_np[:, m].mean(1)                       # [C+1] 域内均值
-                cands.append((float(area) * float(p[ci]),
-                              [cent[j][0] / 640, cent[j][1] / 384,
-                               w / 640, h / 384, float(p[ci]),
-                               area / (640 * 384)], p))
-        cands.sort(key=lambda c: -c[0])
-        toks = np.zeros((self.K, self.D), np.float32)
-        for j, (_, geo, p) in enumerate(cands[:self.K]):
-            toks[j, :6] = geo
-            toks[j, 6:] = p
-        return toks
 
 
 def act_fields(a):
@@ -263,9 +106,7 @@ def run(args):
             student.reset()
         rec = {k: [] for k in ("tokens", "goal_idx", "dx", "dy", "keys",
                                "pose", "ang_err", "dist")}
-        rgb = np.asarray(obs["rgb"])
-        if rgb.shape[0] in (1, 3):
-            rgb = rgb.transpose(1, 2, 0)
+        rgb = as_hwc(obs["rgb"])
         prev_goal = -1
         cal_frames, cal_pose = [], []           # --store_frames:运动帧+位姿(投影GT喂conv头,
         for t in range(args.steps):             # 感知的DAgger:在闭环访问分布上训感知)
@@ -294,15 +135,13 @@ def run(args):
             rec["ang_err"].append(err)
             rec["dist"].append(d)
             if student and rng.random() >= args.beta:            # DAgger:学生开车访态,
-                from train.fovea_twotower.train_track_cmd import goal_relative
+                from net.fovea_twotower.token_stream import goal_relative
                 rel = goal_relative(toks[None], np.array([goal]))[0]
                 exec_a = student(rel, noop)                      # 教师只出标签
             else:
                 exec_a = a
             obs, *_ = env.step(exec_a)
-            rgb = np.asarray(obs["rgb"])
-            if rgb.shape[0] in (1, 3):
-                rgb = rgb.transpose(1, 2, 0)
+            rgb = as_hwc(obs["rgb"])
         T = args.steps
         np.savez_compressed(
             outp, tokens=np.stack(rec["tokens"]).astype(np.float16),

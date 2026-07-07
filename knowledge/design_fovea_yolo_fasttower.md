@@ -198,3 +198,9 @@ ConvSegHead(冻结 P3 嵌入上 3 层 3×3 conv,~0.7M 参数,骨干仍零改动;
 - **注意(诚实边界)**:此为离线 BC 层面成立(胜持续基线),margin 中等且受 §2 未校准 token
   噪声压制(是下界非上界)。**行为层的通过判定**(活环境 craftground 追踪角误差≤8°/导航到达率≥60%,
   判据见 §4)仍需:全量训练 + rollout 评估 harness,且**强依赖 §2 向量校准**(目标类稳定检出后追踪才成立)。
+
+## 7. 后续(2026-07-08 起以架构文档为准)
+本文的设计已落地并重构归位:系统结构单一入口见
+docs/architectures/fovea-system-architecture.md,全部实验判据/结果索引见
+docs/architectures/fovea-experiments-index.md(承重代码已迁 net/fovea_twotower/
+token_stream.py 与 seg_head.py)。

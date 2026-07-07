@@ -8,8 +8,10 @@
   ② 快头(trackcmd 学生)goal 相对 token 追踪/逼近铁矿;**挖掘宏**(对准且近时锁相机
      持续攻击+吸拾)——宏=待学习技能的脚本占位(同 GUI 宏定位),诚实边界;
   ③ 慢脑用新库存复核("已齐备")→ 发"回家"指令;
-  ④ 回家=指令切到 home 视觉标记类(出生点旁泥土柱),快头照常追踪导航——
-     全程观测一致,位姿只用于评测(距出发点 ≤3 格判成功)。
+  ④ 回家=指令切到 home 视觉标记类(出生点旁煤矿石柱,材质须场景天然不存在),
+     快头照常追踪导航——全程观测一致,位姿只用于评测(距出发点 ≤3 格判成功)。
+  PASS 记录:0.70(10 局,executor=teacher + adapter=reason_delta_lora_v4,
+  runs/fullloop_chain.json;复核/回家条件成功率 7/7)。
 
 用法:
   DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 PYTHONPATH=. .venv/bin/python \
@@ -24,9 +26,9 @@ import time
 import numpy as np
 import torch
 
+from net.fovea_twotower.token_stream import (CLASSES, TokenHead, TokenTeacher,
+                                             as_hwc, goal_relative)
 from tests.integration.collect_calib640 import _pose, _ray
-from tests.integration.collect_track_cmd import CLASSES, TokenHead, TokenTeacher
-from train.fovea_twotower.train_track_cmd import goal_relative
 
 ITEM2CLS = {"raw_iron": "iron_ore", "生铁": "iron_ore"}
 HOME_CLS = "coal_ore"              # 家标记材质必须场景天然不存在:dirt 会被
@@ -35,7 +37,7 @@ HOME_CLS = "coal_ore"              # 家标记材质必须场景天然不存在:
 
 
 def build_course(wall_z=7):
-    """铁矿十字+煤干扰上墙;泥土柱在出生点侧后方(墙上不放泥土,家标记唯一)。"""
+    """铁矿簇上墙;煤矿石柱 2×2 在出生点侧后方作家标记(墙上不放煤,唯一性)。"""
     cmds = [
         "gamemode survival @p",
         "difficulty peaceful",
@@ -160,7 +162,7 @@ def run(args):
 
         # ② 执行:追踪逼近(执行器) + 挖掘宏
         exec_act = make_exec()
-        rgb = np.asarray(obs["rgb"]).transpose(1, 2, 0) if np.asarray(obs["rgb"]).shape[0] == 3 else np.asarray(obs["rgb"])
+        rgb = as_hwc(obs["rgb"])
         gcls = CLASSES.index("iron_ore")
         mined = False
         for t in range(args.max_steps):
@@ -176,7 +178,7 @@ def run(args):
             else:                                       # 执行器驱动:追踪/逼近指令类
                 a = exec_act(tok_head(rgb), gcls, _pose(obs["full"])[4])
             obs, *_ = env.step(a)
-            rgb = np.asarray(obs["rgb"]).transpose(1, 2, 0) if np.asarray(obs["rgb"]).shape[0] == 3 else np.asarray(obs["rgb"])
+            rgb = as_hwc(obs["rgb"])
             if "raw_iron" in env_inventory(obs["full"]):
                 mined = True
                 break
@@ -208,7 +210,7 @@ def run(args):
                           f"f={int(bool(a.get('forward')))},b={int(bool(a.get('back')))}) "
                           f"d={d:.1f} yaw={_pose(full)[3]:.0f}", flush=True)
                 obs, *_ = env.step(a)
-                rgb = np.asarray(obs["rgb"]).transpose(1, 2, 0) if np.asarray(obs["rgb"]).shape[0] == 3 else np.asarray(obs["rgb"])
+                rgb = as_hwc(obs["rgb"])
                 full = obs["full"]
                 if np.linalg.norm(np.array([full.x, full.z]) - start) <= 3.0:
                     home = True

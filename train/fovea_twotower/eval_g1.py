@@ -5,7 +5,8 @@
     铁矿 mask mIoU ≥ 0.5 且比零样本文本 prompt 基线高 ≥ +0.3,640×360 原始帧。
 
 数据:runs/data/calib640/*.npz(collect_calib640 产出:原始帧+位姿+raycast+GT方块坐标)。
-GT:已知方块世界坐标 + 逐帧位姿 → 针孔投影(MC 竖直 FOV 70°,眼高 1.62)→ 8 角点凸包掩膜。
+GT:已知方块世界坐标 + 逐帧位姿 → 针孔投影(MC 竖直 FOV 70°,眼高 1.62)→ 前脸四角掩膜
+    (投影件在 net/fovea_twotower/seg_head.py)。
     投影正确性用 --mode gtvis 人工目检(叠加图),并用 raycast 命中帧做定量核对:
     准星(图心)应落在所指方块的投影掩膜内。
 
@@ -27,60 +28,13 @@ import cv2
 import numpy as np
 import torch
 
+from net.fovea_twotower.seg_head import (FOV_V, ConvSegHead, cam_basis,  # noqa: F401
+                                         gt_label_img, gt_masks, project_block)
+from net.fovea_twotower.token_stream import CLASSES
 from net.fovea_twotower.yolo_unified import (PAD_TOP, STRIDES, UnifiedYoloe26,
                                              pad384)
 
-FOV_V = 70.0                # MC 默认竖直 FOV(deg);gtvis 目检若系统性偏大/小再调
-EYE_H = 1.62                # 眼高(feet→eye)
-W, H = 640, 360             # 原始渲染
-CLASSES = ["iron_ore", "coal_ore", "dirt"]      # GT 有坐标的类
 BG = "background"
-
-
-def cam_basis(yaw_deg, pitch_deg):
-    """MC 约定:yaw=0 朝 +z,右手系;pitch 正=低头。→ (forward, right, up)。"""
-    y, p = np.radians(yaw_deg), np.radians(pitch_deg)
-    f = np.array([-np.sin(y) * np.cos(p), -np.sin(p), np.cos(y) * np.cos(p)])
-    r = np.array([-f[2], 0.0, f[0]])
-    r /= np.linalg.norm(r) + 1e-9
-    u = np.cross(r, f)
-    return f, r, u
-
-
-def project_block(bx, by, bz, pose):
-    """方块前脸(z=bz 平面朝向房间的四角)→ 384×640 pad 坐标点集或 None。
-
-    课程几何:方块嵌在 z=wall_z 的墙里,玩家恒在 z<bz 侧——只有前脸可见。
-    8 角点凸包会把不可见侧脸算进 GT(系统性高估),故只投前脸。"""
-    x, y, z, yaw, pitch = pose
-    eye = np.array([x, y + EYE_H, z])
-    f, r, u = cam_basis(yaw, pitch)
-    fy = (H / 2) / np.tan(np.radians(FOV_V) / 2)
-    pts = []
-    for dx in (0, 1):
-        for dy in (0, 1):
-            v = np.array([bx + dx, by + dy, bz], float) - eye
-            zc = v @ f
-            if zc < 0.15:
-                return None                          # 角点在背后:整块弃(保守)
-            pts.append([W / 2 + fy * (v @ r) / zc,
-                        H / 2 - fy * (v @ u) / zc + PAD_TOP])
-    return np.array(pts, np.float32)
-
-
-def gt_masks(gt_blocks: dict, pose):
-    """{cls:[[x,y,z],..]} + 位姿 → {cls: bool mask [384,640]}(不可见类=全 False)。"""
-    out = {}
-    for cls, blocks in gt_blocks.items():
-        m = np.zeros((384, 640), np.uint8)
-        for b in blocks:
-            pts = project_block(*b, pose)
-            if pts is None:
-                continue
-            hull = cv2.convexHull(pts.astype(np.int32))
-            cv2.fillConvexPoly(m, hull, 1)
-        out[cls] = m.astype(bool)
-    return out
 
 
 def load_eps(data_dir):
@@ -232,35 +186,7 @@ def pred_mask_proposal(u, img, W, b, conf=0.05):
     return out
 
 
-# ── conv 头(阶梯第 2 级:冻结 P3 特征上接轻量分割头,骨干仍不动) ─────────
-class ConvSegHead(torch.nn.Module):
-    """P3 post-BN 嵌入图 [1,512,h,w] → 逐像素 C+1 logits(×8 双线性)。~0.7M 参数。
-
-    动机:向量级(每格独立线性)在随机布局终审 0.445<0.5——残差是 8px 格边界锯齿,
-    每格独立分类无法表达形状先验;3×3 conv 栈给邻域上下文,仍不动骨干(阶梯§2-2)。"""
-
-    def __init__(self, cin=512, ch=128, ncls=len(CLASSES) + 1):
-        super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Conv2d(cin, ch, 3, padding=1), torch.nn.GELU(),
-            torch.nn.Conv2d(ch, ch, 3, padding=1), torch.nn.GELU(),
-            torch.nn.Conv2d(ch, ncls, 1))
-
-    def forward(self, emb):                            # [B,512,h,w]
-        lg = self.net(emb)
-        return torch.nn.functional.interpolate(
-            lg, size=(384, 640), mode="bilinear", align_corners=False)
-
-
-def gt_label_img(gt, pose):
-    """GT 掩膜 → 逐像素标签 [384,640](CLASSES 序,背景=C)。"""
-    ms = gt_masks(gt, pose)
-    lab = np.full((384, 640), len(CLASSES), np.int64)
-    for k, c in enumerate(CLASSES):
-        lab[ms[c]] = k
-    return lab
-
-
+# ── conv 头训练(阶梯第 2 级;结构在 net/fovea_twotower/seg_head.py) ─────
 def train_conv_head(u, tr, epochs=6, lr=3e-4, dev="cuda", neg_frac=0.35):
     """缓存冻结 P3 嵌入 → 像素 CE(类逆频权重)训 ConvSegHead。
 

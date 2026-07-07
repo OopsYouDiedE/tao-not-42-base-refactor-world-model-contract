@@ -23,27 +23,15 @@ from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 
 import torch.nn.functional as F
 
+from net.fovea_twotower.token_stream import (PARSE_DIM_REL,  # noqa: F401
+                                             goal_relative)
 from net.fovea_twotower.yolo_parse import TrackNavConfig, build_tracknav
 from train.minecraft.vpt_action import (ACTION_DIM, CAMERA_BINS, N_MOUSE,
                                         camera_to_bin)
 
-N_CLS = 3                      # collect_track_cmd.CLASSES
-PARSE_DIM_REL = 8              # [几何6, p_goal, p_other_max]
 CAM_NORM_PX = 120.0            # 相机归一化(px):教师单步 ±18°=±120px 满量程。
                                # 勿用 vpt_action.CAMERA_SCALE=10(人类小步口径):
                                # 会把教师大转角截断到 ±1.5°/步,学生重瞄准慢 12 倍,切换判据必死
-
-
-def goal_relative(tokens, goal_idx):
-    """[T,K,6+C+1] + [T] → [T,K,8]。"""
-    T, K, _ = tokens.shape
-    geo = tokens[..., :6]
-    prob = tokens[..., 6:]                                  # [T,K,C+1]
-    pg = np.take_along_axis(prob, goal_idx[:, None, None].repeat(K, 1), 2)  # [T,K,1]
-    masked = prob.copy()
-    np.put_along_axis(masked, goal_idx[:, None, None].repeat(K, 1), -1, 2)
-    pom = masked.max(-1, keepdims=True)
-    return np.concatenate([geo, pg, pom], -1).astype(np.float32)
 
 
 def load_traj(fp):

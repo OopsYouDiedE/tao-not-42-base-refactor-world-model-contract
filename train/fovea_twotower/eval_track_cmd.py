@@ -19,15 +19,16 @@ import os
 import numpy as np
 import torch
 
+from net.fovea_twotower.token_stream import (CLASSES, AimTeacher, TokenHead,
+                                             TokenTeacher, aim_solution, as_hwc,
+                                             goal_relative)
 from net.fovea_twotower.yolo_parse import TrackNavConfig, build_tracknav
 from tests.integration.collect_calib640 import (WALL_Z_VARIANTS, _pose,
                                                 anchor_gt_blocks,
                                                 build_calib_course,
                                                 sample_offsets)
 from tests.integration.collect_s8 import V2_KEYS
-from tests.integration.collect_track_cmd import (CLASSES, AimTeacher, TokenHead,
-                                                 TokenTeacher, aim_solution)
-from train.fovea_twotower.train_track_cmd import CAM_NORM_PX, goal_relative
+from train.fovea_twotower.train_track_cmd import CAM_NORM_PX
 from train.minecraft.vpt_action import bin_to_camera
 
 DEG_PER_PX = 0.15
@@ -96,9 +97,7 @@ def run_episode(env, noop, tok_head, actor, rng, wall_z, steps, switch_t,
     obs, *_ = env.step(a0)
     g1, g2 = rng.choice(len(CLASSES), 2, replace=False)
     errs, dists, goals = [], [], []
-    rgb = np.asarray(obs["rgb"])
-    if rgb.shape[0] in (1, 3):
-        rgb = rgb.transpose(1, 2, 0)
+    rgb = as_hwc(obs["rgb"])
     prev_goal = -1
     for t in range(steps):
         goal = int(g1 if t < switch_t else g2)
@@ -135,9 +134,7 @@ def run_episode(env, noop, tok_head, actor, rng, wall_z, steps, switch_t,
             a_hold["camera_yaw"] = 0.0         # 按键保持——模拟"没赶上 tick")
             a_hold["camera_pitch"] = 0.0
             obs, *_ = env.step(a_hold)
-        rgb = np.asarray(obs["rgb"])
-        if rgb.shape[0] in (1, 3):
-            rgb = rgb.transpose(1, 2, 0)
+        rgb = as_hwc(obs["rgb"])
     errs, dists = np.array(errs), np.array(dists)
     m = dict(
         err_p1=float(np.median(errs[15:switch_t])),

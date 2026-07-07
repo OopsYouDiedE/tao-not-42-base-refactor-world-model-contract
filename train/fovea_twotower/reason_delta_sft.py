@@ -126,10 +126,15 @@ def check_plan(goal, inv, steps):
 
 
 def sample_inv(goal, rng):
-    """随机库存:真依赖链的随机子集 + 随机无关项。"""
+    """随机库存:真依赖链的随机子集 + 随机无关项 + 15% 含目标本身。
+
+    C1b 教训:曾因 `x != goal` 过滤,"任务已完成"态从不在分布内 → 慢脑拿着生铁
+    仍说缺生铁(复核环节全灭)。"核查差多少"必须会判"不差了"。"""
     chain = missing_plan(goal, set())
     inv = {x for x in chain if rng.random() < 0.4 and x != goal}
     inv |= {x for x in rng.sample(list(TREE), 3) if rng.random() < 0.3 and x != goal}
+    if rng.random() < 0.15:
+        inv.add(goal)
     return frozenset(inv)
 
 

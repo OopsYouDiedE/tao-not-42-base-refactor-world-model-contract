@@ -176,6 +176,9 @@ class TokenHead:
                 x, y, w, h, area = stats[j]
                 if area < self.min_area:
                     continue
+                if cent[j][0] > 0.70 * 640 and cent[j][1] > 0.58 * 384:
+                    continue        # 右下角=第一人称手持物/手臂常驻区(C1b 教训:
+                                    # 石镐被认成 dirt,教师原地转圈追自己的手)
                 m = cc == j
                 p = prob_np[:, m].mean(1)                       # [C+1] 域内均值
                 cands.append((float(area) * float(p[ci]),

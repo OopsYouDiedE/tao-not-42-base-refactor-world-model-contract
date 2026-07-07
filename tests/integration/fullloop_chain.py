@@ -25,11 +25,13 @@ import numpy as np
 import torch
 
 from tests.integration.collect_calib640 import _pose, _ray
-from tests.integration.collect_track_cmd import CLASSES, TokenHead
+from tests.integration.collect_track_cmd import CLASSES, TokenHead, TokenTeacher
 from train.fovea_twotower.train_track_cmd import goal_relative
 
 ITEM2CLS = {"raw_iron": "iron_ore", "生铁": "iron_ore"}
-HOME_CLS = "dirt"                  # 出生点旁泥土柱=家的视觉标记
+HOME_CLS = "coal_ore"              # 家标记材质必须场景天然不存在:dirt 会被
+                                   # 挖穿墙洞露出的天然泥土层假冒(C1b 0.20 病因,
+                                   # ep1 盯洞里真泥土判"到家"/ep2 多 dirt 源振荡)
 
 
 def build_course(wall_z=7):
@@ -44,10 +46,10 @@ def build_course(wall_z=7):
         f"setblock ~0 ~ ~{wall_z} minecraft:iron_ore",
         f"setblock ~1 ~ ~{wall_z} minecraft:iron_ore",
         f"setblock ~0 ~1 ~{wall_z} minecraft:iron_ore",
-        f"setblock ~-2 ~ ~{wall_z} minecraft:coal_ore",
-        "setblock ~2 ~ ~-3 minecraft:dirt",            # 家标记(视线扫过可见)
-        "setblock ~2 ~1 ~-3 minecraft:dirt",
-        "setblock ~1 ~ ~-3 minecraft:dirt",
+        "setblock ~2 ~ ~-3 minecraft:coal_ore",        # 家标记 2×2(墙上不放煤,唯一性)
+        "setblock ~2 ~1 ~-3 minecraft:coal_ore",
+        "setblock ~1 ~ ~-3 minecraft:coal_ore",
+        "setblock ~1 ~1 ~-3 minecraft:coal_ore",
         "clear @p",
         "item replace entity @p weapon.mainhand with minecraft:stone_pickaxe 1",
     ]
@@ -103,8 +105,26 @@ def run(args):
     from train.fovea_twotower.eval_track_cmd import StudentPolicy
 
     tok_head = TokenHead(args.vectors, conv_head=args.conv_head)
-    student = StudentPolicy(args.ckpt)
     brain = SlowBrain(args.adapter)
+    rng = np.random.default_rng(0)
+    if args.executor == "student":
+        student = StudentPolicy(args.ckpt)
+
+        def make_exec():
+            student.reset()
+
+            def act(toks, gcls, pitch_now):
+                rel = goal_relative(toks[None], np.array([gcls]))[0]
+                return student(rel, noop)
+            return act
+    else:                                   # 装配闸门口径:确定化 token 教师作执行器
+        def make_exec():                    # (C1b 验装配非验学生;学生执行器=参考信息,
+            tt = TokenTeacher(rng, epsilon=0.0)     # 其冻结不动点残余归 E1 下阶段 GRPO)
+            tt.new_segment()
+
+            def act(toks, gcls, pitch_now):
+                return tt(noop, toks, gcls, pitch_now)
+            return act
 
     cfg = InitialEnvironmentConfig(
         image_width=640, image_height=360,
@@ -138,25 +158,23 @@ def run(args):
             print(f"[ep{ep}] ✗ 计划失败 {steps}", flush=True)
             continue
 
-        # ② 执行:追踪逼近(学生) + 挖掘宏
-        student.reset()
+        # ② 执行:追踪逼近(执行器) + 挖掘宏
+        exec_act = make_exec()
         rgb = np.asarray(obs["rgb"]).transpose(1, 2, 0) if np.asarray(obs["rgb"]).shape[0] == 3 else np.asarray(obs["rgb"])
         gcls = CLASSES.index("iron_ore")
         mined = False
         for t in range(args.max_steps):
-            toks = tok_head(rgb)
-            rel = goal_relative(toks[None], np.array([gcls]))[0]
-            a = student(rel, noop)
-            pg = toks[:, 6 + gcls]
-            j = int(np.argmax(pg * toks[:, 5]))
-            centered = (pg[j] > 0.4 and abs(toks[j, 0] - 0.5) < 0.07
-                        and abs(toks[j, 1] - 0.5) < 0.09)
-            key, dist = _ray(obs["full"])[1], _ray(obs["full"])[2]
-            if centered and toks[j, 5] > 0.015:        # 挖掘宏:锁相机持续攻击
-                a = dict(noop)
-                a["attack"] = True
-                if t % 8 == 0:
-                    a["forward"] = True                # 吸拾轻触
+            _xyz, key, dist = _ray(obs["full"])
+            if "iron_ore" in key and 0 < dist <= 5.5:  # 挖掘宏(脚本占位技能,raycast 闩锁):
+                a = dict(noop)                          # 接管范围 5.5 覆盖教师停靠点 5.1
+                if dist > 3.2:                          # (教师按token面积停在挖掘距离外,
+                    a["forward"] = True                 # 宏4.5接管=0.6格真空死锁,冒烟0/2)
+                else:                                   # 贴近到 REACH 后锁相机持续攻击
+                    a["attack"] = True                  # (破坏需同格连续~23tick)
+                    if t % 10 == 0:
+                        a["forward"] = True             # 吸拾轻触
+            else:                                       # 执行器驱动:追踪/逼近指令类
+                a = exec_act(tok_head(rgb), gcls, _pose(obs["full"])[4])
             obs, *_ = env.step(a)
             rgb = np.asarray(obs["rgb"]).transpose(1, 2, 0) if np.asarray(obs["rgb"]).shape[0] == 3 else np.asarray(obs["rgb"])
             if "raw_iron" in env_inventory(obs["full"]):
@@ -175,12 +193,20 @@ def run(args):
         # ④ 回家(指令切到家标记类)
         home = False
         if mined:
-            student.reset()
+            exec_act = make_exec()
             hcls = CLASSES.index(HOME_CLS)
             for t2 in range(args.max_steps):
                 toks = tok_head(rgb)
-                rel = goal_relative(toks[None], np.array([hcls]))[0]
-                a = student(rel, noop)
+                a = exec_act(toks, hcls, _pose(obs["full"])[4])
+                if args.debug and t2 % 30 == 0:
+                    pg = toks[:, 6 + hcls]
+                    j = int(np.argmax(pg * toks[:, 5]))
+                    full = obs["full"]
+                    d = np.linalg.norm(np.array([full.x, full.z]) - start)
+                    print(f"    [home t2={t2}] maxP={pg.max():.2f} cx={toks[j,0]:.2f} "
+                          f"area={toks[j,5]:.3f} act(y={a.get('camera_yaw',0):+.0f},"
+                          f"f={int(bool(a.get('forward')))},b={int(bool(a.get('back')))}) "
+                          f"d={d:.1f} yaw={_pose(full)[3]:.0f}", flush=True)
                 obs, *_ = env.step(a)
                 rgb = np.asarray(obs["rgb"]).transpose(1, 2, 0) if np.asarray(obs["rgb"]).shape[0] == 3 else np.asarray(obs["rgb"])
                 full = obs["full"]
@@ -212,11 +238,13 @@ def run(args):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--episodes", type=int, default=10)
-    p.add_argument("--max_steps", type=int, default=220)
+    p.add_argument("--max_steps", type=int, default=400)
     p.add_argument("--ckpt", default="runs/trackcmd_bc_v15/best.pt")
     p.add_argument("--conv_head", default="runs/g1_conv_head_v4.pt")
     p.add_argument("--vectors", default="runs/g1_vectors.pt")
     p.add_argument("--adapter", default="runs/reason_delta_lora_v3")
+    p.add_argument("--executor", choices=["teacher", "student"], default="teacher")
+    p.add_argument("--debug", action="store_true")
     p.add_argument("--port", type=int, default=8570)
     p.add_argument("--out", default="runs/fullloop_chain.json")
     args = p.parse_args()

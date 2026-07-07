@@ -43,25 +43,29 @@ from train.minecraft.vpt_action import CAMERA_BINS, bin_to_camera, camera_to_bin
 CAM_NORM = 120.0
 FEAT_DIM = 11                  # 逐步池化特征:加权cx/cy(铁),各类maxP(4),meanConf,n_act,goal onehot(3)
 COND_DIM = 64
-TOUR = ((-45, 18), (45, 18))   # 相A:先看左侧(yaw≈-45)再右侧(+45),各驻 18 步
+TOUR = ((-80, 18), (80, 18))   # 相A:先看 -x 侧墙(yaw≈-80... MC约定 yaw<0 朝+x)再另一侧
+                               # 注意 MC 符号:yaw=-80 → forward_x=+sin80>0 → 看 +x 侧墙
 PHASE_B_SCRAM = 0.0            # 相B回中(yaw→0,墙中央无矿,两侧均不可见)
 
 
 def build_mem_course(side, wall_z=7):
-    """铁簇在 side(-1=左/+1=右)侧 x=±3,煤簇在对侧;墙中央留空。"""
-    xi, xc = 3 * side, -3 * side
+    """铁簇嵌在 side(+1=+x/-1=-x)**侧墙** z≈1.5(方位角≈±76°,稳出 ±50° 半FOV),
+    煤簇在对侧侧墙;前墙纯石。v1 教训:放前墙 ±3(方位 23°)相B直接可见,没隔离记忆。"""
+    xi, xc = 6 * side, -6 * side
     return [
         "gamemode survival @p",
         "difficulty peaceful",
         "tp @p ~ ~ ~ 0 0",
-        f"fill ~-5 ~-1 ~-2 ~5 ~4 ~{wall_z} minecraft:air",
-        f"fill ~-5 ~-2 ~-2 ~5 ~-2 ~{wall_z} minecraft:stone",
-        f"fill ~-5 ~-1 ~{wall_z} ~5 ~4 ~{wall_z} minecraft:stone",
-        f"setblock ~{xi} ~ ~{wall_z} minecraft:iron_ore",
-        f"setblock ~{xi} ~1 ~{wall_z} minecraft:iron_ore",
-        f"setblock ~{xi+ (1 if side>0 else -1)} ~ ~{wall_z} minecraft:iron_ore",
-        f"setblock ~{xc} ~ ~{wall_z} minecraft:coal_ore",
-        f"setblock ~{xc} ~1 ~{wall_z} minecraft:coal_ore",
+        f"fill ~-6 ~-1 ~-3 ~6 ~4 ~{wall_z} minecraft:air",
+        f"fill ~-6 ~-2 ~-3 ~6 ~-2 ~{wall_z} minecraft:stone",
+        f"fill ~-6 ~-1 ~{wall_z} ~6 ~4 ~{wall_z} minecraft:stone",
+        f"fill ~-6 ~-1 ~-3 ~-6 ~4 ~{wall_z} minecraft:stone",   # 左侧墙
+        f"fill ~6 ~-1 ~-3 ~6 ~4 ~{wall_z} minecraft:stone",     # 右侧墙
+        f"setblock ~{xi} ~ ~1 minecraft:iron_ore",
+        f"setblock ~{xi} ~1 ~1 minecraft:iron_ore",
+        f"setblock ~{xi} ~ ~2 minecraft:iron_ore",
+        f"setblock ~{xc} ~ ~1 minecraft:coal_ore",
+        f"setblock ~{xc} ~1 ~1 minecraft:coal_ore",
         "clear @p",
     ]
 
@@ -216,7 +220,9 @@ def run_collect(args):
         # 相B:记忆教师——先凭"记忆"(=side,采集特权,信息在相A流里)转向,token 可见后交给 token 追踪
         tt = TokenTeacher(rng, epsilon=0.0)
         tt.new_segment()
-        tt.search_dir = float(side)                # 记忆教师:朝记住的一侧搜索
+        # 记忆教师:朝记住的一侧搜索。MC 符号:正 camera_yaw → yaw增 → 朝 -x;
+        # side=+1(铁在+x)须负方向(v1 把符号写反,连同 first_turn 判据一起)
+        tt.search_dir = float(-side)
         for tb in range(args.phase_b_steps):
             toks = th(rgb)
             a = tt(noop, toks, gcls, _pose(obs["full"])[4])
@@ -381,7 +387,8 @@ def run_eval(args):
             prev_hist.append(row)
             cum_yaw += a["camera_yaw"]
             if tb == 9:
-                first_turn = np.sign(cum_yaw) == np.sign(side)   # 前10步净转向
+                # MC 符号:朝 side=+1(+x) 的正确转向 = 负 cum_yaw(v1 判据反了)
+                first_turn = np.sign(cum_yaw) == -np.sign(side)
             if lock_t is None and toks[:, 6 + gcls].max() > 0.5 \
                     and abs(toks[np.argmax(toks[:, 6 + gcls]), 0] - 0.5) < 0.1:
                 lock_t = tb

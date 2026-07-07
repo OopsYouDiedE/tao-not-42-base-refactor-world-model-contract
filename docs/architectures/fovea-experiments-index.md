@@ -155,3 +155,5 @@ metadata:
 | Y2d HeightNet蒸馏(RGB+俯仰,无特权) | hole 0.072(MAE 0.178) | FAIL | 如实FAIL(洞盲复发:从零小网+684帧学不出遮挡先验;floor/wall 0.52可用) |
 | Y2e DA-V2 metric零样本(RGB+俯仰反投影,零特权) | hole **0.0**(高度MAE 0.29) | FAIL | 如实FAIL(诊断图证深度图本身无沟壕凹陷+尺度偏1.7×=FOV内参失配;非管线bug) |
 | Y2f DA域内微调v1(684帧,tanh输出) | hole 0.0(MAE 0.176=从零网逐位同) | FAIL | 如实FAIL+设计缺陷(米制输出套tanh全饱和;train loss 0.015 vs holdout 0.176=背题) |
+| Y2f-v2 修tanh饱和(684帧) | hole 0.245,高度MAE **0.0446**(4×改善) | FAIL | 如实FAIL(饱和=v1主病因坐实;单变量) |
+| Y2f-v3 修+3.6×数据(2844帧) | hole 0.246,MAE **0.0232** | FAIL | 如实FAIL(数据扩容治回归不治洞;洞区MAE 0.062=3×非洞区,平滑器抹洞边界) |

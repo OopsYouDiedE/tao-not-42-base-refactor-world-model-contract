@@ -95,6 +95,8 @@ def main():
     p.add_argument("--h_epochs", type=int, default=8)
     p.add_argument("--s_epochs", type=int, default=10)
     p.add_argument("--lr", type=float, default=3e-5)
+    p.add_argument("--hole_w", type=float, default=0.0,
+                   help="洞深加权:w=1+hole_w·relu(地板高度-目标),0=关(v3口径)")
     p.add_argument("--out_json", default="runs/terrain_da_ft.json")
     p.add_argument("--net_out", default="runs/terrain_da_ft.pt")
     args = p.parse_args()
@@ -121,7 +123,12 @@ def main():
             pit = torch.tensor([TR[i][1] for i in bi], device=dev)
             tgt = torch.stack([torch.from_numpy(TR[i][2]) for i in bi]
                               )[:, None].float().to(dev)
-            loss = F.huber_loss(net(rgb, pit), tgt, delta=0.1)
+            per = F.huber_loss(net(rgb, pit), tgt, delta=0.1,
+                               reduction="none")
+            # 洞深加权:平滑器抹洞的对症药(v3 诊断:洞区MAE 3×非洞区,幅度在边界糊)
+            FLOOR_H = -1.62 / 4.0
+            w = 1 + args.hole_w * torch.relu(FLOOR_H - tgt)
+            loss = (per * w).sum() / w.sum()
             opt.zero_grad()
             loss.backward()
             opt.step()

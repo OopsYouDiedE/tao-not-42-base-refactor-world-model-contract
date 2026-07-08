@@ -41,9 +41,12 @@ def load_eps(data_dir):
     eps = []
     for f in sorted(glob.glob(os.path.join(data_dir, "*.npz"))):
         z = np.load(f, allow_pickle=True)
+        # 自然域数据(wood_gt/wood_negcert)无 raycast xyz 通道(观察策略不攻击,
+        # GT 来自 raycast 扫描累积而非逐帧命中)→ 缺则置 None,gtvis 口径不消费
         eps.append(dict(name=os.path.basename(f)[:-4],
                         frames=z["frames"], pose=z["pose"],
-                        ray_xyz=z["ray_xyz"], ray_key=z["ray_key"],
+                        ray_xyz=z["ray_xyz"] if "ray_xyz" in z.files else None,
+                        ray_key=z["ray_key"] if "ray_key" in z.files else None,
                         gt=json.loads(str(z["gt_blocks"]))))
     assert eps, f"{data_dir} 无数据"
     return eps
@@ -230,7 +233,11 @@ def train_conv_head(u, tr, epochs=6, lr=3e-4, dev="cuda", neg_frac=0.35):
     return head.eval()
 
 
-def pred_mask_conv(u, img, head, tta=False):
+def pred_mask_conv(u, img, head, tta=False, classes=None):
+    """conv 头 → 逐类掩膜。classes 缺省 CLASSES(3类);传 WOOD_CLASSES 时映射
+    argmax 通道到 4 类(head 通道数须与 len(classes)+1 一致)。"""
+    classes = classes or CLASSES
+
     def _lg(im):
         return head(u.embed(im)[0].float())[0]         # [C+1,384,640]
     with torch.no_grad():
@@ -238,7 +245,7 @@ def pred_mask_conv(u, img, head, tta=False):
         if tta:
             lg = (lg + torch.flip(_lg(np.ascontiguousarray(img[:, ::-1])), [-1])) / 2
         lab = lg.argmax(0).cpu().numpy()
-    return {c: lab == k for k, c in enumerate(CLASSES)}
+    return {c: lab == k for k, c in enumerate(classes)}
 
 
 def mode_run(args):

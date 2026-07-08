@@ -15,7 +15,7 @@
 """
 import numpy as np
 
-from net.fovea_twotower.seg_head import cam_basis, FOV_V, H, W
+from net.fovea_twotower.seg_head import cam_basis, FOV_V, gt_masks, H, W
 from net.fovea_twotower.token_stream import CLASSES, EYE_H
 from net.fovea_twotower.yolo_unified import PAD_TOP
 
@@ -46,15 +46,30 @@ def project_block_hull(bx, by, bz, pose):
     return pts
 
 
-def wood_label_img(gt, pose):
-    """{cls:[[x,y,z],..]} → 逐像素标签 [384,640](WOOD_CLASSES 序,背景=C)。"""
+def wood_masks(gt, pose):
+    """{cls:[[x,y,z],..]} + 位姿 → {cls: bool mask [384,640]}(WOOD_CLASSES 序)。
+
+    课程类(iron/coal/dirt)用**前脸投影**(seg_head.gt_masks,与 G1/eval 同口径,
+    避免 8 角凸包把不可见侧脸算进 GT → 保证扩 log 类后 iron/coal/dirt 训练/评测
+    标签与 v4 逐像素一致,回归口径干净);log 自然树任意视向 → 8 角凸包。"""
     import cv2
-    lab = np.full((384, 640), len(WOOD_CLASSES), np.uint8)   # cv2 需 8UC1
+    out = gt_masks({c: gt.get(c, []) for c in CLASSES}, pose)   # 前脸,3 课程类
+    m_log = np.zeros((384, 640), np.uint8)
+    for b in gt.get("log", []):
+        pts = project_block_hull(*b, pose)
+        if pts is None:
+            continue
+        cv2.fillConvexPoly(m_log, cv2.convexHull(pts.astype(np.int32)), 1)
+    out["log"] = m_log.astype(bool)
+    return out
+
+
+def wood_label_img(gt, pose):
+    """{cls:[[x,y,z],..]} → 逐像素标签 [384,640](WOOD_CLASSES 序,背景=C)。
+
+    log 最后绘制(自然树与课程墙不共域;若碰撞 log 优先)。"""
+    ms = wood_masks(gt, pose)
+    lab = np.full((384, 640), len(WOOD_CLASSES), np.int64)
     for k, c in enumerate(WOOD_CLASSES):
-        for b in gt.get(c, []):
-            pts = project_block_hull(*b, pose)
-            if pts is None:
-                continue
-            hull = cv2.convexHull(pts.astype(np.int32))
-            cv2.fillConvexPoly(lab, hull, int(k))
-    return lab.astype(np.int64)
+        lab[ms[c]] = k
+    return lab

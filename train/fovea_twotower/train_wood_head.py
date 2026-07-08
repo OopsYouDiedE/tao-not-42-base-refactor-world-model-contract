@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""v6 木类 4 类头训练(WOOD_CLASSES;配方=train_conv_head 移植+wood_label_img)。
+"""v7 木类 4 类头训练(WOOD_CLASSES;配方=v4 课程 iron/coal/dirt 原班 + 自然 log)。
 
-数据混合(E1 跷跷板铁律:负帧按 neg_frac 掺,不纯负轰炸):课程 v4 全部目录
-(无树安全)+calib_nat(自然铁墙)+logwall(木簇墙主正样本)+wood_negcert
-(认证无树自然负帧)。calib_nat_neg 含未标注树,对 log 有毒,排除(已登记)。
+扩类标准流程(R-A 定标,每个新类照此办理):
+- 课程正样本 = v4 原班目录(calib640{,_rand,_rand2} + hardneg 纯石墙负 +
+  trackcmd_motion_frames 闭环运动帧)——iron/coal/dirt 训练数据与 v4 逐像素一致,
+  保证扩 log 后课程域回归口径干净(见 eval_wood_head 的 G-W3 门);
+- log 正样本 = wood_gt(自然橡树 raycast 扫描 GT,8 角凸包投影);
+- log 负样本 = wood_negcert(认证无树自然负帧)。calib_nat_neg 含未标注树对 log
+  有毒(已登记),排除;calib_nat(自然铁)未纳入 v4 iron 口径,一并排除保回归纯净。
+- neg_frac=0.35(沿 v4;纯负帧按比例掺,不纯负轰炸,治铁类假阳性)。
+
+留出:calib640_rand3(课程回归)+ wood_gt_hold(log)由 eval_wood_head 消费,
+本脚本不训练它们。
 
 用法:
   PYTHONPATH=. .venv/bin/python train/fovea_twotower/train_wood_head.py \
-      --out runs/g1_conv_head_v6.pt
+      --out runs/g1_conv_head_v7_wood.pt
 """
 import argparse
 
@@ -21,16 +29,16 @@ from train.fovea_twotower.eval_g1 import load_eps
 
 DIRS_DEFAULT = ["runs/data/calib640", "runs/data/calib640_rand",
                 "runs/data/calib640_rand2", "runs/data/calib640_hardneg",
-                "runs/data/trackcmd_motion_frames", "runs/data/calib_nat",
-                "runs/data/logwall", "runs/data/wood_negcert"]
+                "runs/data/trackcmd_motion_frames",
+                "runs/data/wood_gt", "runs/data/wood_negcert"]
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dirs", nargs="+", default=DIRS_DEFAULT)
-    p.add_argument("--out", default="runs/g1_conv_head_v6.pt")
+    p.add_argument("--out", default="runs/g1_conv_head_v7_wood.pt")
     p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--neg_frac", type=float, default=0.7)
+    p.add_argument("--neg_frac", type=float, default=0.35)
     args = p.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     u = UnifiedYoloe26(device=dev)

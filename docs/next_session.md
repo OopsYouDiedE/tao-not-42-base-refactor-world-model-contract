@@ -1,83 +1,126 @@
-# 下一次 Colab 会话交接单(2026-07-02 收尾时写)
+# 今晚定标作战单(2026-07-08 深夜写,给切换到 Opus 的训练会话)
 
-> 给下一个会话的助手/自己:当前状态、待办与一键命令。主线目标不变:
-> 世界模型 → 动作先验 → CraftGround 在线 mine_stone(见 MEMORY 与 knowledge/)。
+> **使命:今晚这几轮 3090 训练,把未来大规模(集群)训练的全部设定钉死。**
+> 背景与定案:记忆 `fovea-route-decisions-2026-07-08` + 
+> `docs/architectures/fovea-hypothesis-verification-2026-07-08.md`(已验假设勿重验)。
+> 每轮跑完:结果写回本文档对应栏 + 验证档案 + 提交 git。旧版本单(07-02 Colab)已废,git 可查。
 
-## 环境自举(GPU 机,L4)
+## 已验完毕、直接当结论用(勿重跑)
 
-```bash
-git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git /content/repo && cd /content/repo
-python install_env.py --dreamer --ppo-ad --dev   # 跳过 minerl(不兼容,见 activity_log)
-# ⚠ apt 交互卡死风险:DEBIAN_FRONTEND=noninteractive(install_env 待修)
-hf auth login                                     # 需 write token(旧 token 建议已吊销换新)
-```
+心跳 85ms@1.5B / 94ms@2B-VL(448×256);I_gui=16×16 灰度+逻辑回归 99.91%;
+IPM 数学精确;稀疏键(E 等)归慢塔;校准向量与文本 PE 基近正交(适配器须换基,
+blocked on 类对数)。
 
-## 状态快照(截至上会话结束)
+## GPU 排程(3090 串行;R-E 走 CPU 渲染并行;R-F 晨间)
 
-- **128² findcave 基线(W)已定论**:同帧预算三口径全面胜 64²,EV+0.229/开环+0.74dB,
-  结论 knowledge/conclusion_minecraft_dreamer4_run.md §7;checkpoint 未保留(VM 亡)。
-- **hard_weight=1.0 负结果**(§8):OHEM 破坏早期流匹配收敛,重试须 ≤0.3+warmup。
-- **g500 数据变量实验中止于 8.2k/10k**(§9 补):初步信号为三口径全面差于 findcave,
-  下轮建议**数据混合而非替换**。
-- **HDF5 归档管线代码就绪**(tests/encode_gaming500_hdf5.py):并行 5、5GB 分片、
-  167 游戏轮转交错、多机 --shard-prefix;HF 仓库 unjustify/gaming500-360p-hdf5
-  已建但**尚无分片**(首片未攒满即收尾)。
-- IG 恒负遗留;解码器平铺 Linear(604M)换卷积头的优先级已上移;
-  效率账见 knowledge/analysis_efficiency_levers.md(4.3% MFU ⇒ 架构侧优化优先)。
+R-A 扩类校准(~1.5h) → R-B 分块 BC 三臂(~4h) → R-C 心跳 SFT(~1h)
+→ R-D VL LoRA 冒烟(~0.5h) → R-G scaling 拟合(分钟级)。
+闭环评测(eval_track_cmd / rollout smoke)用 Xvfb :99 CPU 渲染,可与 GPU 训练交错。
 
-## 待办(按优先级)
+---
 
-1. **重启 HDF5 编码上传**(GPU 机跑前半游戏,CPU 高内存机跑后半,见下);
-2. 数据混合实验:findcave+gaming500_mc 合池,128² 基线配方,对照 §7/§9;
-3. 解码器卷积头改造(省 ~7GB 显存 + 质量),之后 batch 可翻倍;
-4. IG 恒负专项诊断(v1 学习式挑帧的前置);
-5. C 判别头原型(真/生成二分类,训练副产品级代价)。
+## R-A 扩类校准:log 进 bank(解 R2 wood_rate=0 + 定"每个新类"的标准配方)
 
-## 一键命令
+**定的设定**:扩类标准流程(数据配比/neg_frac/epochs)——未来每个新类照此办理;
+同时产出第 4 对 (文本PE, 校准向量) 喂 V10。
 
-GPU 机编码(前半游戏,与 CPU 机分工):
-```bash
-GAMES=$(python -c "
-import requests
-t = requests.get('https://huggingface.co/api/datasets/markov-ai/gaming-500-hours/tree/main', timeout=60).json()
-gs = sorted(x['path'] for x in t if x['type']=='directory')
-print(','.join(g for g in gs if g < 'g'))")
-PYTHONPATH=. nohup python tests/encode_gaming500_hdf5.py \
-  --games "$GAMES" --n 999 --parallel 3 --shard-gb 5 --shard-prefix gpu_ \
-  --out runs/data/g500_h5 > runs/logs/g500_h5.log 2>&1 &
-```
+1. 向量:用 wood_gt(+wood_sm5p/sm6p 冒烟集)按 g1 配方拟合 log 类向量,并入
+   bank(g1_vectors_v2.pt,WOOD_CLASSES 序)。注意 `wood.py` 头注:calib_nat_neg
+   对 log 有毒(树未标注),**排除**;wood_negcert(认证无树负帧)代替。
+2. conv 头 v7:`train/fovea_twotower/train_conv_head.py --data_dirs
+   runs/data/calib640_rand{,2,3} runs/data/calib640_hardneg runs/data/wood_gt
+   runs/data/wood_negcert --test_dir runs/data/wood_gt_hold --out
+   runs/g1_conv_head_v7_wood.pt`。若脚本不支持第 4 类,标签工厂用
+   `wood.py::wood_label_img`(8 角凸包投影)改造,GT 布局见 collect_wood_gt.py。
+3. **闸门**:log 留出 mIoU ≥0.35 且 iron/coal/dirt 回退 ≤0.03(对照 v4 的 0.530)。
+4. rollout 集成冒烟:grpo_rollout_worker 换 WOOD_CLASSES+v7 头,单 worker 8 局,
+   **wood_rate>0.25** 即宣告 R2 感知瓶颈解除(下一轮 GRPO 有粮)。
 
-CPU 高内存机编码(后半游戏,无训练争核可 --parallel 6):
-```bash
-# 同上,把 g < 'g' 改为 g >= 'g',--shard-prefix cpu_,--parallel 6
-```
+## R-B 分块 BC:k 定标(V7;大规模训练最重要的单一设定)
 
-数据混合训练(待办 2,GPU 机):
-```bash
-mkdir -p runs/data/mixed && cd runs/data/mixed && ln -s ../vpt_findcave/* ../gaming500_mc/* . ; cd /content/repo
-nohup python -m train.minecraft.train_dreamer4 \
-  --data_dir runs/data/mixed --camera_scale 32 --img_size 128 \
-  --seq_len 16 --batch_size 16 --token_dim 384 --dyn_layers 8 --enc_base 48 \
-  --motion_sample 4 --amp bf16 --workers 6 --clip_cache 4 --clip_max_frames 9000 \
-  --total_steps 10000 --eval_interval 500 --seed 42 \
-  --run_dir runs/mc_d4_b128_mix > runs/logs/mc_d4_b128_mix.log 2>&1 &
-```
-(数据下载:`PYTHONPATH=. python tests/download_vpt_data.py --index find-cave-Jul-28 --n 32
---out runs/data/vpt_findcave`;gaming500_mc 用 tests/convert_gaming500.py --n 30
---match "surviv|single|tutorial|explor" --crop-stream --purge-raw。)
+**定的设定**:chunk 大小 k、块内损失权重、22M 配方在分块下是否需调。
 
-## 惯例
+1. 改 `train_track_cmd.py`:动作头输出 k 步(相机 bins×k + 键×k),`--chunk_k` 旗标,
+   块内损失默认均匀权重(不引入折扣,失败再议);数据侧现有示范逐窗重切标签即可
+   (逐 tick 记录,天然支持任意 k)。**保持 v17 配方其余不动**(bin 逆频权重帽 3×/
+   prev_dropout 0.5/switch_os 0.5,--d 512 --layers 7,数据=v17 同源 QC 集,
+   查 runs/trackcmd_bc_v17 的 args 记录确认 data 目录)。
+2. 三臂:k=1(重构后对照,防实现回归)、k=4、k=8。各
+   `--total_steps 3000 --run_dir runs/trackcmd_bc_chunk{k}`。
+3. 离线闸门:holdout 相机 CE/键 F1 与 v17 差 ≤5%(k=1 臂必须过,否则实现有 bug)。
+4. 闭环闸门:`eval_track_cmd` student 臂,**到达≥0.47 且 切换≥0.46×教师**
+   (v17 口径);挖掘持续段完整率(attack 连续≥23tick 的段占比)一并记录。
+5. **决策规则**:取通过闭环闸门的最大 k(并列取 k=4);全不过→k=1+复盘,
+   大规模训练回退逐 tick。**k 一旦定下,写死进集群任务书。**
 
-- 每 10 分钟 cron:有更改按 AGENTS.md 中文 commit + push;结论入 knowledge/,
-  过程入 docs/activity_log.md;runs/ 不入库。
-- 长跑必设 --clip_max_frames 9000(超长段 OOM 教训)与 RAM 水位监控;
-  pkill 模式串会自匹配包装 shell,用拆串技巧(P="encode_""gaming500")。
+## R-C 心跳微决策 SFT:慢塔 A1 行为(冻结数据格式=未来一切慢塔的输入模板)
 
-## 训练监控结论(2026-07-02 实战沉淀,详见 memory: training-run-ops-lessons)
+**定的设定**:状态行 schema(VL/Omni 同款沿用)、微决策词表、僵局阈值 N、
+1.5B LoRA 配置。
 
-1. 帧率是第一健康指标:~330 帧/s 正常(GPU-bound);66-200 数据饥饿;无 step 行+GPU 低
-   多半是缓存预热(gaming500 段大,首批 3-6 分钟),别误杀。
-2. 启动前算内存账:workers×clip_cache×段帧数×49KB(128²)+ ckpt 保存 CPU 尖峰 ~8GB。
-3. 止损判据:连续 3 次评估全口径大幅落后且无收敛迹象才杀,单次评估差不算数。
-4. LR 无退火 ⇒ 中途收割零损失;同帧预算点是最干净收割点,看门狗盯日志自动杀。
-5. 评估里程碑随出随入库(checkpoint 是易失品,活下来的只有 git 里的数字)。
+1. 新建 `train/fovea_twotower/heartbeat_sft.py`,合成轨迹混合真实 R2 rollout 记录
+   (rec 里 inv_steps/goal_log/vis 序列)。**冻结格式**:
+   状态行 `t=<tick> 库存:<item×n,…|空> 可见:<cls(dist格)|无> 位移:<m> goal:<cls>`;
+   决策词表 `{继续, 换目标:<cls>, 重规划}`。
+2. GT 规则:新里程碑→重规划;连续 N=20 次心跳库存无Δ且位移<阈→重规划(僵局);
+   其余→继续。N 作 sweep {10,20,40} 各训一份小样,取留出准确率最高者定 N。
+3. LoRA 照 reason_delta 配方(r16 qkvo),底座 Qwen2.5-1.5B + 已有 v4 adapter 续训
+   或并行新 adapter(推荐新 adapter,防复核能力回退;跑完重测 reason_delta 留出)。
+4. **闸门**:留出决策准确率 ≥0.95、格式合规 1.0、reason_delta 复核评测不回退。
+
+## R-D VL-2B LoRA 冒烟:A2/集群 VL SFT 配置模板
+
+**定的设定**:Qwen2-VL LoRA targets/r/lr、grad-ckpt、batch、图像分辨率(448×256)。
+
+1. 玩具集 200 样本:craft/track 示范帧(448×256 重采样)+R-C 同款状态行→决策文本。
+2. peft LoRA r16 targets `q_proj,k_proj,v_proj,o_proj`(视觉塔冻结),bf16,
+   grad-checkpointing on,batch 1×梯度累积 8,lr 1e-4,200 步。
+3. **闸门**:loss 降 ≥50%、显存峰值 ≤20GB、无 NaN。数字记入配置模板表。
+
+## R-E GUI 高清采集 + V8(CPU 渲染,与 GPU 训练并行)
+
+**定的设定**:GUI GT 工厂配方;热键栏在 GUI 内的掩码归属(数据仲裁)。
+
+1. 扩 collect 脚本:640×360,fast_reset 后 give 已知物品→按 E 开背包→录帧+
+   `gui` 标志+槽位坐标表(容器布局硬编码常量=GT,零人工)。≥20 局、含空背包负例。
+2. V8:YOLOE 文本 PE 对物品图标零样本打分("iron ingot"/"oak planks"…),
+   记录逐类 AP;<0.3 则结论"GUI 页须走域内校准"(R-A 配方复用)。
+3. 高清版 I_gui 复验(16×16 逻辑回归重训一次,预期 ≥99.9%)。
+4. 顺带录一段人工/脚本在 GUI 内按数字键换热键栏的交互,仲裁掩码表。
+
+## R-F Nano2-9B QLoRA 冒烟(下载已在后台,晨间跑)
+
+**定的设定**:混合架构本地工具链风险清零(集群租卡前置条件)。
+NF4 载入(~5GB)+LoRA(in/out_proj+qkvo)50 步 dummy 文本反向。
+**闸门**:backward 通过、显存<24G、mamba-ssm 2.2.4 内核无报错。
+
+## R-G scaling 拟合:集群预算数字
+
+R-B 落地后,`train/fovea_twotower/scaling_fit.py` 吃 c2_size_{s,m,l,l2,xl} +
+c2_demo_{24,48,96} + 今晚分块臂 → 外推"到达 0.8"所需示范局数×参数量,
+**产出集群 C2 任务的两个预算数字**(目标示范量、目标模型规模)。
+
+---
+
+## 大规模训练设定总表(跑完填,这就是交付物)
+
+| 设定 | 由哪轮定 | 值(待填) |
+|---|---|---|
+| 快塔 chunk k / 块内权重 | R-B | |
+| 快塔规模×示范量预算 | R-G | |
+| BC 配方(权重帽/dropout/OS/DAgger β) | R-B(默认沿 v17,回归才动) | |
+| 扩类校准配方(数据配比/neg_frac/闸门) | R-A | |
+| 状态行 schema / 微决策词表 / 僵局 N | R-C | |
+| 慢塔 LoRA(r/targets/lr) | R-C(1.5B)+R-D(VL) | |
+| VL 图像分辨率/批量/grad-ckpt | R-D | |
+| GUI GT 工厂配方 / 掩码表 | R-E | |
+| 混合架构工具链(本地侧) | R-F | |
+| 判官设定(4条/组排名制,全量落盘) | 已定(R2),不动 | ✔ |
+
+## 纪律提醒(与用户当面定过的,违者重来)
+
+- 教师必须是学生观测的函数;教师必须确定性;特权信息只进训练侧。
+- 每级升级要有上一级在给定预算内的证伪记录,不许跳级。
+- 判官调用全量落盘(蒸馏本地判官的数据在攒)。
+- 运行时零脚本:宏只活在采集器;闩锁不进部署回路(R-A 集成冒烟里 rollout worker
+  的 raycast 闩锁暂留=已声明脚手架,A1 收口时移除)。

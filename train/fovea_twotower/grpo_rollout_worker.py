@@ -131,11 +131,14 @@ def main():
         PLAN_ITEMS = {"log", "planks", "wooden_pickaxe", "cobblestone",
                       "stone_pickaxe", "raw_iron", "crafting_table", "stick"}
 
+        plan_log = []                    # 慢塔每次规划全records:教师审计"想得对不对"
+
         def _replan(inv, t):
-            sp, _, _ = brain.plan("raw_iron", inv & PLAN_ITEMS)
+            sp, _, text = brain.plan("raw_iron", inv & PLAN_ITEMS)
             first = sp[0] if sp else ""
             gc = ITEM2CLS.get(first, "")
             gc = gc if gc in CLASSES else "iron_ore"
+            plan_log.append([t, sorted(inv & PLAN_ITEMS), sp, text[:2000]])
             return first, CLASSES.index(gc)
 
         inv0 = env_inventory(obs["full"])
@@ -207,6 +210,7 @@ def main():
             frames=np.array(T["frames"], np.uint8),
             rec=dict(seed=args.world_seed, inv_events=sorted(ev["inv_events"]),
                      inv_steps=ev["inv_steps"], goal_log=ev["goal_log"],
+                     plan_log=plan_log,
                      iron_lock_steps=int(ev["iron_lock_steps"]),
                      declared_goal=ev["declared_goal"],
                      goal_consistent_steps=int(ev["goal_consistent_steps"]),

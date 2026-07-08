@@ -23,13 +23,12 @@
 import argparse
 import json
 import os
-import time
 
 import numpy as np
 import torch
 
 from tests.integration.collect_s8 import (DEG2PX, V2_KEYS, MineForwardPolicy,
-                                          RandomPolicy, _raycast, frame_pair)
+                                          RandomPolicy, frame_pair)
 from tests.integration.test_utils import crop128
 from train.fovea_twotower.gate_fasthead import decode_action
 from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, N_MOUSE

@@ -29,7 +29,6 @@ import argparse
 import glob
 import json
 import os
-import time
 
 import numpy as np
 import torch
@@ -37,7 +36,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from net.fovea_twotower.token_stream import CLASSES, TokenHead, as_hwc, wrap180
-from tests.integration.collect_calib640 import _pose, anchor_gt_blocks
+from tests.integration.collect_calib640 import _pose
 from train.minecraft.vpt_action import CAMERA_BINS, bin_to_camera, camera_to_bin
 
 CAM_NORM = 120.0

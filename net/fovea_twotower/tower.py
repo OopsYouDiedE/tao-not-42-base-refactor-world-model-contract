@@ -221,7 +221,6 @@ class ActionTower(nn.Module):
     def forward(self, lat_now, x_tau, tau, seed=None, cmd=None):
         """lat_now [B,81,384], x_tau [B,H,24](加噪动作), tau [B] → 速度 [B,H,24]。
         cmd [B,n_cmd]|None:指令嵌入,作为首 token 钉在序列头(注意力可随机访问)。"""
-        B = lat_now.shape[0]
         v = self.vis_in(lat_now) + self.type_emb.weight[0]
         a = (self.act_in(x_tau) + self.type_emb.weight[1]
              + self.tau_mlp(tau[:, None, None]))

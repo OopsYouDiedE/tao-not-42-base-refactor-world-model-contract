@@ -22,7 +22,7 @@ import json
 import numpy as np
 import torch
 
-from net.fovea_twotower.ego_map import EgoMapNorthLoc, MapQuery, _bearing_cn
+from net.fovea_twotower.ego_map import EgoMapNorthLoc, MapQuery
 from net.fovea_twotower.token_stream import CLASSES, TokenHead, as_hwc, goal_relative
 from tests.integration.collect_calib640 import (WALL_Z_VARIANTS, _pose,
                                                 anchor_gt_blocks,

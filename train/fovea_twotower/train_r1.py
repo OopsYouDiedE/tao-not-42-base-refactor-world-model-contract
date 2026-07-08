@@ -14,7 +14,6 @@ import os
 import time
 
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from net.backbone import build_backbone

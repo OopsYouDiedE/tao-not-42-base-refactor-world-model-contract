@@ -15,7 +15,6 @@ MSG-HIST = 裸消息缓冲(信息上界,不经塔,同 probe_b)。
 """
 import argparse
 import json
-from importlib import import_module
 
 import numpy as np
 import torch
@@ -27,7 +26,7 @@ from train.fovea_twotower.data_utils import batch_to_stream_msg
 from train.fovea_twotower.model_utils import build_eval_model, pool_ssm
 from train.fovea_twotower.train_w4 import MODEL_ID
 from train.fovea_twotower.probe_b import fit_acc, fit_r2, K_BACK, K_FRESH
-from train.gaming500.dataset import Gaming500Dataset, N_MSG
+from train.gaming500.dataset import Gaming500Dataset
 
 
 @torch.no_grad()

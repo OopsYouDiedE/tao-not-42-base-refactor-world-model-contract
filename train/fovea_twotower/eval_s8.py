@@ -77,7 +77,6 @@ def make_pairs(reps, vals, idx, margin, rng, max_pairs=20000):
     """在给定轨迹子集 idx 内,对所有满足 |Δval|>margin 的配对建 (feat=rep_a−rep_b, y)。
     随机翻转正负序使标签 {0,1} 均衡。"""
     feats, ys = [], []
-    m = len(idx)
     all_pairs = [(i, j) for a, i in enumerate(idx) for j in idx[a + 1:]]
     rng.shuffle(all_pairs)
     for i, j in all_pairs:

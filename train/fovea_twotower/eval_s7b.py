@@ -29,7 +29,7 @@ from train.fovea_twotower.data_utils import batch_to_stream_msg
 from train.fovea_twotower.eval_utils import pool9, ridge_r2, paired_r2_ci
 from train.fovea_twotower.model_utils import build_eval_model, pool_ssm
 from train.fovea_twotower.train_w4 import MODEL_ID
-from train.gaming500.dataset import Gaming500Dataset, N_MSG
+from train.gaming500.dataset import Gaming500Dataset
 
 DEV = "cuda"
 DATA = "runs/data/g500_360p"

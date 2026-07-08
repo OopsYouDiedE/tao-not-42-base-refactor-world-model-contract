@@ -30,7 +30,7 @@ from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 from net.fovea_twotower.yolo_parse import (PARSE_DIM, TrackNavConfig, YoloParseHead,
                                            build_tracknav)
 from train.minecraft.train_bc import bc_losses
-from train.minecraft.vpt_action import ACTION_DIM, CAMERA_BINS, CAMERA_SCALE, N_MOUSE, camera_to_bin
+from train.minecraft.vpt_action import ACTION_DIM, CAMERA_SCALE, N_MOUSE, camera_to_bin
 
 MC_CLASSES = ["iron ore", "stone", "wall", "dirt", "cave floor"]
 

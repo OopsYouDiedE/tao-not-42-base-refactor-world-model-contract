@@ -23,10 +23,7 @@ import argparse
 import json
 import os
 import time
-import shutil
 
-import numpy as np
-from PIL import Image
 
 from tests.integration.test_utils import dump_inventory, save_png
 

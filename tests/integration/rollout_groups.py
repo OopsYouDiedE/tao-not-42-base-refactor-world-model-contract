@@ -28,7 +28,7 @@ import torch
 
 from net.bc import BCConfig
 from net.config import BackboneConfig
-from tests.integration.collect_s8 import (WALL_Z_VARIANTS, V2_KEYS, build_c2_course,
+from tests.integration.collect_s8 import (V2_KEYS, build_c2_course,
                                           score_c2, _mined_iron, _raycast)
 from net.bc import TextCondPolicy
 from tests.integration.test_utils import crop128, crop_square

@@ -19,8 +19,6 @@ import argparse
 import json
 import os
 
-import numpy as np
-from PIL import Image
 
 from craftground import make
 from craftground.initial_environment_config import InitialEnvironmentConfig

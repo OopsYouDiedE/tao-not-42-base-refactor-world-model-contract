@@ -13,7 +13,6 @@
 用法(ZEROCOPY :1):
   DISPLAY=:1 PYTHONPATH=. ./.venv/bin/python tests/integration/craft_skill.py
 """
-import numpy as np
 
 DEG = 20.0 / 3                         # camera 1° = 6.67 光标像素(mod 常数)
 SLOT_INV0 = (247, 198)                 # 主背包左上(item replace inventory.0 落点)

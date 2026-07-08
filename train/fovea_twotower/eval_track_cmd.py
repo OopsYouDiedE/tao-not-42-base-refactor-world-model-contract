@@ -34,7 +34,10 @@ DEG_PER_PX = 0.15
 
 
 class StudentPolicy:
-    """token 流 + 指令 → 动作(维护 seq_len 窗口上下文,bin argmax → 相机 deg)。"""
+    """token 流 + 指令 → 动作(维护 seq_len 窗口上下文,bin argmax → 相机 deg)。
+
+    分块(chunk_k>1):边界一次前向解 k 步动作入缓冲,后 k-1 tick 开环回放(不再前向,
+    观测仍逐 tick 累进上下文供下一块预测);k=1 退化为逐 tick 前向(与旧口径一致)。"""
 
     def __init__(self, ckpt, device="cuda", seq_len=64):
         ck = torch.load(ckpt, map_location=device, weights_only=False)
@@ -42,34 +45,45 @@ class StudentPolicy:
         self.tower.load_state_dict(ck["tower"])
         self.dev, self.L = device, seq_len
         self.bins = self.tower.cfg.camera_bins
+        self.k = self.tower.cfg.chunk_k
         self.reset()
 
     def reset(self):
-        self.toks, self.prevs = [], []
+        self.toks, self.prevs, self.buf = [], [], []
+
+    def _decode(self, cb, kp, noop):
+        val = bin_to_camera(cb).numpy()                             # [-1,1] mu-law 解码
+        dx_px, dy_px = val * CAM_NORM_PX
+        a = dict(noop)
+        a["camera_yaw"] = float(np.clip(dx_px * DEG_PER_PX, -18, 18))
+        a["camera_pitch"] = float(np.clip(dy_px * DEG_PER_PX, -18, 18))
+        for i, kk in enumerate(V2_KEYS):
+            if kp[i]:
+                a[kk] = True
+        row = np.zeros(22, np.float32)
+        row[0] = np.clip(dx_px / CAM_NORM_PX, -1, 1)
+        row[1] = np.clip(dy_px / CAM_NORM_PX, -1, 1)
+        row[2:] = kp
+        return a, row
 
     @torch.no_grad()
     def __call__(self, tok_rel, noop):
         self.toks.append(tok_rel)
         if not self.prevs:
             self.prevs.append(np.zeros(22, np.float32))
-        toks = torch.from_numpy(np.stack(self.toks[-self.L:]))[None].to(self.dev)
-        prev = torch.from_numpy(np.stack(self.prevs[-self.L:]))[None].to(self.dev)
-        g = torch.zeros(1, 1, device=self.dev)
-        cam, key = self.tower(toks.float(), g, prev.float())
-        cb = cam[0, -1].float().argmax(-1).cpu()                    # [2] bin
-        kp = (key[0, -1].float().sigmoid() > 0.5).cpu().numpy()     # [20]
-        val = bin_to_camera(cb).numpy()                             # [-1,1] mu-law 解码
-        dx_px, dy_px = val * CAM_NORM_PX
-        a = dict(noop)
-        a["camera_yaw"] = float(np.clip(dx_px * DEG_PER_PX, -18, 18))
-        a["camera_pitch"] = float(np.clip(dy_px * DEG_PER_PX, -18, 18))
-        for i, k in enumerate(V2_KEYS):
-            if kp[i]:
-                a[k] = True
-        row = np.zeros(22, np.float32)
-        row[0] = np.clip(dx_px / CAM_NORM_PX, -1, 1)
-        row[1] = np.clip(dy_px / CAM_NORM_PX, -1, 1)
-        row[2:] = kp
+        if not self.buf:                                            # 块边界:前向解 k 步
+            toks = torch.from_numpy(np.stack(self.toks[-self.L:]))[None].to(self.dev)
+            prev = torch.from_numpy(np.stack(self.prevs[-self.L:]))[None].to(self.dev)
+            g = torch.zeros(1, 1, device=self.dev)
+            cam, key = self.tower(toks.float(), g, prev.float())
+            camL, keyL = cam[0, -1].float(), key[0, -1].float()     # [k,2,bins]/[k,20] 或旧 [2,bins]/[20]
+            if camL.dim() == 2:                                     # k=1 旧口径
+                camL, keyL = camL[None], keyL[None]
+            for j in range(self.k):
+                self.buf.append((camL[j].argmax(-1).cpu(),
+                                 (keyL[j].sigmoid() > 0.5).cpu().numpy()))
+        cb, kp = self.buf.pop(0)
+        a, row = self._decode(cb, kp, noop)
         self.prevs.append(row)
         return a
 

@@ -412,3 +412,16 @@ G-W3 铁 token FP(calib_nat_neg_hold)≤0.10 不回退。
 (3) 合成宏链(原木→木板→木棍→工作台→木镐;2×2 背包合成+3×3 台;GUI 定案走宏)
 (4) m_iron 同种子流复测里程碑深度。
 并行:饱和世界 1342382292/1926751966 定向负帧已采(calib_nat_neg_w2/w4),v5c 待训。
+
+### GRPO 长程 harness 预建(2026-07-08,train/fovea_twotower/grpo_harness.py;coordinator 并行指令)
+
+三层过程优势已实现并干跑验证(runs/grpo_smoke.json):里程碑深度分(7 级不可逆
+事件链 log→…→铁入包,单级分帽=0.9×成功分/7)+意图一致性(声明子目标执行占比
++探索增量,权重<单里程碑帽)+组内相对优势归一(std 地板)。封顶铁律:过程总分
+0.9×<单次成功分。**冒烟(假 rollout=Step0 摘要 12 局)**:全败组 all_fail=true
+仍 variance>0 且里程碑分层(幻觉期 iron_lock 分裂组)→全败组条款出梯度,契约成立。
+**预注册 GRPO 启动门**:n=16 组内过程分方差>0,操作口径=采木闭环≥0.25 或
+里程碑深度分层≥2 档;W-CHAIN 段(2)闭环结果直接对照此门报告。
+策略更新循环=优势加权 BC 骨架(22M v17 复用,early-stop 按闭环),rollout
+序列字段由点火时的采集器填充。
+木类 GT 采集完成:训练 pos=34/negcert=206,留出 pos=4/negcert=36。

@@ -84,9 +84,39 @@ def main():
         screen_encoding_mode=ScreenEncodingMode.RAW,
         world_type=WorldType.DEFAULT, seed=args.world_seed, request_raycast=True,
         initial_extra_commands=["gamemode survival @p", "difficulty peaceful"])
-    env = make(initial_env_config=cfg,
-               action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
-               port=args.port, verbose=False)
+
+    # 环境启动看门狗:JVM 5min 拉不起端口→杀本进程 java 子进程重试一次,
+    # 再败写空 npz 退出(g0_w2 教训:19min 僵启动烧掉组预算的自愈上限)
+    import threading
+    import subprocess as _sp
+    def _boot():
+        h = {}
+        def _mk():
+            try:
+                h["env"] = make(initial_env_config=cfg,
+                                action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
+                                port=args.port, verbose=False)
+            except Exception as e:  # noqa
+                h["err"] = str(e)
+        for att in range(2):
+            th = threading.Thread(target=_mk, daemon=True)
+            th.start()
+            th.join(300)
+            if "env" in h:
+                return h["env"]
+            print(f"[w{args.port}] 启动看门狗触发(att{att}),清理 java 子进程",
+                  flush=True)
+            _sp.run(["bash", "-c",
+                     "for p in $(pgrep -P %d); do grep -aq java /proc/$p/cmdline "
+                     "2>/dev/null && kill -9 $p; done" % os.getpid()])
+            time.sleep(5)
+        return None
+    import os
+    env = _boot()
+    if env is None:
+        np.savez_compressed(args.out, n=0, recs=json.dumps([]))
+        print(f"[w{args.port}] 环境两次启动失败,空产出退出", flush=True)
+        return
     noop = no_op_v2()
     env.reset()
     rollouts = []

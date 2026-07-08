@@ -30,10 +30,13 @@ from tests.integration.collect_calib640 import (ObservePolicy, _frame, _pose,
 ORE_CLASSES = ("iron_ore", "coal_ore", "dirt")
 
 
-def relocate_cmds(rng):
+def relocate_cmds(rng, superflat=False):
     """阶段1(fast_reset):随机落点。fast_reset=杀+重生后一个tick内连发命令,
     spreadplayers 后区块未加载,任何建造必须延后到阶段2(add_commands)。"""
     px, pz = int(rng.integers(-4000, 4000)), int(rng.integers(-4000, 4000))
+    if superflat:
+        return ["gamemode survival @p", "difficulty peaceful", "time set noon",
+                f"tp @p {px} -60 {pz}", "clear @p"]
     return [
         "gamemode survival @p",
         "difficulty peaceful",
@@ -67,7 +70,8 @@ def run(args):
     cfg = InitialEnvironmentConfig(
         image_width=640, image_height=360,
         screen_encoding_mode=ScreenEncodingMode.RAW,
-        world_type=WorldType.DEFAULT, seed=args.world_seed,
+        world_type=(WorldType.SUPERFLAT if args.superflat else WorldType.DEFAULT),
+        seed=args.world_seed,
         request_raycast=True,
         initial_extra_commands=["gamemode survival @p", "difficulty peaceful"])
     env = make(initial_env_config=cfg,
@@ -90,7 +94,7 @@ def run(args):
         t0 = time.time()
         offsets = None if args.pure_neg else sample_offsets(rng)
         obs, _ = env.reset(options={"fast_reset": True,
-                                    "extra_commands": relocate_cmds(rng)})
+                                    "extra_commands": relocate_cmds(rng, args.superflat)})
         for _ in range(args.settle):
             obs, *_ = env.step(noop)
         time.sleep(2.5)                         # 区块生成是墙钟秒级,unlimited TPS
@@ -105,6 +109,19 @@ def run(args):
                 obs, *_ = env.step(noop)
             gt = {k: [] for k in ORE_CLASSES}
         else:
+            tgt_p = float(np.degrees(np.arctan2(1.12, wall_z)))
+            for _ in range(14):                 # 相机动作闭环归零朝向
+                f0 = obs["full"]                # (tp 置向不生效——woodgt 发现)
+                dy = (0 - float(getattr(f0, "yaw", 0.0)) + 180) % 360 - 180
+                dp = tgt_p - float(getattr(f0, "pitch", 0.0))   # 俯角对准锚定块
+                                                # (眼高在 feet 层锚块上方1.1格,
+                                                #  平视命中 yo=2 石行——lw_dbg2 破案)
+                if abs(dy) < 2 and abs(dp) < 2:
+                    break
+                a = dict(noop)
+                a["camera_yaw"] = float(np.clip(dy, -15, 15))
+                a["camera_pitch"] = float(np.clip(dp, -10, 10))
+                obs, *_ = env.step(a)
             gt = None
             akey = "log" if args.log_wall else "iron_ore"
             for _try in range(2):               # 失败重建一次(迟到的区块)
@@ -158,6 +175,8 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--world_seed", default="natcalib1")
     p.add_argument("--pure_neg", action="store_true", help="纯自然负样本局")
+    p.add_argument("--superflat", action="store_true",
+                   help="超平坦世界(零地形风险;log 域差距由段2真树闭环兜底)")
     p.add_argument("--log_wall", action="store_true",
                    help="木簇墙模式(铁位→oak_log,GT键=log;止损自然树GT后的主正样本)")
     p.add_argument("--port", type=int, default=8770)

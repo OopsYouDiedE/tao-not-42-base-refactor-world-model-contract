@@ -166,17 +166,18 @@ class TokenHead:
     的连通域构建;pf 提案留给开放集,不再承担核心类命名。"""
 
     def __init__(self, vectors="runs/g1_vectors.pt", K=8, device="cuda",
-                 conv_head="runs/g1_conv_head.pt", min_area=150):
+                 conv_head="runs/g1_conv_head.pt", min_area=150, classes=None):
         import cv2 as _cv2
         from net.fovea_twotower.seg_head import ConvSegHead
         from net.fovea_twotower.yolo_unified import UnifiedYoloe26, pad384
         self.cv2 = _cv2
+        self.classes = list(classes) if classes else list(CLASSES)
         self.u = UnifiedYoloe26(device=device, pf_w=None)
         self.pad = pad384
-        self.head = ConvSegHead().to(device).eval()
+        self.head = ConvSegHead(ncls=len(self.classes) + 1).to(device).eval()
         self.head.load_state_dict(torch.load(conv_head, map_location=device,
                                              weights_only=False))
-        self.K, self.D, self.min_area = K, 6 + len(CLASSES) + 1, min_area
+        self.K, self.D, self.min_area = K, 6 + len(self.classes) + 1, min_area
 
     @torch.no_grad()
     def __call__(self, rgb_hwc):
@@ -185,7 +186,7 @@ class TokenHead:
         lab = prob.argmax(0).cpu().numpy().astype(np.uint8)
         prob_np = prob.cpu().numpy()
         cands = []
-        for ci in range(len(CLASSES)):
+        for ci in range(len(self.classes)):
             n, cc, stats, cent = self.cv2.connectedComponentsWithStats(
                 (lab == ci).astype(np.uint8), 8)
             for j in range(1, n):

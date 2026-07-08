@@ -50,7 +50,7 @@ class RelTokDataset(IterableDataset):
     """等长窗口无限采样;按局切 train/holdout(不跨局)。"""
 
     def __init__(self, data, seq_len, split="train", holdout_n=6, seed=0,
-                 switch_os=0.5, max_train_files=0):
+                 switch_os=0.5, max_train_files=0, chunk_k=1):
         files = sorted(f for d in data.split(",")                  # 逗号=多目录聚合
                        for f in glob.glob(os.path.join(d, "*.npz")))
         assert len(files) > holdout_n, f"{data} 轨迹不足"
@@ -58,6 +58,7 @@ class RelTokDataset(IterableDataset):
         if split == "train" and max_train_files > 0:
             self.files = self.files[:max_train_files]              # C2 示范量曲线
         self.seq_len, self.seed, self.switch_os = seq_len, seed, switch_os
+        self.chunk_k = chunk_k     # 分块:动作窗延伸 k-1 步,target[t]=act[t:t+k]
 
     def __iter__(self):
         wi = get_worker_info()
@@ -68,21 +69,30 @@ class RelTokDataset(IterableDataset):
             if f not in cache:
                 cache[f] = load_traj(f)
             toks, act, sw = cache[f]
-            L = self.seq_len
+            L, k = self.seq_len, self.chunk_k
+            smax = toks.shape[0] - L - k + 1          # 起点上限(动作延伸 k-1 步)
+            if smax <= 0:                             # 轨迹短于窗+块:换一条
+                continue
             if len(sw) and rng.random() < self.switch_os:   # 切换窗口过采样:重定向行为
                 t0 = int(sw[rng.integers(len(sw))])     # 是稀疏事件(v9 切换 0.23 病因)
-                s = int(np.clip(t0 - rng.integers(8, L - 8), 0, toks.shape[0] - L))
+                s = int(np.clip(t0 - rng.integers(8, L - 8), 0, smax))
             else:
-                s = int(rng.integers(0, toks.shape[0] - L))
+                s = int(rng.integers(0, smax + 1))
             yield {"tokens": torch.from_numpy(toks[s:s + L]),
-                   "action": torch.from_numpy(act[s:s + L])}
+                   "action": torch.from_numpy(act[s:s + L + k - 1])}
 
 
-def make_batch(sample, device, prev_dropout=0.0, rng=None):
+def make_batch(sample, device, prev_dropout=0.0, rng=None, chunk_k=1):
+    """→ tokens[B,L,K,8], g[B,1], prev[B,L,A], target[B,L,k,A]。
+
+    action 窗长 L+k-1:cur=前 L 步(逐步执行/构造 prev),target[t]=act[t:t+k](块)。"""
     tokens = sample["tokens"].to(device)
-    target = sample["action"].to(device).float()
-    prev = torch.zeros_like(target)
-    prev[:, 1:] = target[:, :-1]
+    act_full = sample["action"].to(device).float()          # [B, L+k-1, A]
+    L = tokens.shape[1]
+    cur = act_full[:, :L]                                   # [B,L,A] 逐步执行动作
+    target = torch.stack([act_full[:, j:j + L] for j in range(chunk_k)], dim=2)  # [B,L,k,A]
+    prev = torch.zeros_like(cur)
+    prev[:, 1:] = cur[:, :-1]
     if prev_dropout > 0 and rng is not None:                # 因果混淆修法:随机切断
         keep = torch.rand(tokens.shape[0], 1, 1, device=device,
                           generator=rng) >= prev_dropout    # "抄自己惯性"捷径(v2 闭环
@@ -109,29 +119,47 @@ KEY_POS_W[0] = 4.0             # forward 正例仅 21%,普通 BCE 学成站桩(v
 
 
 def weighted_bc_losses(cam_logits, key_logits, target, w):
-    cam_tgt = camera_to_bin(target[..., :N_MOUSE])
-    cam_ce = F.cross_entropy(cam_logits.flatten(0, 2).float(),
-                             cam_tgt.flatten(), weight=w)
+    """target [B,T,k,A];cam/key logits 允许旧口径(k=1 无块维)或 [B,T,k,...]。
+    块内均匀权重(cross_entropy 默认对 k 维一并求均值,不引折扣)。"""
+    B, T, k, A = target.shape
+    cbins = cam_logits.shape[-1]
+    cam = cam_logits.reshape(B, T, k, N_MOUSE, cbins)
+    key = key_logits.reshape(B, T, k, A - N_MOUSE)
+    cam_tgt = camera_to_bin(target[..., :N_MOUSE])           # [B,T,k,N_MOUSE]
+    cam_ce = F.cross_entropy(cam.reshape(-1, cbins).float(),
+                             cam_tgt.reshape(-1), weight=w)
     key_bce = F.binary_cross_entropy_with_logits(
-        key_logits.float(), target[..., N_MOUSE:],
+        key.float(), target[..., N_MOUSE:],
         pos_weight=KEY_POS_W.to(key_logits.device))
     return cam_ce, key_bce
 
 
 @torch.no_grad()
-def evaluate(tower, hold_iter, n, device):
+def evaluate(tower, hold_iter, n, device, chunk_k=1):
+    """留出首步(部署执行步)相机准确率 + 键 F1,与逐 tick(v17)口径可比。"""
     tower.eval()
     cc = ct = cp = 0
+    tp = fp = fn = 0
     for _ in range(n):
-        tokens, g, prev, target = make_batch(next(hold_iter), device)
-        cam, _ = tower(tokens, g, prev)
-        pred = cam.float().argmax(-1)
-        tgt = camera_to_bin(target[..., :N_MOUSE])
-        cc += (pred == tgt).sum().item()
+        tokens, g, prev, target = make_batch(next(hold_iter), device, chunk_k=chunk_k)
+        cam, key = tower(tokens, g, prev)
+        B, T, k, A = target.shape
+        cbins = cam.shape[-1]
+        cam = cam.reshape(B, T, k, N_MOUSE, cbins)
+        key = key.reshape(B, T, k, A - N_MOUSE)
+        tgt = camera_to_bin(target[:, :, 0, :N_MOUSE])       # 首步
+        cc += (cam[:, :, 0].float().argmax(-1) == tgt).sum().item()
         ct += tgt.numel()
         cp += (camera_to_bin(prev[..., :N_MOUSE]) == tgt).sum().item()
+        kp = key[:, :, 0].float().sigmoid() > 0.5
+        kt = target[:, :, 0, N_MOUSE:] > 0.5
+        tp += (kp & kt).sum().item()
+        fp += (kp & ~kt).sum().item()
+        fn += (~kp & kt).sum().item()
     tower.train()
-    return {"cam_acc": cc / max(ct, 1), "cam_acc_persist": cp / max(ct, 1)}
+    prec, rec = tp / max(tp + fp, 1), tp / max(tp + fn, 1)
+    return {"cam_acc": cc / max(ct, 1), "cam_acc_persist": cp / max(ct, 1),
+            "key_f1": 2 * prec * rec / max(prec + rec, 1e-9)}
 
 
 def main():
@@ -148,6 +176,8 @@ def main():
     p.add_argument("--layers", type=int, default=3, help="C2 规模曲线:3/5/7")
     p.add_argument("--max_train_files", type=int, default=0,
                    help=">0 截断训练轨迹数(C2 示范量曲线)")
+    p.add_argument("--chunk_k", type=int, default=1,
+                   help="动作分块步数(k=1 逐 tick=v17 口径;R-B 定标 k=4/8)")
     p.add_argument("--eval_interval", type=int, default=250)
     p.add_argument("--run_dir", default="runs/trackcmd_bc")
     p.add_argument("--seed", type=int, default=0)
@@ -158,12 +188,13 @@ def main():
 
     cfg = TrackNavConfig(parse_dim=PARSE_DIM_REL, goal_dim=1, d=args.d,
                          layers=args.layers, heads=4,
-                         max_len=max(128, args.seq_len))
+                         max_len=max(128, args.seq_len), chunk_k=args.chunk_k)
     tower = build_tracknav(cfg).to(device)
     print(f"[trackcmd_bc] {sum(x.numel() for x in tower.parameters())/1e6:.2f}M", flush=True)
 
     kw = dict(seq_len=args.seq_len, holdout_n=args.holdout_n, seed=args.seed,
-              switch_os=args.switch_os, max_train_files=args.max_train_files)
+              switch_os=args.switch_os, max_train_files=args.max_train_files,
+              chunk_k=args.chunk_k)
     tr = iter(DataLoader(RelTokDataset(args.data, split="train", **kw),
                          batch_size=args.batch_size, num_workers=2,
                          persistent_workers=True))
@@ -184,7 +215,8 @@ def main():
     t0 = time.time()
     for step in range(args.total_steps):
         tokens, g, prev, target = make_batch(next(tr), device,
-                                             args.prev_dropout, grng)
+                                             args.prev_dropout, grng,
+                                             chunk_k=args.chunk_k)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device == "cuda"):
             cam, key = tower(tokens, g, prev)
         cam_ce, key_bce = weighted_bc_losses(cam, key, target, w_cam)
@@ -197,9 +229,9 @@ def main():
         if step % 50 == 0:
             print(f"[{step:5d}] loss={loss.item():.4f}", flush=True)
         if (step + 1) % args.eval_interval == 0 or step + 1 == args.total_steps:
-            m = evaluate(tower, hd, 16, device)
+            m = evaluate(tower, hd, 16, device, chunk_k=args.chunk_k)
             print(f"    holdout@{step+1}: cam_acc={m['cam_acc']:.3f} "
-                  f"(持续 {m['cam_acc_persist']:.3f})", flush=True)
+                  f"(持续 {m['cam_acc_persist']:.3f}) key_f1={m['key_f1']:.3f}", flush=True)
             if m["cam_acc"] > best:
                 best = m["cam_acc"]
                 torch.save({"tower": tower.state_dict(), "cfg": vars(cfg),

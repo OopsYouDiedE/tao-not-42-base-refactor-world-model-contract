@@ -95,6 +95,7 @@ class TrackNavConfig:
     camera_bins: int = 11
     n_keys: int = 20
     max_len: int = 256
+    chunk_k: int = 1             # 动作分块:每帧预测未来 k 步(k=1 与旧口径逐字兼容)
 
 
 class TrackNavTower(nn.Module):
@@ -102,9 +103,10 @@ class TrackNavTower(nn.Module):
 
     Shapes:
         tokens [B,T,K,parse_dim], goal [B,goal_dim], prev_action [B,T,n_mouse+n_keys]
-        → cam_logits [B,T,n_mouse,camera_bins], key_logits [B,T,n_keys]
+        → chunk_k=1: cam_logits [B,T,n_mouse,camera_bins], key_logits [B,T,n_keys](旧口径)
+          chunk_k>1: cam_logits [B,T,k,n_mouse,camera_bins], key_logits [B,T,k,n_keys]
     机制:goal 投影成 query,对 K 个目标槽做单头交叉注意 → 每帧"被指导选中的目标"表征;
-    加上一步动作 + goal 全局偏置 + 位置编码 → 因果 Transformer → 动作头。
+    加上一步动作 + goal 全局偏置 + 位置编码 → 因果 Transformer → 动作头(分块=每帧出 k 步)。
     """
 
     def __init__(self, cfg: TrackNavConfig):
@@ -124,8 +126,8 @@ class TrackNavTower(nn.Module):
             trunk.append(_FFN(d, dropout=cfg.dropout))
         self.trunk = nn.ModuleList(trunk)
         self.out_norm = nn.LayerNorm(d)
-        self.cam_head = nn.Linear(d, cfg.n_mouse * cfg.camera_bins)
-        self.key_head = nn.Linear(d, cfg.n_keys)
+        self.cam_head = nn.Linear(d, cfg.chunk_k * cfg.n_mouse * cfg.camera_bins)
+        self.key_head = nn.Linear(d, cfg.chunk_k * cfg.n_keys)
 
     def forward(self, tokens, goal, prev_action):
         B, T, K, _ = tokens.shape
@@ -139,8 +141,12 @@ class TrackNavTower(nn.Module):
         for blk in self.trunk:
             x = blk(x)
         x = self.out_norm(x)
-        cam = self.cam_head(x).view(B, T, self.cfg.n_mouse, self.cfg.camera_bins)
-        return cam, self.key_head(x)
+        k = self.cfg.chunk_k
+        cam = self.cam_head(x).view(B, T, k, self.cfg.n_mouse, self.cfg.camera_bins)
+        key = self.key_head(x).view(B, T, k, self.cfg.n_keys)
+        if k == 1:                          # 旧口径:rollout/eval/GRPO 现役调用零改动
+            return cam[:, :, 0], key[:, :, 0]
+        return cam, key
 
 
 def build_tracknav(cfg: TrackNavConfig = None) -> TrackNavTower:

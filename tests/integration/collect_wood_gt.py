@@ -69,7 +69,7 @@ def run(args):
         image_width=640, image_height=360,
         screen_encoding_mode=ScreenEncodingMode.RAW,
         world_type=WorldType.DEFAULT, seed=args.world_seed,
-        request_raycast=True,
+        request_raycast=True, requires_biome_info=True,
         initial_extra_commands=["gamemode survival @p", "difficulty peaceful"])
     env = make(initial_env_config=cfg,
                action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
@@ -79,15 +79,44 @@ def run(args):
     print(f"[wood] env up (port {args.port})", flush=True)
     rng = np.random.default_rng(args.seed)
     n_pos = n_neg = 0
+    TREE_B = ("forest", "taiga", "jungle", "grove", "wooded")
     for ep in range(args.episodes):
         t0 = time.time()
-        obs, _ = env.reset(options={"fast_reset": True,
-                                    "extra_commands": relocate_cmds(rng)})
-        for _ in range(args.settle):
-            obs, *_ = env.step(noop)
-        time.sleep(2.5)
-        for _ in range(5):
-            obs, *_ = env.step(noop)
+        for _reloc in range(5):                 # 落点生物群系过滤(归因:85%落点无树)
+            obs, _ = env.reset(options={"fast_reset": True,
+                                        "extra_commands": relocate_cmds(rng)})
+            for _ in range(args.settle):
+                obs, *_ = env.step(noop)
+            time.sleep(2.5)
+            for _ in range(5):
+                obs, *_ = env.step(noop)
+            if args.pure_neg_biome:
+                break
+            tgt = None
+            try:                                # 最近树系 biome 格(6400 格大网格)
+                pose0 = _pose(obs["full"])
+                best = 1e9
+                for b in obs["full"].nearby_biomes:
+                    if any(k in str(b.biome_name) for k in TREE_B):
+                        d = (b.x - pose0[0]) ** 2 + (b.z - pose0[2]) ** 2
+                        if d < best:
+                            best, tgt = d, (float(b.x), float(b.z))
+            except Exception:  # noqa
+                pass
+            if tgt is not None and best < 250 ** 2:
+                for _ in range(140):            # 定向走位进树系
+                    pose0 = _pose(obs["full"])
+                    dx, dz = tgt[0] - pose0[0], tgt[1] - pose0[2]
+                    if dx * dx + dz * dz < 100:
+                        break
+                    ty = float(np.degrees(np.arctan2(-dx, dz)))
+                    dy = (ty - pose0[3] + 180) % 360 - 180
+                    a = dict(noop)
+                    a["camera_yaw"] = float(np.clip(dy, -15, 15))
+                    a["forward"] = abs(dy) < 30
+                    a["jump"] = True
+                    obs, *_ = env.step(a)
+                break
         logs, obs = scan_logs(env, noop)
         if 0 < len(logs) < args.min_logs:      # 弱命中→朝最近树走近→复扫
             pose = _pose(obs["full"])
@@ -105,6 +134,9 @@ def run(args):
             logs2, obs = scan_logs(env, noop)
             logs = [list(k) for k in {tuple(q) for q in logs + logs2}]
         is_pos = len(logs) >= args.min_logs
+        if 0 < len(logs) < args.min_logs:       # 复扫后仍弱=有树不达标,跳过
+            print(f"[wood] ~ e{ep} 弱命中{len(logs)}跳过(防毒负样本)", flush=True)
+            continue
         gt = {c: [] for c in WOOD_CLASSES}
         gt["log"] = logs
         pol = ObservePolicy(rng)
@@ -152,6 +184,8 @@ def main():
     p.add_argument("--min_logs", type=int, default=4)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--world_seed", default="woodgt1")
+    p.add_argument("--pure_neg_biome", action="store_true",
+                   help="负样本采集不做树系过滤(要多样背景)")
     p.add_argument("--port", type=int, default=8820)
     args = p.parse_args()
     run(args)

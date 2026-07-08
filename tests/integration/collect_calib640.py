@@ -125,13 +125,13 @@ def _frame(rgb):
     return np.ascontiguousarray(arr.transpose(2, 0, 1))          # [3,H,W] u8
 
 
-def anchor_gt_blocks(env, noop, offsets, max_tries=40):
-    """起手准星正对中心铁矿:step noop 直到 raycast 命中 iron_ore,锚定绝对坐标;
+def anchor_gt_blocks(env, noop, offsets, max_tries=40, anchor_key="iron_ore"):
+    """起手准星正对中心锚定块:step noop 直到 raycast 命中 anchor_key,锚定绝对坐标;
     再按 offsets 推全部 GT 方块。返回 {cls: [[x,y,z],...]} 或 None。"""
     for _ in range(max_tries):
         obs, *_ = env.step(noop)
         xyz, key, _d = _ray(obs["full"])
-        if "iron_ore" in key:
+        if anchor_key in key:
             cx, cy, cz = xyz
             gt = {blk: [[cx + xo, cy + yo, cz] for xo, yo in offs]
                   for blk, offs in offsets.items()}

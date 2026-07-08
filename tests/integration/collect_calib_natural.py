@@ -96,6 +96,9 @@ def run(args):
         time.sleep(2.5)                         # 区块生成是墙钟秒级,unlimited TPS
         for _ in range(5):                      # 下 tick 不足以等它(smoke 1/3 教训)
             obs, *_ = env.step(noop)
+        if args.log_wall:                       # 木簇墙:铁位换 oak_log,GT 键=log
+            offsets = {("log" if k == "iron_ore" else k): v
+                       for k, v in offsets.items()}
         if args.pure_neg:
             env.add_commands(["tp @p ~ ~ ~ 0 0"])
             for _ in range(5):
@@ -103,11 +106,12 @@ def run(args):
             gt = {k: [] for k in ORE_CLASSES}
         else:
             gt = None
+            akey = "log" if args.log_wall else "iron_ore"
             for _try in range(2):               # 失败重建一次(迟到的区块)
                 env.add_commands(build_cmds(wall_z, offsets))
                 for _ in range(10):
                     obs, *_ = env.step(noop)
-                gt, obs = anchor_gt_blocks(env, noop, offsets)
+                gt, obs = anchor_gt_blocks(env, noop, offsets, anchor_key=akey)
                 if gt is not None:
                     break
                 time.sleep(2.0)
@@ -154,6 +158,8 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--world_seed", default="natcalib1")
     p.add_argument("--pure_neg", action="store_true", help="纯自然负样本局")
+    p.add_argument("--log_wall", action="store_true",
+                   help="木簇墙模式(铁位→oak_log,GT键=log;止损自然树GT后的主正样本)")
     p.add_argument("--port", type=int, default=8770)
     args = p.parse_args()
     run(args)

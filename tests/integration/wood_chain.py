@@ -92,7 +92,7 @@ def main():
     p.add_argument("--max_steps", type=int, default=600)
     p.add_argument("--arms", nargs="+", default=["student", "random"])
     p.add_argument("--ckpt", default="runs/trackcmd_bc_v17/best.pt")
-    p.add_argument("--conv_head", default="runs/g1_conv_head_v6.pt")
+    p.add_argument("--conv_head", default="runs/g1_conv_head_v7b_wood.pt")
     p.add_argument("--vectors", default="runs/g1_vectors.pt")
     p.add_argument("--seed", type=int, default=9)
     p.add_argument("--port", type=int, default=8860)
@@ -118,6 +118,18 @@ def main():
     env = make(initial_env_config=cfg,
                action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
                port=args.port, verbose=False)
+    import atexit
+    _done = []                     # JVM 收尾兜底:异常/中途退出也 close(),防 gradle 子树泄漏
+
+    def _shutdown():
+        if _done:
+            return
+        _done.append(1)
+        try:
+            env.close()
+        except Exception:
+            pass
+    atexit.register(_shutdown)
     noop = no_op_v2()
     env.reset()
     res = []
@@ -128,7 +140,7 @@ def main():
             print(f"[wc] ep{ep}[{arm}] ok={r['ok']} steps={r['steps']} "
                   f"saw={r['saw_log_tok']} latch={r['latch']} inv={r['inv_end'][:4]}",
                   flush=True)
-    env.close()
+    _shutdown()
     out = dict(
         rate={a: float(np.mean([r["ok"] for r in res if r["arm"] == a]))
               for a in args.arms},

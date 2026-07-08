@@ -12,7 +12,8 @@ import time
 import numpy as np
 import torch
 
-from net.fovea_twotower.token_stream import CLASSES, TokenHead, as_hwc, goal_relative
+from net.fovea_twotower.token_stream import TokenHead, as_hwc, goal_relative
+from net.fovea_twotower.wood import WOOD_CLASSES
 from tests.integration.collect_calib640 import _pose, _ray
 from tests.integration.fullloop_chain import ITEM2CLS, SlowBrain, env_inventory
 from train.fovea_twotower.eval_track_cmd import StudentPolicy, CAM_NORM_PX, DEG_PER_PX
@@ -60,7 +61,7 @@ def main():
     p.add_argument("--episodes", type=int, default=4)
     p.add_argument("--max_steps", type=int, default=2000)
     p.add_argument("--ckpt", default="runs/trackcmd_bc_v17/best.pt")
-    p.add_argument("--conv_head", default="runs/g1_conv_head_v5b.pt")
+    p.add_argument("--conv_head", default="runs/g1_conv_head_v7b_wood.pt")
     p.add_argument("--vectors", default="runs/g1_vectors.pt")
     p.add_argument("--adapter", default="runs/reason_delta_lora_v4")
     p.add_argument("--temp", type=float, default=1.3)
@@ -75,7 +76,8 @@ def main():
     from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
     from craftground.screen_encoding_modes import ScreenEncodingMode
 
-    tok_head = TokenHead(args.vectors, conv_head=args.conv_head)
+    tok_head = TokenHead(args.vectors, conv_head=args.conv_head,
+                         classes=WOOD_CLASSES)          # 4类:log 成一等目标(解 wood_rate=0 感知盲)
     student = StudentPolicy(args.ckpt)
     brain = SlowBrain(args.adapter)
     rng = np.random.default_rng(args.seed)
@@ -111,12 +113,26 @@ def main():
                      "2>/dev/null && kill -9 $p; done" % os.getpid()])
             time.sleep(5)
         return None
+    import atexit
     import os
     env = _boot()
     if env is None:
         np.savez_compressed(args.out, n=0, recs=json.dumps([]))
         print(f"[w{args.port}] 环境两次启动失败,空产出退出", flush=True)
         return
+    # JVM 收尾保证:干净 close() 零泄漏(实测),但异常/中途退出会漏整棵 gradle+fabric
+    # 子树(gradle daemon 脱离进程组持久化)→ atexit 兜底,大规模串行不再累积孤儿
+    _done = []
+
+    def _shutdown():
+        if _done:
+            return
+        _done.append(1)
+        try:
+            env.close()
+        except Exception:
+            pass
+    atexit.register(_shutdown)
     noop = no_op_v2()
     env.reset()
     rollouts = []
@@ -137,9 +153,9 @@ def main():
             sp, _, text = brain.plan("raw_iron", inv & PLAN_ITEMS)
             first = sp[0] if sp else ""
             gc = ITEM2CLS.get(first, "")
-            gc = gc if gc in CLASSES else "iron_ore"
+            gc = gc if gc in WOOD_CLASSES else "iron_ore"
             plan_log.append([t, sorted(inv & PLAN_ITEMS), sp, text[:2000]])
-            return first, CLASSES.index(gc)
+            return first, WOOD_CLASSES.index(gc)
 
         inv0 = env_inventory(obs["full"])
         first, gcls = _replan(inv0, 0)
@@ -156,7 +172,7 @@ def main():
             T["pose"].append([float(pose[0]), float(pose[1]), float(pose[2])])
             ev["explored"].add((int(pose[0]) // 4, int(pose[2]) // 4))
             _xyz, key, dist = _ray(obs["full"])
-            if "iron_ore" in key and 0 < dist <= 5.5:      # 挖掘闩锁(不进损失)
+            if ("iron_ore" in key or "log" in key) and 0 < dist <= 5.5:  # 挖掘闩锁(iron/log;不进损失)
                 a = dict(noop)
                 a["attack"] = True
                 if t % 10 == 0:
@@ -218,7 +234,7 @@ def main():
                      steps=t + 1, success=bool(ev["success"]))))
         print(f"[w{args.port}] ep{ep} steps={t+1} ms={sorted(ev['inv_events'])} "
               f"lock={ev['iron_lock_steps']} exp={len(ev['explored'])}", flush=True)
-    env.close()
+    _shutdown()
     np.savez_compressed(args.out,
                         n=len(rollouts),
                         recs=json.dumps([r["rec"] for r in rollouts]),

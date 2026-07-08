@@ -135,12 +135,16 @@ def main():
         goal_cls = goal_cls if goal_cls in CLASSES else "iron_ore"
         gcls = CLASSES.index(goal_cls)
         rgb = as_hwc(obs["rgb"])
-        T = dict(toks=[], prev0=[], cam=[], keys=[], macro=[])
-        ev = dict(inv_events=set(), iron_lock_steps=0, declared_goal=first,
-                  goal_consistent_steps=0, explored=set(), success=False)
+        T = dict(toks=[], prev0=[], cam=[], keys=[], macro=[], vis=[], pose=[],
+                 frames=[])
+        frame_every = max(args.max_steps // 8, 1)
+        ev = dict(inv_events=set(), inv_steps={}, iron_lock_steps=0,
+                  declared_goal=first, goal_consistent_steps=0, explored=set(),
+                  success=False)
         streak = 0
         for t in range(args.max_steps):
             pose = _pose(obs["full"])
+            T["pose"].append([float(pose[0]), float(pose[1]), float(pose[2])])
             ev["explored"].add((int(pose[0]) // 4, int(pose[2]) // 4))
             _xyz, key, dist = _ray(obs["full"])
             if "iron_ore" in key and 0 < dist <= 5.5:      # 挖掘闩锁(不进损失)
@@ -165,13 +169,18 @@ def main():
             if not mac:
                 T["cam"].append(cb)
                 T["keys"].append(kp)
+                T["vis"].append(bool(vis))
             T["macro"].append(mac)
             obs, *_ = env.step(a)
             rgb = as_hwc(obs["rgb"])
+            if t % frame_every == 0 and len(T["frames"]) < 8:
+                T["frames"].append(rgb[::4, ::4].copy())   # 低清联络表帧给判官
             if t % 10 == 0:
                 inv = env_inventory(obs["full"])
                 for pat, name in MS_ITEM:
                     if any(pat in i for i in inv):
+                        if name not in ev["inv_events"]:
+                            ev["inv_steps"][name] = t
                         ev["inv_events"].add(name)
                 if inv & IRON_ITEMS:
                     ev["success"] = True
@@ -180,7 +189,11 @@ def main():
             toks=np.array(T["toks"], np.float32),
             cam=np.array(T["cam"], np.int64),
             keys=np.array(T["keys"], bool),
+            vis=np.array(T["vis"], bool),
+            pose=np.array(T["pose"], np.float32),
+            frames=np.array(T["frames"], np.uint8),
             rec=dict(seed=args.world_seed, inv_events=sorted(ev["inv_events"]),
+                     inv_steps=ev["inv_steps"],
                      iron_lock_steps=int(ev["iron_lock_steps"]),
                      declared_goal=ev["declared_goal"],
                      goal_consistent_steps=int(ev["goal_consistent_steps"]),
@@ -194,7 +207,10 @@ def main():
                         recs=json.dumps([r["rec"] for r in rollouts]),
                         **{f"toks{i}": r["toks"] for i, r in enumerate(rollouts)},
                         **{f"cam{i}": r["cam"] for i, r in enumerate(rollouts)},
-                        **{f"keys{i}": r["keys"] for i, r in enumerate(rollouts)})
+                        **{f"keys{i}": r["keys"] for i, r in enumerate(rollouts)},
+                        **{f"vis{i}": r["vis"] for i, r in enumerate(rollouts)},
+                        **{f"pose{i}": r["pose"] for i, r in enumerate(rollouts)},
+                        **{f"frames{i}": r["frames"] for i, r in enumerate(rollouts)})
     print(f"[w{args.port}] DONE → {args.out}", flush=True)
 
 

@@ -128,19 +128,25 @@ def main():
         for _ in range(10):
             obs, *_ = env.step(noop)
         student.reset()
+        PLAN_ITEMS = {"log", "planks", "wooden_pickaxe", "cobblestone",
+                      "stone_pickaxe", "raw_iron", "crafting_table", "stick"}
+
+        def _replan(inv, t):
+            sp, _, _ = brain.plan("raw_iron", inv & PLAN_ITEMS)
+            first = sp[0] if sp else ""
+            gc = ITEM2CLS.get(first, "")
+            gc = gc if gc in CLASSES else "iron_ore"
+            return first, CLASSES.index(gc)
+
         inv0 = env_inventory(obs["full"])
-        steps_plan, _, _ = brain.plan("raw_iron", inv0 & {"stone_pickaxe", "raw_iron"})
-        first = steps_plan[0] if steps_plan else ""
-        goal_cls = ITEM2CLS.get(first, "")
-        goal_cls = goal_cls if goal_cls in CLASSES else "iron_ore"
-        gcls = CLASSES.index(goal_cls)
+        first, gcls = _replan(inv0, 0)
         rgb = as_hwc(obs["rgb"])
         T = dict(toks=[], prev0=[], cam=[], keys=[], macro=[], vis=[], pose=[],
                  frames=[])
         frame_every = max(args.max_steps // 8, 1)
         ev = dict(inv_events=set(), inv_steps={}, iron_lock_steps=0,
                   declared_goal=first, goal_consistent_steps=0, explored=set(),
-                  success=False)
+                  success=False, goal_log=[[0, first]])
         streak = 0
         for t in range(args.max_steps):
             pose = _pose(obs["full"])
@@ -177,11 +183,18 @@ def main():
                 T["frames"].append(rgb[::4, ::4].copy())   # 低清联络表帧给判官
             if t % 10 == 0:
                 inv = env_inventory(obs["full"])
+                new_ms = False
                 for pat, name in MS_ITEM:
                     if any(pat in i for i in inv):
                         if name not in ev["inv_events"]:
                             ev["inv_steps"][name] = t
+                            new_ms = True
                         ev["inv_events"].add(name)
+                if new_ms:                       # 背包有新里程碑→慢塔重规划换目标
+                    first, gcls = _replan(inv, t)
+                    if first != ev["goal_log"][-1][1]:
+                        ev["goal_log"].append([t, first])
+                    ev["declared_goal"] = first
                 if inv & IRON_ITEMS:
                     ev["success"] = True
                     break
@@ -193,7 +206,7 @@ def main():
             pose=np.array(T["pose"], np.float32),
             frames=np.array(T["frames"], np.uint8),
             rec=dict(seed=args.world_seed, inv_events=sorted(ev["inv_events"]),
-                     inv_steps=ev["inv_steps"],
+                     inv_steps=ev["inv_steps"], goal_log=ev["goal_log"],
                      iron_lock_steps=int(ev["iron_lock_steps"]),
                      declared_goal=ev["declared_goal"],
                      goal_consistent_steps=int(ev["goal_consistent_steps"]),

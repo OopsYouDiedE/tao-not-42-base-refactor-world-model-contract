@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """GRPO-R2:判官打分版驱动器(用户 07-08 定案)。
 
-相对优势不再用程序统计——需要更稠密的奖励且防刷分:每组 rollout 的
-证据(图8帧联络表+行为文本)交外部强 LLM(Haiku)打 0-10 过程分,组内
-z 归一化当优势。锚点=先拿到木头(log),0=瘫痪…7=原木…10=铁。
-机器统计降级为喂判官的证据;可见性指标标注"可刷,仅参考"。
-判官两次解析失败→回退里程碑机器分(只算背包事件,不含可刷项)并记 flag。
+相对优势不再用程序统计——需要更稠密的奖励且防刷分。判官形式=用户
+定案的比较制:4 条 rollout 放一块(联络表图+行为文本)交 Haiku 从好到
+差排名(允许并列),名次取负当分数、块内 z 归一化当优势——与考卷验证过
+的判官能力(配对比较 20/20)同构,免绝对打分的校准漂移。锚点=先拿到
+木头(log)。机器统计降级为证据;可见性指标标注"可刷,仅参考"。
+判官两轮失败的块→回退里程碑机器分(只算背包事件,不含可刷项)并记数。
 """
 import argparse
 import json
@@ -25,16 +26,13 @@ OUT = "runs/grpo_r2"
 FWD, ATK = 0, 7                                       # V2_KEYS 索引
 
 RUBRIC = """任务背景:智能体在 Minecraft 生存模式里的长程任务是独立获得铁。当前训练锚点:先拿到木头(原木)。
-下面每条是一次尝试的证据:一张 8 帧时间均匀抽样的联络表图(按先后从左到右、上到下)+行为统计文本。
-给每条打 0-10 过程分(可用一位小数),判据是向"拿到木头→镐→铁"推进的真实进度与意图质量:
-- 0 = 全程瘫痪(不移动不按键)
-- 1~3 = 有动作但无方向(原地打转、乱跳、无目标游走)
-- 4~6 = 有目标性:持续朝树木接近、对树攻击、路线明确
-- 7 = 拿到原木;8 = 进一步合成木板;9 = 木镐/圆石/石镐;10 = 拿到铁
+下面几条是同一世界、同一策略的并行尝试,每条证据=一张 8 帧时间均匀抽样的联络表图(按先后从左到右、上到下)+行为统计文本。
+把它们按"向拿到木头→镐→铁推进的真实进度与意图质量"从好到差排名,参考阶梯:
+瘫痪(不移动不按键) < 有动作但无方向(原地打转、乱跳、无目标游走) < 有目标性(持续朝树木接近、对树攻击、路线明确) < 拿到原木 < 木板 < 木镐/圆石/石镐 < 拿到铁
 防刷分警告:文本里的"目标可见步数"可以靠原地乱转刷高,不可单独作为进度证据;必须结合图中场景与移动/攻击行为判断。图文矛盾时以图为准。
-同水平允许同分,不要为拉开差距而编造。
+最好=名次1。真分不出高下的允许并列(同名次),不要为拉开差距而编造。
 先用 Read 工具逐张读取下面列出的联络表图,再逐条作答。
-输出格式严格为每行一条『第N条: X』(X 为 0-10 数字),不输出其他内容。"""
+输出格式严格为每行一条『第N条: 名次X』(X 为数字),不输出其他内容。"""
 
 
 def contact_sheet(frames, path):
@@ -63,7 +61,9 @@ def evidence_text(r):
             f"攻击键占比 {float(keys[:, ATK].mean()) if len(keys) else 0:.2f};"
             f"目标可见且同时前进/攻击占比 {coupled:.2f};"
             f"纯目标可见步数 {rec['goal_consistent_steps']}(可刷指标,仅参考);"
-            f"宣告子目标『{rec['declared_goal']}』" +
+            f"慢塔目标轨迹(查背包后重规划):" +
+            "→".join(f"第{s}步『{gl}』" for s, gl in
+                     rec.get("goal_log", [[0, rec["declared_goal"]]])) +
             (";已拿到铁" if rec.get("success") else ""))
 
 
@@ -72,29 +72,64 @@ def fallback_score(rec):
     return len(rec["inv_events"]) + (4.0 if rec.get("success") else 0.0)
 
 
-def judge_group(g, rolls):
+def _chunk_prompt(g, ci, ch, rolls):
     lines = []
-    for i, r in enumerate(rolls):
-        img = os.path.abspath(f"{OUT}/g{g}_r{i}.png")
-        contact_sheet(r["frames"], img)
-        lines.append(f"### 第{i}条\n联络表图:{img}\n{evidence_text(r)}")
+    for j, ri in enumerate(ch):
+        img = os.path.abspath(f"{OUT}/g{g}_r{ri}.png")
+        contact_sheet(rolls[ri]["frames"], img)
+        lines.append(f"### 第{j}条\n联络表图:{img}\n{evidence_text(rolls[ri])}")
     prompt = RUBRIC + "\n\n" + "\n".join(lines)
-    open(f"{OUT}/g{g}_judge_prompt.txt", "w").write(prompt)
+    open(f"{OUT}/g{g}_judge_prompt_c{ci}.txt", "w").write(prompt)
+    return prompt
+
+
+def _parse_ranks(out, k):
+    got = {int(m.group(1)): float(m.group(2)) for m in
+           re.finditer(r"第\s*(\d+)\s*条\s*[:：]\s*名次\s*([\d.]+)", out)}
+    return got if len(got) == k and set(got) == set(range(k)) else None
+
+
+def judge_group(g, rolls):
+    """4条一组比较排名(用户定案),块内名次取负→z归一化优势;并行调判官。"""
+    idx = list(range(len(rolls)))
+    np.random.default_rng(1000 + g).shuffle(idx)
+    chunks = [idx[i:i + 4] for i in range(0, len(idx), 4)]
+    if len(chunks) > 1 and len(chunks[-1]) < 3:
+        chunks[-2].extend(chunks.pop())
+    prompts = [_chunk_prompt(g, ci, ch, rolls) for ci, ch in enumerate(chunks)]
+
+    ranks = [None] * len(chunks)
     for att in range(2):
-        try:
-            out = subprocess.run(
-                ["claude", "-p", "--model", "haiku"], input=prompt,
-                capture_output=True, text=True, timeout=600).stdout
-        except subprocess.TimeoutExpired:
-            continue
-        open(f"{OUT}/g{g}_judge_reply.txt", "w").write(out)
-        got = {int(m.group(1)): float(m.group(2)) for m in
-               re.finditer(r"第\s*(\d+)\s*条\s*[:：]\s*([\d.]+)", out)}
-        if len(got) == len(rolls):
-            return [got[i] for i in range(len(rolls))], False
-        print(f"[g{g}] 判官解析 {len(got)}/{len(rolls)},重试 att{att}", flush=True)
-    print(f"[g{g}] 判官两次失败→回退里程碑机器分", flush=True)
-    return [fallback_score(r["rec"]) for r in rolls], True
+        todo = [ci for ci in range(len(chunks)) if ranks[ci] is None]
+        procs = {ci: subprocess.Popen(
+            ["claude", "-p", "--model", "haiku", prompts[ci]],
+            stdout=open(f"{OUT}/g{g}_judge_reply_c{ci}.txt", "w"),
+            stderr=subprocess.DEVNULL) for ci in todo}
+        t0 = time.time()
+        while time.time() - t0 < 480 and any(p.poll() is None for p in procs.values()):
+            time.sleep(5)
+        for ci, p in procs.items():
+            if p.poll() is None:
+                p.kill()
+            out = open(f"{OUT}/g{g}_judge_reply_c{ci}.txt").read()
+            ranks[ci] = _parse_ranks(out, len(chunks[ci]))
+        if all(r is not None for r in ranks):
+            break
+
+    adv = np.zeros(len(rolls))
+    meta = dict(chunks=[[int(i) for i in ch] for ch in chunks],
+                ranks=[], fallback_chunks=0)
+    for ci, ch in enumerate(chunks):
+        if ranks[ci] is not None:
+            sc = [-ranks[ci][j] for j in range(len(ch))]
+        else:
+            meta["fallback_chunks"] += 1
+            sc = [fallback_score(rolls[ri]["rec"]) for ri in ch]
+        meta["ranks"].append([round(float(s), 2) for s in sc])
+        a = group_advantage(sc)
+        for j, ri in enumerate(ch):
+            adv[ri] = a[j]
+    return adv, meta
 
 
 def run_group(g, seed_rng, ckpt, args):
@@ -159,8 +194,7 @@ def main():
         if not rolls:
             print(f"[g{g}] 无 rollout 产出,跳过", flush=True)
             continue
-        scores, fb = judge_group(g, rolls)
-        adv = group_advantage(scores)
+        adv, jmeta = judge_group(g, rolls)
         loss = update(student, opt, rolls, adv)
         ckpt = f"{OUT}/student.pt"
         torch.save(dict(tower=student.tower.state_dict(), cfg=ck0["cfg"],
@@ -168,9 +202,9 @@ def main():
         wood = float(np.mean([1.0 if "log" in r["rec"]["inv_events"] else 0.0
                               for r in rolls]))
         m = dict(group=g, world_seed=wseed, n=len(rolls),
-                 judge_scores=[round(float(s), 2) for s in scores],
-                 judge_fallback=fb,
-                 score_var=round(float(np.var(scores)), 4),
+                 judge_chunks=jmeta["chunks"], judge_ranks=jmeta["ranks"],
+                 fallback_chunks=jmeta["fallback_chunks"],
+                 adv_var=round(float(np.var(adv)), 4),
                  wood_rate=round(wood, 3),
                  milestones={k: sum(1 for r in rolls if k in r["rec"]["inv_events"])
                              for k in ["log", "planks", "wooden_pickaxe",

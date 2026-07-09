@@ -362,3 +362,68 @@ Minecraft 本身 20 tick/s，渲染不是瓶颈。换 GPU 还会与 vLLM 争那 
 - `tests/probe_omni_pointing.py` —— 像素坐标约定与指点精度标定（换模型必跑）。
 - `tests/probe_omni_minecraft_control.py` —— v1（离散索引），保留作反面对照。
 - `docs/results/omni_mc_control/` —— 各臂 summary + 最终帧。
+
+## 2026-07-09（Vast 5090，会话 1 续 2：慢塔接线 + 三次评价体系翻车）
+
+### 教训:我连续三次用手工设计的奖励代理,而这正是 GRPO-判官范式要消灭的东西
+
+用户三次纠正,每次我都在犯同一类错:
+
+1. **像素直控 Minecraft(v1)**:用 27 维离散索引 + 无历史。模型锁死在 `[13,13,9,1,9]`。
+   → 用户指出应照 Lumine 做(语言原生动作 + 历史)。
+2. **慢塔指点体检(v1)**:我在 system prompt 里给了**带具体坐标的示例**
+   `{"subgoal": "chop the nearest tree", "aim": [430, 560]}`。模型 16 次里抄了 6 次。
+   我还把 `leaves` 算成"命中树",报出 `tree_hit_rate = 0.75`。
+   → **对照臂拆穿**:恒定复读 `[430,560]` 也是 0.75;随机瞄准在这个烂指标上甚至有 0.438,
+   **比慢塔还高**(黑橡木林树冠铺满画面)。删掉示例、改测树干命中后:
+   慢塔 **5/16 = 0.312**,恒定 **0/16**,随机 **0/16**(Fisher p≈0.04)。地基成立,但只有 31%。
+   顺带发现另一个公平性 bug:random 臂与慢塔臂共用同一个 rng,**看到的画面序列不同**,三臂不可比。
+3. **改用 `trunk_hit_rate` 作主指标**——用户直接否掉:"我不是让你用 haiku 做老师吗?
+   那就告诉说,哪个轨迹做的更多哪个更好。"
+   → `grpo_r2.py` 开篇就写着「相对优势**不再用程序统计**」。手工命中率与手工进度分是同一类错误。
+   **规范:判官排序给稠密优势;里程碑(inv_events)只作不可刷的汇报锚点,不进训练信号。**
+
+### 判官 I/O 体检(tests/probe_judge_io_haiku.py,真 Haiku,不需要权重)
+- 契约通过:`parse_ok_rate = 1.00`,排名与构造的质量阶梯一致。
+- **脆弱点**:`claude -p` 的 Read 权限取决于图片路径是否在**工作区内**。
+  `grpo_r2.OUT = "runs/grpo_r2"` 是相对路径 ⇒ 换 cwd 启动会被拒,判官静默退化为
+  `fallback_score`(只数背包事件),而 `fallback_chunks` 只是计数器、不会让 run 失败。
+  我最初把 OUT 设到 `/tmp` 复现了这个失败(Haiku 回"等待权限授权以读取图像文件")。
+- **判官不会说"分不出高下"**:4 条证据文本完全相同、图上只是无意义色块(黑/红/绿/蓝),
+  它仍编造语义("绿色=正向反馈信号")并给出严格全序。⇒ 判官会把噪声当信号,
+  `adv_var` 大不代表学到东西。建议 R2 加一条"同轨迹不同渲染"的对照组测幻觉率。
+
+### 读代码发现:现行 GRPO 更新里慢塔是断的
+`train/fovea_twotower/grpo_r1.py::update`:
+```python
+g = torch.zeros(1, 1, device=dev)     # goal 向量喂零
+prev[1:, 0] = 0.0                     # prev_action 全零
+```
+⇒ **即使慢塔给出完美指示,梯度里也没有它。** 新实现 `train/craftground/grpo_pixel.py`
+把 goal/prev 真正接进前向。(`adv*(CE+BCE)` 的形式本身没问题:CE 打在采样 bin 上
+= `-log π(a)`,所以它是正确的 REINFORCE。)
+
+### 按"苦涩的教训"裁决退役的组件
+`g1_conv_head_v7b_wood.pt`(手标 log/iron/coal/dirt 分割头)、`g1_vectors.pt`(类向量 bank)、
+`wood.py::wood_label_img`(8 角凸包造树干 GT)、`net/fovea_twotower/token_stream.py`
+(YOLOE 解析槽位)、`net/bc/policy.py`(冻结 DINOv3 + BC)。
+R-A 那一轮"扩类校准 → log mIoU 0.322 → 闭环 wood_rate 仍为 0"正是该教训的实例:
+人力压进感知先验,最终卡在执行层。
+
+### 环境
+- `venv-mc` 补装 torch 2.11.0+cu129(原为 CPU 版)+ sentence-transformers;
+  `/venv/main`(vLLM)不动。两者 `cuda_avail=True`。
+- Omni 慢塔以 `GPU_UTIL=0.85 MAXLEN=8192` 常驻(26.7/32.6 GB),给快塔留 ~5.9GB。
+  0.78 会因 KV 无空间而 `No available memory for the cache blocks` 启动失败。
+- **并行环境扩展性(决定 --par,也回答"要不要 GPU 渲染")**:
+  llvmpipe 软渲,默认世界(森林):par=1 → 15.2 tick/s;par=2 → 每环境 15.4-16.1(合计 31.5);
+  par=4 → 每环境 16.0-20.0(合计 69.1)。**每环境不掉速、总吞吐线性**,224 核未饱和。
+  ⇒ 当前不需要 GPU 渲染。**更正**:早先"38.7 tick/s,2× 实时"是在**超平坦**世界测的,
+  真实森林只有 15.2 —— 拿超平坦外推真实世界是错的。
+
+### 新增(未冒烟,仅结构落盘)
+- `net/pixel_tower.py` —— 从零像素快塔(conv stem + 因果 Transformer + FiLM goal 条件)。
+- `train/craftground/grpo_pixel.py` —— 规范实现:Omni 慢塔 1Hz 文本指示 + Haiku 判官排序
+  + `group_advantage` + REINFORCE。里程碑只作汇报锚点。
+- `tests/probe_slow_tower_aim.py` —— 慢塔指点体检(三臂对照,主指标已按用户裁决重定)。
+- `tests/probe_judge_io_haiku.py` —— 判官 I/O 契约体检(真 Haiku,零权重依赖)。

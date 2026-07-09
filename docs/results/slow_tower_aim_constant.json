@@ -1,0 +1,252 @@
+{
+  "arm": "constant",
+  "trials": 16,
+  "world_seed": "42",
+  "tree_hit_rate": 0.25,
+  "trunk_hit_rate": 0.0,
+  "distinct_aims": 1,
+  "copied_prompt_example": 16,
+  "mean_latency_s": null,
+  "steps": [
+    {
+      "trial": 0,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dark_oak_log",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 1,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dark_oak_leaves",
+      "ray_after": "dark_oak_leaves",
+      "tree_hit": true,
+      "trunk_hit": false
+    },
+    {
+      "trial": 2,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 3,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 4,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "dirt",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 5,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 6,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 7,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "dirt",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 8,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "dirt",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 9,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dark_oak_leaves",
+      "ray_after": "dark_oak_leaves",
+      "tree_hit": true,
+      "trunk_hit": false
+    },
+    {
+      "trial": 10,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dark_oak_log",
+      "ray_after": "dark_oak_leaves",
+      "tree_hit": true,
+      "trunk_hit": false
+    },
+    {
+      "trial": 11,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "dirt",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 12,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dark_oak_leaves",
+      "ray_after": "dark_oak_leaves",
+      "tree_hit": true,
+      "trunk_hit": false
+    },
+    {
+      "trial": 13,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "grass_block",
+      "ray_after": "dirt",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 14,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 15,
+      "subgoal": "<const=prompt example>",
+      "aim": [
+        430.0,
+        560.0
+      ],
+      "raw": "",
+      "dyaw": -9.9,
+      "dpitch": 4.8,
+      "ray_before": "dirt",
+      "ray_after": "dirt",
+      "tree_hit": false,
+      "trunk_hit": false
+    }
+  ]
+}

@@ -1,0 +1,252 @@
+{
+  "arm": "slow_tower",
+  "trials": 16,
+  "world_seed": "42",
+  "tree_hit_rate": 0.312,
+  "trunk_hit_rate": 0.312,
+  "distinct_aims": 10,
+  "copied_prompt_example": 0,
+  "mean_latency_s": 0.29,
+  "steps": [
+    {
+      "trial": 0,
+      "subgoal": "break dirt block",
+      "aim": [
+        500.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"break dirt block\", \"aim\": [500, 500]}",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 1,
+      "subgoal": "break dirt block",
+      "aim": [
+        406.0,
+        528.0
+      ],
+      "raw": "{\"subgoal\": \"break dirt block\", \"aim\": [406, 528]}",
+      "dyaw": -13.2,
+      "dpitch": 2.2,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 2,
+      "subgoal": "get wood",
+      "aim": [
+        500.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [500, 500]}",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 3,
+      "subgoal": "get wood",
+      "aim": [
+        495.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [495, 500]}",
+      "dyaw": -0.7,
+      "dpitch": 0.0,
+      "ray_before": "dark_oak_log",
+      "ray_after": "dark_oak_log",
+      "tree_hit": true,
+      "trunk_hit": true
+    },
+    {
+      "trial": 4,
+      "subgoal": "get wood",
+      "aim": [
+        450.0,
+        480.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [450, 480]}",
+      "dyaw": -7.1,
+      "dpitch": -1.6,
+      "ray_before": "stone",
+      "ray_after": "stone",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 5,
+      "subgoal": "look at tree",
+      "aim": [
+        495.0,
+        495.0
+      ],
+      "raw": "{\"subgoal\": \"look at tree\", \"aim\": [495, 495]}",
+      "dyaw": -0.7,
+      "dpitch": -0.4,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 6,
+      "subgoal": "get wood",
+      "aim": [
+        300.0,
+        400.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [300, 400]}",
+      "dyaw": -26.5,
+      "dpitch": -8.0,
+      "ray_before": "grass_block",
+      "ray_after": "dark_oak_log",
+      "tree_hit": true,
+      "trunk_hit": true
+    },
+    {
+      "trial": 7,
+      "subgoal": "break wood block",
+      "aim": [
+        500.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"break wood block\", \"aim\": [500, 500]}",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 8,
+      "subgoal": "get wood",
+      "aim": [
+        250.0,
+        400.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [250, 400]}",
+      "dyaw": -31.9,
+      "dpitch": -8.0,
+      "ray_before": "grass_block",
+      "ray_after": "dark_oak_log",
+      "tree_hit": true,
+      "trunk_hit": true
+    },
+    {
+      "trial": 9,
+      "subgoal": "break wood block",
+      "aim": [
+        475.0,
+        531.0
+      ],
+      "raw": "{\"subgoal\": \"break wood block\", \"aim\": [475, 531]}",
+      "dyaw": -3.6,
+      "dpitch": 2.5,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 10,
+      "subgoal": "break dirt block",
+      "aim": [
+        500.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"break dirt block\", \"aim\": [500, 500]}",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 11,
+      "subgoal": "get wood",
+      "aim": [
+        250.0,
+        400.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [250, 400]}",
+      "dyaw": -31.9,
+      "dpitch": -8.0,
+      "ray_before": "grass_block",
+      "ray_after": "dark_oak_log",
+      "tree_hit": true,
+      "trunk_hit": true
+    },
+    {
+      "trial": 12,
+      "subgoal": "break dirt block",
+      "aim": [
+        500.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"break dirt block\", \"aim\": [500, 500]}",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "ray_before": "grass_block",
+      "ray_after": "grass_block",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 13,
+      "subgoal": "get wood",
+      "aim": [
+        100.0,
+        600.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [100, 600]}",
+      "dyaw": -44.9,
+      "dpitch": 8.0,
+      "ray_before": "stone",
+      "ray_after": "sand",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 14,
+      "subgoal": "get wood",
+      "aim": [
+        495.0,
+        483.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [495, 483]}",
+      "dyaw": -0.7,
+      "dpitch": -1.4,
+      "ray_before": "dirt",
+      "ray_after": "stone",
+      "tree_hit": false,
+      "trunk_hit": false
+    },
+    {
+      "trial": 15,
+      "subgoal": "get wood",
+      "aim": [
+        500.0,
+        500.0
+      ],
+      "raw": "{\"subgoal\": \"get wood\", \"aim\": [500, 500]}",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "ray_before": "dark_oak_log",
+      "ray_after": "dark_oak_log",
+      "tree_hit": true,
+      "trunk_hit": true
+    }
+  ]
+}

@@ -1,0 +1,1388 @@
+{
+  "arm": "lumine_pixel_v2",
+  "aim": "pixel",
+  "assist_tilt": 0.0,
+  "temperature": 0.6,
+  "greedy": false,
+  "history_mode": "sliding_4",
+  "decisions": 40,
+  "chunk_ticks": 5,
+  "nominal_fps": 4,
+  "latency_s": {
+    "mean": 0.334,
+    "p50": 0.329,
+    "p90": 0.342
+  },
+  "realtime_budget_s": 0.25,
+  "realtime_feasible": false,
+  "malformed": 0,
+  "well_formed_rate": 1.0,
+  "thought_rate": 0.0,
+  "blocks_placed": 3,
+  "cobblestone_around_player": 0,
+  "final_pitch": 90.0,
+  "rmb_ticks": 80,
+  "distinct_actions": 1,
+  "steps": [
+    {
+      "decision": 0,
+      "latency_s": 0.605,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 15.5,
+      "ray_targets": [
+        "-",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 1,
+      "latency_s": 0.253,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 31.1,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 2,
+      "latency_s": 0.343,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 1,
+      "around": 0,
+      "pitch": 46.7,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 3,
+      "latency_s": 0.335,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 2,
+      "around": 0,
+      "pitch": 62.3,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 4,
+      "latency_s": 0.365,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 77.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 5,
+      "latency_s": 0.342,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 6,
+      "latency_s": 0.342,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 7,
+      "latency_s": 0.34,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 8,
+      "latency_s": 0.327,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 9,
+      "latency_s": 0.335,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 10,
+      "latency_s": 0.33,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 11,
+      "latency_s": 0.329,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 12,
+      "latency_s": 0.32,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 13,
+      "latency_s": 0.339,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 14,
+      "latency_s": 0.314,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 15,
+      "latency_s": 0.322,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 16,
+      "latency_s": 0.326,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 17,
+      "latency_s": 0.314,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 18,
+      "latency_s": 0.311,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 19,
+      "latency_s": 0.319,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 20,
+      "latency_s": 0.32,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 21,
+      "latency_s": 0.331,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 22,
+      "latency_s": 0.316,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 23,
+      "latency_s": 0.318,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 24,
+      "latency_s": 0.328,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 25,
+      "latency_s": 0.331,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 26,
+      "latency_s": 0.322,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 27,
+      "latency_s": 0.333,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 28,
+      "latency_s": 0.329,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 29,
+      "latency_s": 0.325,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 30,
+      "latency_s": 0.325,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 31,
+      "latency_s": 0.339,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 32,
+      "latency_s": 0.323,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 33,
+      "latency_s": 0.332,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 34,
+      "latency_s": 0.317,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 35,
+      "latency_s": 0.326,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 36,
+      "latency_s": 0.329,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 37,
+      "latency_s": 0.334,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 38,
+      "latency_s": 0.328,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 39,
+      "latency_s": 0.329,
+      "raw": "<action>500 700 ; RMB ; - ; D ; D ; RMB</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 15.646656993997006,
+      "chunks": [
+        [
+          "RMB"
+        ],
+        [],
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [
+          "RMB"
+        ]
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 0,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    }
+  ]
+}

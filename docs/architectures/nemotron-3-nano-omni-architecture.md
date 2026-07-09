@@ -8,8 +8,11 @@ metadata:
 # Nemotron-3-Nano-Omni 架构分析(慢系统生产候选)
 
 **技术报告**: arXiv:2604.24954(2026-04)
-**权重**: HF `nvidia/NVIDIA-Nemotron-3-Nano-Omni`(BF16/FP8/NVFP4),许可 CC BY 4.0
+**权重**: HF `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-{BF16,FP8,NVFP4}`,
+许可 **NVIDIA Open Model Agreement**(非 CC BY 4.0;2026-07-09 核对 model card)
 **定位(本项目)**: 双系统嵌合线慢系统 VLM worker 的生产候选(见 knowledge/design_llm_deep_integration.md)
+**实测**: 单卡 RTX 5090 原生加载跑通,见 knowledge/conclusion_omni_nvfp4_5090.md;
+零样本像素直控失败,见 knowledge/conclusion_omni_pixel_control.md
 
 ## 1. 骨干:52 层混合 Mamba-MoE(与文本版 Nemotron-3-Nano 同构,无结构改动)
 
@@ -39,6 +42,12 @@ y_t = C_t^T H_t
 router 对 128 专家打分取 top-6 + 恒选共享专家;负载均衡辅助损失防塌缩。
 逐 token 知识变换,不参与序列混合。量化部署:路由专家 NVFP4、共享专家/注意力 FP8
 (整机 4.98 bit/权重,中位精度损失 <1%)。
+
+> **2026-07-09 张量级核实(conclusion_omni_nvfp4_5090.md §2)**:此处描述正确,但要补一句关键的——
+> **Mamba 本体没有被 4bit 化**。`in_proj`/`out_proj` 是 FP8,而 `A_log`/`D`/`conv1d`/`dt_bias`
+> **保持 BF16**。NVFP4 只落在 5888 个 MoE 专家张量上(U8 打包 E2M1 + FP8 块缩放 gs=16 + FP32 全局)。
+> 专家占 LLM 参数 ~93%,62GB→21GB 全靠它。实测整机 5.14 bit/param(含 BF16 编码器与 embedding);
+> 4.98 bit 那个数只算被量化的骨干,两者不矛盾。
 
 ## 2. 多模态输入路径(全部在 token 化层,时序交错拼接进同一序列)
 

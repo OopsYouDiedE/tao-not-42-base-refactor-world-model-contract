@@ -1,0 +1,717 @@
+{
+  "arm": "vlm",
+  "decisions": 30,
+  "chunk": 5,
+  "nominal_fps": 4,
+  "vlm_latency_s": {
+    "mean": 0.273,
+    "p50": 0.208,
+    "p90": 0.23
+  },
+  "realtime_budget_s": 0.25,
+  "realtime_feasible": true,
+  "malformed_outputs": 0,
+  "well_formed_rate": 1.0,
+  "blocks_placed": 3,
+  "cobblestone_around_player": 1,
+  "final_pitch": 90.0,
+  "action_histogram": {
+    "1": 45,
+    "4": 5,
+    "9": 60,
+    "13": 40
+  },
+  "place_action_share": 0.4,
+  "steps": [
+    {
+      "decision": 0,
+      "vlm_latency_s": 0.654,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 14.9,
+      "ray_targets": [
+        "-",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 1,
+      "vlm_latency_s": 0.242,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 1,
+      "around": 0,
+      "pitch": 29.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 2,
+      "vlm_latency_s": 0.229,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 2,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 3,
+      "vlm_latency_s": 0.218,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 59.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 4,
+      "vlm_latency_s": 0.212,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 74.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 5,
+      "vlm_latency_s": 0.201,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 89.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 6,
+      "vlm_latency_s": 0.199,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 7,
+      "vlm_latency_s": 0.201,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 8,
+      "vlm_latency_s": 0.201,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 9,
+      "vlm_latency_s": 0.227,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 10,
+      "vlm_latency_s": 0.21,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 11,
+      "vlm_latency_s": 0.216,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 12,
+      "vlm_latency_s": 0.199,
+      "raw": "[13, 4, 9, 1, 9]",
+      "actions": [
+        13,
+        4,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 13,
+      "vlm_latency_s": 0.22,
+      "raw": "[13, 4, 9, 1, 9]",
+      "actions": [
+        13,
+        4,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 14,
+      "vlm_latency_s": 0.215,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 15,
+      "vlm_latency_s": 0.209,
+      "raw": "[13, 4, 9, 1, 9]",
+      "actions": [
+        13,
+        4,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 16,
+      "vlm_latency_s": 0.205,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 17,
+      "vlm_latency_s": 0.215,
+      "raw": "[13, 4, 9, 1, 9]",
+      "actions": [
+        13,
+        4,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 2,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 18,
+      "vlm_latency_s": 0.203,
+      "raw": "[13, 1, 9, 1, 9]",
+      "actions": [
+        13,
+        1,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 19,
+      "vlm_latency_s": 0.208,
+      "raw": "[13, 4, 9, 1, 9]",
+      "actions": [
+        13,
+        4,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 20,
+      "vlm_latency_s": 0.207,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 21,
+      "vlm_latency_s": 1.661,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 22,
+      "vlm_latency_s": 0.212,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 23,
+      "vlm_latency_s": 0.204,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 24,
+      "vlm_latency_s": 0.208,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 25,
+      "vlm_latency_s": 0.201,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 3,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 26,
+      "vlm_latency_s": 0.208,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 27,
+      "vlm_latency_s": 0.2,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 28,
+      "vlm_latency_s": 0.206,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 29,
+      "vlm_latency_s": 0.204,
+      "raw": "[13, 13, 9, 1, 9]",
+      "actions": [
+        13,
+        13,
+        9,
+        1,
+        9
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 90.0,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    }
+  ]
+}

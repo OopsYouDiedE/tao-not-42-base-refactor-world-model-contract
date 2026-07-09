@@ -1,0 +1,1302 @@
+{
+  "arm": "scripted_oracle",
+  "aim": "degrees",
+  "assist_tilt": 0.0,
+  "temperature": 0.2,
+  "greedy": false,
+  "history_mode": "unbounded",
+  "decisions": 40,
+  "chunk_ticks": 5,
+  "nominal_fps": 4,
+  "latency_s": {
+    "mean": 0.0,
+    "p50": 0.0,
+    "p90": 0.0
+  },
+  "realtime_budget_s": 0.25,
+  "realtime_feasible": true,
+  "malformed": 0,
+  "well_formed_rate": 1.0,
+  "thought_rate": 0.0,
+  "blocks_placed": 39,
+  "cobblestone_around_player": 1,
+  "final_pitch": 44.9,
+  "rmb_ticks": 39,
+  "distinct_actions": 2,
+  "steps": [
+    {
+      "decision": 0,
+      "latency_s": 0.0,
+      "raw": "<action>0 45 ; - ; - ; - ; - ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 45.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 44.9,
+      "ray_targets": [
+        "-",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 1,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 1,
+      "around": 0,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 2,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 2,
+      "around": 0,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 3,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 3,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 4,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 4,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 5,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 5,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 6,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 6,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 7,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 7,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 8,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 8,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 9,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 9,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 10,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 10,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 11,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 11,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 12,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 12,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 13,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 13,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 14,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 14,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 15,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 15,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 16,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 16,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 17,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 17,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 18,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 18,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 19,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 19,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 20,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 20,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 21,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 21,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 22,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 22,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 23,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 23,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 24,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 24,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 25,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 25,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 26,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 26,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 27,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 27,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 28,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 28,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 29,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 29,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 30,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 30,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 31,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 31,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 32,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 32,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 33,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 33,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 34,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 34,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 35,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 35,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 36,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 36,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "grass_block"
+      ]
+    },
+    {
+      "decision": 37,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 37,
+      "around": 2,
+      "pitch": 44.9,
+      "ray_targets": [
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 38,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 38,
+      "around": 3,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone",
+        "cobblestone"
+      ]
+    },
+    {
+      "decision": 39,
+      "latency_s": 0.0,
+      "raw": "<action>0 0 ; D ; D ; - ; RMB ; -</action>",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [
+          "D"
+        ],
+        [
+          "D"
+        ],
+        [],
+        [
+          "RMB"
+        ],
+        []
+      ],
+      "well_formed": true,
+      "placed_total": 39,
+      "around": 1,
+      "pitch": 44.9,
+      "ray_targets": [
+        "cobblestone",
+        "grass_block",
+        "grass_block",
+        "grass_block",
+        "cobblestone"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1064 @@
+{
+  "arm": "lumine_vlm",
+  "history_mode": "unbounded",
+  "decisions": 40,
+  "chunk_ticks": 5,
+  "nominal_fps": 4,
+  "latency_s": {
+    "mean": 2.183,
+    "p50": 0.97,
+    "p90": 1.324
+  },
+  "realtime_budget_s": 0.25,
+  "realtime_feasible": false,
+  "malformed": 40,
+  "well_formed_rate": 0.0,
+  "thought_rate": 0.025,
+  "blocks_placed": 0,
+  "cobblestone_around_player": 0,
+  "final_pitch": 0.0,
+  "rmb_ticks": 0,
+  "distinct_actions": 1,
+  "steps": [
+    {
+      "decision": 0,
+      "latency_s": 33.552,
+      "raw": "<|thought_start|>I need to look down at the ground a couple of blocks ahead to start placing cobblestone blocks. Then I ",
+      "thought": "I need to look down at the ground a couple of blocks ahead to start placing cobblestone blocks. Then I will alternate placing a block and moving slightly to build a small structure.|",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 1,
+      "latency_s": 0.329,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 SPACE ; K2 W ; K3 - - - - ; K4 - - - - ; K'",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 2,
+      "latency_s": 0.346,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 - - - - ; K3 - - - - ; K4 - - - - ; K'",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 3,
+      "latency_s": 0.323,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K'",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 4,
+      "latency_s": 19.352,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K'",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 5,
+      "latency_s": 0.438,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K'",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 6,
+      "latency_s": 0.452,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K'",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 7,
+      "latency_s": 0.444,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K'\"}]",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 8,
+      "latency_s": 0.467,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 9,
+      "latency_s": 1.101,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]'}]",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 10,
+      "latency_s": 0.737,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 11,
+      "latency_s": 0.539,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 12,
+      "latency_s": 0.559,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]'}]",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 13,
+      "latency_s": 0.766,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 14,
+      "latency_s": 0.757,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\'\"}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}]'}",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 15,
+      "latency_s": 0.834,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\'\"}]\\'}]\\'}]\\'}]\\'}]\\'}]\\'}]\\'}]\\'}]\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 16,
+      "latency_s": 0.888,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\'\"}]\\\\\\'}]\\\\\\'}]\\\\\\'}]\\\\\\'}]\\\\\\'}",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 17,
+      "latency_s": 0.862,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 18,
+      "latency_s": 0.883,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 19,
+      "latency_s": 0.966,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 20,
+      "latency_s": 0.952,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 21,
+      "latency_s": 0.957,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 22,
+      "latency_s": 0.95,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 23,
+      "latency_s": 0.973,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 24,
+      "latency_s": 1.054,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 25,
+      "latency_s": 1.077,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 26,
+      "latency_s": 1.067,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 27,
+      "latency_s": 1.075,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 28,
+      "latency_s": 1.122,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 29,
+      "latency_s": 1.125,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 30,
+      "latency_s": 1.127,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 31,
+      "latency_s": 1.141,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 32,
+      "latency_s": 1.172,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 33,
+      "latency_s": 1.222,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 34,
+      "latency_s": 1.204,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 35,
+      "latency_s": 1.225,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 36,
+      "latency_s": 1.277,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 37,
+      "latency_s": 1.329,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 38,
+      "latency_s": 1.323,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    },
+    {
+      "decision": 39,
+      "latency_s": 1.34,
+      "raw": "<|action_start|>DYAW 0 ; DPITCH 20 ; K1 LMB ; K2 W ; K3 - - - - ; K4 - - - - ; K\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "thought": "",
+      "dyaw": 0.0,
+      "dpitch": 0.0,
+      "chunks": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "well_formed": false,
+      "placed_total": 0,
+      "around": 0,
+      "pitch": 0.0,
+      "ray_targets": [
+        "-",
+        "-",
+        "-",
+        "-",
+        "-"
+      ]
+    }
+  ]
+}

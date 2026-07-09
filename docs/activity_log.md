@@ -309,3 +309,56 @@
 - `tests/serve_omni_nvfp4.sh` —— 可复现的启动脚本，四个坑全部内联注释。
 - `tests/probe_sm120_ptx.py` —— 换机器时一秒判断 FA2/SDPA 可用性。
 - `tests/probe_omni_nvfp4.py` —— 效果探针（OCR 精确匹配 / ASR WER / Crafter 帧语义 / 吞吐）。
+
+## 2026-07-09（Vast.ai RTX 5090，会话 1 续：像素直控 Minecraft）
+
+结论沉到 `knowledge/conclusion_omni_pixel_control.md`，此处只记过程与碰壁。
+
+### 环境搭建（CraftGround = 真 Minecraft Java 版）
+- 无 java / 无 Xvfb ⇒ `apt-get install openjdk-21-jdk xvfb`。GL 走 Xvfb + llvmpipe（OpenGL 4.5 core，
+  Minecraft 只要 3.2，够用）。craftground 装在**独立 venv**（`/workspace/venv-mc`，torch-cpu），
+  避免它的 numpy/protobuf 把 vllm 的 venv 搞坏。
+- **碰壁 1**：CraftGround 运行时用 cmake 编原生扩展，缺 GL 开发头文件 ⇒ `Could NOT find OpenGL`。
+  装 `libgl1-mesa-dev libglvnd-dev libegl1-mesa-dev` 后**仍然失败**——`CMakeCache.txt` 缓存了上次的
+  失败结果。**必须 `rm -f MinecraftEnv/CMakeCache.txt && rm -rf MinecraftEnv/CMakeFiles` 再重试。**
+  之后又依次缺 GLEW、GLFW ⇒ 一次装齐 `libglew-dev libglfw3-dev libglm-dev libx*-dev`。
+- **碰壁 2**：`reset()` 返回的首帧是 **"Loading terrain..."** 加载画面。喂给 VLM 是纯噪声。
+  必须空跑 ~60 tick 等地形。
+- **碰壁 3**：`InitialEnvironmentConfig` 的方法签名与直觉不同——
+  `add_initial_inventory([(item, count)])`（列表，非位置参数）、`freeze_time(True)`（布尔，非时刻）。
+
+### 先标定测量链路，再测模型（重要方法论）
+- 创造模式**放方块不消耗** ⇒ 无法计数。改 **SURVIVAL**，`placed = 64 - inventory[cobblestone]`。
+- `requires_surrounding_blocks` 只给 **3×3×3 = 27 格**邻域（18 air + 9 grass），够作局部佐证，
+  但不足以当主计数器。`request_raycast=True` 给准星指向，用于诊断 use 为何空放。
+- 写死 oracle 先行摸出环境事实：观测**延迟一 tick**；放置有 **~4 tick 冷却**；
+  camera pitch 是**累加**的；低头 60°+ 放置成功率暴跌（12→1）。
+- **碰壁 4（我自己的 bug）**：初版 oracle 用 `ORACLE[d % 5]`，每 5 个决策重发一次 `pitch +60`，
+  累加撞满 90°——**和模型犯的是同一个错**。修正后 oracle 40 决策放 **39 块**（100% 命中）。
+  没有这根标尺，模型的"3 块"会被误读成"能用"。
+
+### 实验设计的两次自我否定
+- **v1 用 27 维离散索引 + 无历史**，是设计错误：把 VLM 降级成查表器，且它看不到自己已经低头。
+  用户指出后按 **Lumine**（arXiv:2511.08892）重做：语言原生动作串 + hybrid thinking + 多帧历史。
+- **v2 用"转多少度"作动作头**，仍是错的：模型被直接问"该转多少度"时答 `-1`（符号都错）。
+  用户提议改**像素坐标**——先用 `tests/probe_omni_pointing.py` 标定：模型用 **1000×1000 归一化**，
+  指点精度 **2.2–5.4 px**。换成像素瞄准后方向立刻正确，放置数 0 → 4。
+
+### 反直觉发现：Mamba 的"无限上下文"在这套栈里不免费
+`enable_prefix_caching=False` / `Prefix cache hit rate: 0.0%`。根因：`nemotron_h.py` 声明了
+`SupportsMambaPrefixCaching`，但实际被调度的 `nano_nemotron_vl.py` **没声明** ⇒ vLLM 对整个 Omni
+关掉 prefix caching ⇒ 每轮重新 prefill 全部历史帧，TTFT 随帧数严格线性（+20ms/帧）。
+显存上"状态常数大小"成立，延迟上不成立。数据：`docs/results/omni_history_latency.json`。
+
+### 顺带回答：换 GPU 无头渲染值不值
+不值。llvmpipe 软件渲染 640×360 已跑 **38.7 tick/s ≈ 2× 实时**（1280×720 → 27.2）。
+Minecraft 本身 20 tick/s，渲染不是瓶颈。换 GPU 还会与 vLLM 争那 32GB。
+（早先测到 17.35 tick/s 是因为当时 FlashInfer 的 nvcc 占满 224 核，llvmpipe 被饿着——
+软件渲染吞吐强依赖空闲 CPU。）
+
+### 落地产物
+- `tests/probe_omni_minecraft_lumine.py` —— Lumine 式直控，含 `--aim pixel|degrees`、
+  `--assist-tilt`、`--scripted-oracle` 对照臂。
+- `tests/probe_omni_pointing.py` —— 像素坐标约定与指点精度标定（换模型必跑）。
+- `tests/probe_omni_minecraft_control.py` —— v1（离散索引），保留作反面对照。
+- `docs/results/omni_mc_control/` —— 各臂 summary + 最终帧。

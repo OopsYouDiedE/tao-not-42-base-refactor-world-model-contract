@@ -11,8 +11,10 @@
 #       pip install librosa soundfile      # 任何音频输入都需要
 #
 # 与官方 model card 的差异(32GB 卡的必要收缩):
-#   --max-model-len   131072 -> 32768   (权重 21GB 后 KV 预算不足)
 #   --max-num-seqs    384    -> 8       (慢系统 worker 并发极低,不需要大 batch)
+# 实测 KV cache 容量 289,408 token(fp8),故 --max-model-len 131072 仍有 2.2x 并发余量。
+# image 上限拉到 64:Lumine 式多帧历史要把 (图,动作) 对灌进上下文;一帧 640x360 仅 ~298 token,
+# 100 帧 ≈ 30k token,Mamba 的常数状态让"直接灌历史"成为可行选项(见 tests/probe_omni_minecraft_lumine.py)。
 #
 # 坑:model card 的 "RTX Pro: append --moe-backend triton" **对 NVFP4 权重无效**——
 # triton 不在 NVFP4 MoE 的后端集合里,vLLM 直接 ValueError:
@@ -44,7 +46,7 @@ export PATH="$CUDA_HOME/bin:$PATH"
 
 MODEL="${MODEL:-/workspace/models/omni-nvfp4}"
 PORT="${PORT:-8000}"
-MAXLEN="${MAXLEN:-32768}"
+MAXLEN="${MAXLEN:-131072}"
 GPU_UTIL="${GPU_UTIL:-0.92}"
 MOE_BACKEND="${MOE_BACKEND:-auto}"
 MOE_FLAG=()
@@ -60,7 +62,7 @@ exec vllm serve "$MODEL" \
   --max-num-seqs 8 \
   --video-pruning-rate 0.5 \
   --allowed-local-media-path / \
-  --limit-mm-per-prompt '{"video": 1, "image": 2, "audio": 1}' \
+  --limit-mm-per-prompt "{\"video\": 1, \"image\": ${MAX_IMAGES:-64}, \"audio\": 1}" \
   --media-io-kwargs '{"video": {"fps": 2, "num_frames": 256}}' \
   --reasoning-parser nemotron_v3 \
   --enable-auto-tool-choice \

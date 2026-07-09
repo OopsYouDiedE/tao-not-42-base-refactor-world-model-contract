@@ -142,7 +142,8 @@ def run_group(g, seed_rng, ckpt, args):
              "--seed", str(g * 10 + w), "--temp", str(args.temp),
              "--port", str(args.port0 + (g % 4) * 4 + w), "--out", outs[w]]
             for w in range(4)]
-    # 并发上限 args.par:4 环境同装 YOLOE+1.5B 会 OOM(24G),分批跑
+    # 并发上限 args.par:瓶颈是 RAM 不是显存(实测 par2 显存仅 10.7/24G,但 RAM
+    # 每 worker+env 吃 ~5-6G,本机仅 ~8G 余量→默认 2;集群 RAM 足可调高到 4+)
     pending, running = list(range(4)), {}
     t0 = time.time()
     while (pending or running) and time.time() - t0 < args.group_timeout:
@@ -179,7 +180,7 @@ def main():
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--group_timeout", type=int, default=1800)
     p.add_argument("--par", type=int, default=2,
-                   help="每组并发环境上限(4环境同装YOLOE+1.5B会OOM 24G→默认2)")
+                   help="每组并发环境上限(瓶颈=RAM非显存:本机余量~8G/env~5-6G→默认2;集群可调高)")
     p.add_argument("--port0", type=int, default=8900)
     p.add_argument("--init_ckpt", default="runs/trackcmd_bc_v17/best.pt")
     args = p.parse_args()

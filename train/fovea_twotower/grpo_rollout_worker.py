@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from net.fovea_twotower.token_stream import TokenHead, as_hwc, goal_relative
-from net.fovea_twotower.wood import WOOD_CLASSES
+from net.fovea_twotower.wood import MINE_HOLD, WOOD_CLASSES
 from tests.integration.collect_calib640 import _pose, _ray
 from tests.integration.fullloop_chain import ITEM2CLS, SlowBrain, env_inventory
 from train.fovea_twotower.eval_track_cmd import StudentPolicy, CAM_NORM_PX, DEG_PER_PX
@@ -167,15 +167,19 @@ def main():
                   declared_goal=first, goal_consistent_steps=0, explored=set(),
                   success=False, goal_log=[[0, first]])
         streak = 0
+        mine_hold = 0
         for t in range(args.max_steps):
             pose = _pose(obs["full"])
             T["pose"].append([float(pose[0]), float(pose[1]), float(pose[2])])
             ev["explored"].add((int(pose[0]) // 4, int(pose[2]) // 4))
             _xyz, key, dist = _ray(obs["full"])
-            if ("iron_ore" in key or "log" in key) and 0 < dist <= 5.5:  # 挖掘闩锁(iron/log;不进损失)
+            if ("iron_ore" in key or "log" in key) and 0 < dist <= 5.5:  # 命中→充能
+                mine_hold = MINE_HOLD
+            if mine_hold > 0:                              # 粘性挖掘:相机锁死一直砍到破(不进损失)
+                mine_hold -= 1
                 a = dict(noop)
                 a["attack"] = True
-                if t % 10 == 0:
+                if t % 6 == 0:
                     a["forward"] = True
                 cb = np.array([5, 5])
                 kp = np.zeros(20, bool)

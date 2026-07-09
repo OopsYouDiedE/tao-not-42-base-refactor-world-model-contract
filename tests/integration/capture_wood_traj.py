@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 
 from net.fovea_twotower.token_stream import TokenHead, as_hwc, goal_relative
-from net.fovea_twotower.wood import WOOD_CLASSES
+from net.fovea_twotower.wood import MINE_HOLD, WOOD_CLASSES
 from tests.integration.collect_calib640 import _ray
 from tests.integration.collect_calib_natural import relocate_cmds
 from tests.integration.fullloop_chain import env_inventory
@@ -114,17 +114,21 @@ def main():
     student.reset()
     rgb = as_hwc(obs["rgb"])
     frames, saw_n, latch_n = [], 0, 0
+    mine_hold = 0
     for t in range(args.max_steps):
         _xyz, key, dist = _ray(obs["full"])
-        latch = "log" in key and 0 < dist <= 4.5
         toks = tok_head(rgb)
         saw = bool(len(toks) and float(toks[:, 6 + gcls].max()) > 0.4)
         saw_n += saw
-        if latch:
+        if "log" in key and 0 < dist <= 4.5:      # 命中木头→充能
+            mine_hold = MINE_HOLD
+        latch = mine_hold > 0
+        if latch:                                 # 粘性挖掘:相机锁死、一直砍到破
+            mine_hold -= 1
             latch_n += 1
             a = dict(noop)
             a["attack"] = True
-            if t % 12 == 0:
+            if t % 6 == 0:
                 a["forward"] = True
         else:
             rel = goal_relative(toks[None], np.array([gcls]))[0]

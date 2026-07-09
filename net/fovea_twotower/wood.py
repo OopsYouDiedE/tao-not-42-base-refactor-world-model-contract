@@ -20,6 +20,8 @@ from net.fovea_twotower.token_stream import CLASSES, EYE_H
 from net.fovea_twotower.yolo_unified import PAD_TOP
 
 WOOD_CLASSES = list(CLASSES) + ["log"]
+MINE_HOLD = 45     # 粘性挖掘:命中木头后持续砍这么多 tick(相机锁死),穿过 raycast 闪断
+                   # 治"零散触发砍不破"——空手破原木约3s连击,期间准星不能滑走(声明脚手架)
 
 
 def project_block_hull(bx, by, bz, pose):

@@ -134,27 +134,28 @@ def judge_group(g, rolls):
 
 def run_group(g, seed_rng, ckpt, args):
     wseed = str(int(seed_rng.integers(1, 2 ** 31)))
-    outs, procs = [], []
-    for w in range(4):
-        out = f"{OUT}/g{g}_w{w}.npz"
-        outs.append(out)
-        cmd = [".venv/bin/python", "-u",
-               "train/fovea_twotower/grpo_rollout_worker.py",
-               "--world_seed", wseed, "--episodes", "4",
-               "--max_steps", str(args.max_steps), "--ckpt", ckpt,
-               "--seed", str(g * 10 + w), "--temp", str(args.temp),
-               "--port", str(args.port0 + (g % 4) * 4 + w), "--out", out]
-        procs.append(subprocess.Popen(
-            cmd, env=ENV, stdout=open(f"{OUT}/g{g}_w{w}.log", "w"),
-            stderr=subprocess.STDOUT))
+    outs = [f"{OUT}/g{g}_w{w}.npz" for w in range(4)]
+    cmds = [[".venv/bin/python", "-u",
+             "train/fovea_twotower/grpo_rollout_worker.py",
+             "--world_seed", wseed, "--episodes", "4",
+             "--max_steps", str(args.max_steps), "--ckpt", ckpt,
+             "--seed", str(g * 10 + w), "--temp", str(args.temp),
+             "--port", str(args.port0 + (g % 4) * 4 + w), "--out", outs[w]]
+            for w in range(4)]
+    # 并发上限 args.par:4 环境同装 YOLOE+1.5B 会 OOM(24G),分批跑
+    pending, running = list(range(4)), {}
     t0 = time.time()
-    while time.time() - t0 < args.group_timeout:
-        if all(p.poll() is not None for p in procs):
-            break
+    while (pending or running) and time.time() - t0 < args.group_timeout:
+        while pending and len(running) < args.par:
+            w = pending.pop(0)
+            running[subprocess.Popen(
+                cmds[w], env=ENV, stdout=open(f"{OUT}/g{g}_w{w}.log", "w"),
+                stderr=subprocess.STDOUT)] = w
         time.sleep(10)
-    for p in procs:
-        if p.poll() is None:
-            p.kill()
+        for p in [p for p in running if p.poll() is not None]:
+            del running[p]
+    for p in running:
+        p.kill()
     rolls = []
     for o in outs:
         try:
@@ -177,6 +178,8 @@ def main():
     p.add_argument("--temp", type=float, default=1.3)
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--group_timeout", type=int, default=1800)
+    p.add_argument("--par", type=int, default=2,
+                   help="每组并发环境上限(4环境同装YOLOE+1.5B会OOM 24G→默认2)")
     p.add_argument("--port0", type=int, default=8900)
     p.add_argument("--init_ckpt", default="runs/trackcmd_bc_v17/best.pt")
     args = p.parse_args()

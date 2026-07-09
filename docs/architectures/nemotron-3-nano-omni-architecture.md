@@ -94,3 +94,39 @@ L2b 方案 = 帧喂入、零解码、直读内部状态过 adapter(见记忆 vlm
 3. 12.5 token/s 的音频通道对游戏音效(脚步/枪声/提示音)是免费的额外传感器,
    我们的 gaming500 数据没有音轨,但真实游戏闭环(路线 Phase 3+)有;
 4. 精确读点层号/头数以 HF config 为准(报告未披露逐层细节),接线前先 dump config 核对。
+
+## 6. Agentic / computer-use 能力(2026-07 核实,补 §3 遗漏)
+
+§3 只写了"理解"导向的训练课程,漏了关键一段:**Omni 是真 computer-use agent,不是只看懂**
+(据 HF model card `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-*` + NVIDIA 技术博客):
+- **Computer Use(OSWorld)= 47.4%**(前代 11.1%,+76.58%)——开放桌面 GUI 操作基准;
+- **结构化工具调用**:Qwen3 兼容解析器(`qwen3_coder` + auto-tool-choice,OpenAI 兼容 API);
+- **视觉 grounding** 是其 RL 后训练 5 任务之一(grounding/图表文档/STEM/视频/ASR);
+- 官方用例明列 browser agent / email agent / GUI 自动化。
+关键读数是 OSWorld **47.4%**:开放桌面上不到一半——**MC GUI 窄(布局固定)会更高,但非 100%**,
+而合成是确定性(错一格即废)。
+
+### 6.1 GUI 操纵:两条路径并存(非二选一),按熟练度分工
+
+只有慢塔能**读** GUI(像素→槽位语义);**操纵**走两条路:
+- **路径 A(慢塔直吐操作序列)**:慢塔用自身 computer-use 能力读屏+grounding+直接吐操作。
+  用于**陌生/精细**的 GUI(没见过的容器、需现场定位)。
+- **路径 B(慢塔告知→快塔执行)**:慢塔给操作意图,快塔作**肌肉记忆**执行。熟练例程
+  (如"合成木板")在固定布局上是**记忆化动作序列,快塔执行不需 GUI 感知**(布局是常量,
+  像人打字不看键盘)——快、省慢塔算力。二者是同一技能的"深思"档与"直觉"档。
+
+### 6.2 反拐杖原则(不把结构化 MC 工具做成承重架构)
+
+不把"MC GUI 结构化工具 + snap-to-网格"当永久架构:**拄拐的模型学不会健步如飞**——
+硬编码死工具会把能力钉死在工具设计上,模型/快塔永远学不出真操纵。Omni 已有 computer-use
+基座,目标是**域内微调让它(路径A)/快塔(路径B)学会操纵**;任何确定性 snap/纠偏只作
+**可移除的训练期辅助**(DAgger 式纠偏 / 声明脚手架),部署期撤除——与 raycast 闩锁
+"A1 收口时移除"同纪律。
+
+## 7. 现状核对:地图结构未接入实训模型(2026-07-09)
+
+自我中心地图(EgoMapNorthLoc,`net/fovea_twotower/ego_map.py`)目前**只有模块 + 探针**
+(`map_probe.py` / `map_loc_probe.py`)+ 装配测试(`assembly_a1.py`),**未接入实际在训的
+快塔**:TrackNavTower 输入仍是 `(tokens, goal, prev_action)`,GRPO worker 只喂
+`goal_relative(tokens)`,**都不含地图**。地图在 m3 阶段被探到地形部署上限 ~0.401 后转二期
+(见记忆 fovea-m3-ego-map-design),接线是二期待办,非现状。

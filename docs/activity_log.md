@@ -251,3 +251,61 @@
   (a) 转公开 (b) 升级 HF 计划 (c) 换存储目标。编码继续、封片留本地,解锁后一键补传。
   防护:管线新增 --min-free-gb 30 磁盘低水位(上传受阻积压时暂停接新会话防爆盘,
   重启后生效);当前磁盘 94G/226G,按 ~10GB/h 积压约 10h 到水位。会话 34/776。
+
+## 2026-07-09（Vast.ai RTX 5090 32GB，会话 1：Omni NVFP4 原生加载核实）
+
+目标：核实 `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` 能否在单卡 5090 上
+**原生**加载（不做反量化/格式转换），并实测效果。结论沉到
+`knowledge/conclusion_omni_nvfp4_5090.md`，此处只记过程与碰壁。
+
+### 环境事实（`vast-capabilities`）
+- RTX 5090 32GB，**compute capability 12.0（sm_120）**，驱动 570.153.02 ⇒ **driver_max_cuda = 12.8**。
+- 无特权容器：跑不了 Docker ⇒ model card 推荐的 `vllm/vllm-openai:v0.20.0` 容器路线不可用，改 pip 装。
+
+### 碰壁流水（四个，全部与 sm_120 + 570 驱动强相关）
+
+- **坑 0：PyPI 默认轮子是 CUDA 13 构建。** `vllm==0.20.0` 依赖 `torch==2.11.0`，而 PyPI 默认
+  torch 2.11.0 拉的是 `nvidia-*-cu13`。CUDA 13 需要 r580+ 驱动；5090 是消费卡，**没有
+  forward-compat 兜底**（那是数据中心 Blackwell 专属）⇒ 装上也跑不起来。
+  处置：走 cu129 轮子——torch 从 `download.pytorch.org/whl/cu129`，vllm 从
+  `wheels.vllm.ai/0.20.0/cu129`。CUDA 小版本兼容成立（12.x 构建 on 12.0+ 驱动），实测
+  `torch 2.11.0+cu129` 在 570 驱动上正常。
+
+- **坑 1：model card 的 `--moe-backend triton` 对 NVFP4 权重是无效建议。**
+  卡片写「RTX Pro：因 FlashInfer 有 bug，append `--moe-backend triton`」。照做直接
+  `ValueError: moe_backend='triton' is not supported for NvFP4 MoE.`——triton 根本不在 NVFP4
+  MoE 的后端集合 `['cutlass','flashinfer_trtllm','flashinfer_cutlass','flashinfer_cutedsl',
+  'marlin','emulation']` 里。那条建议只适用于 BF16/FP8 权重。
+  处置：不传该 flag，让 oracle 走 `auto`；sm_120 上实测自动选中 **FLASHINFER_CUTLASS**
+  （FLASHINFER_TRTLLM 因不支持本配置被跳过）。
+
+- **坑 2：视觉编码器的 FlashAttention-2 撞 PTX 工具链版本墙。**
+  加载期 `profile_run` 抛
+  `torch.AcceleratorError: CUDA error: the provided PTX was compiled with an unsupported toolchain`，
+  栈底是 `torch.ops._vllm_fa2_C.varlen_fwd`（C-RADIO ViT 的注意力）。
+  根因：vLLM 自带的 FA2 扩展对 sm_120 **只发 PTX 不发 native cubin**，而 PTX→SASS 的 JIT
+  编译器住在**驱动**里，570 驱动吃不下 CUDA 12.9 的 PTX。不是显存问题，也不是算力不支持。
+  **LLM 主干不受影响**——它选的是 FlashInfer（装了预编译 cubin 包 `flashinfer-cubin`）；
+  只有 ViT 那条路默认硬走 FA2。
+  处置：`--mm-encoder-attn-backend TORCH_SDPA`（torch 轮子带 sm_120 cubin）。
+  最小复现固化为 `tests/probe_sm120_ptx.py`。
+
+- **坑 3：FlashInfer 的 sm_120 JIT 有个过严的版本守卫。**
+  接着报 `RuntimeError: No supported CUDA architectures found for major versions [12].`
+  根因：`flashinfer/compilation_context.py::_normalize_cuda_arch()` 硬编码
+  `"SM 12.x requires CUDA >= 12.9"`，而本机系统 nvcc 是 12.8（驱动上限也是 12.8）⇒
+  `TARGET_CUDA_ARCHS` 变空集。
+  但**实测 nvcc 12.8 完全能编 `compute_120a/sm_120a`**：
+  `nvcc -gencode=arch=compute_120a,code=sm_120a -cubin -o /dev/null t.cu` → OK
+  （`sm_120f` 才是真不支持）。所以那是个过严守卫，不是编译器的真实限制。
+  处置：`export FLASHINFER_CUDA_ARCH_LIST=12.0a` —— 带字母后缀时 flashinfer 原样采纳、
+  跳过 normalize。首次启动会 JIT 编译 sm120 内核（数分钟），之后走 cache。
+
+  > 教训（跨机复用）：**"驱动版本"与"nvcc 版本"是两件事。** 驱动决定能不能 JIT 某版本的 PTX
+  > 与能不能加载某 arch 的 cubin；nvcc 只决定能编出什么。坑 2 是驱动侧限制（绕不开，只能换内核），
+  > 坑 3 是编译器侧的**软性版本断言**（可绕）。区分这两者是排查的关键。
+
+### 落地产物
+- `tests/serve_omni_nvfp4.sh` —— 可复现的启动脚本，四个坑全部内联注释。
+- `tests/probe_sm120_ptx.py` —— 换机器时一秒判断 FA2/SDPA 可用性。
+- `tests/probe_omni_nvfp4.py` —— 效果探针（OCR 精确匹配 / ASR WER / Crafter 帧语义 / 吞吐）。

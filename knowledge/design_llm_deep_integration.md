@@ -1,3 +1,5 @@
+> ⚠️ 已废弃(2026-07-10 封存):S1-S4 插槽 / net/dreamerv3 / guidance_bus 属退役世界模型线且从未接入运行时,勿当待办。仅 §1 慢系统预算(0.5-2s)仍被 conclusion_omni_nvfp4_5090 引用。
+
 # 设计:LLM 深度嵌合快反模型(异步双系统)(2026-07-03)
 
 > 在 [design_llm_semantic_layer.md](design_llm_semantic_layer.md) 裁决基础上的方向升级(用户拍板):

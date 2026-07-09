@@ -1,3 +1,5 @@
+> ⚠️ 已废弃(2026-07-10 封存):R1/R3-R6 建立在已退役的 dreamer4/dreamerv3 世界模型线,勿当待办。R2a 已有结论(conclusion_r2a_divergence_probe.md,PASS),到此为止。
+
 # 研究计划:想象 rollout 六项可验证实验(R1–R6)(2026-07-03)
 
 > 汇聚当日三条线索:流匹配"采样即塌缩"(见 [design_llm_deep_integration.md] 前置讨论)、

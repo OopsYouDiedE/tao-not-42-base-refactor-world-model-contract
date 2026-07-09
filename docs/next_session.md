@@ -1,154 +1,204 @@
-# 今晚定标作战单(2026-07-08 深夜写,给切换到 Opus 的训练会话)
+# 交接单(2026-07-09 重写,给下一个训练会话——可能换模型、换机器)
 
-> **使命:今晚这几轮 3090 训练,把未来大规模(集群)训练的全部设定钉死。**
-> 背景与定案:记忆 `fovea-route-decisions-2026-07-08` + 
-> `docs/architectures/fovea-hypothesis-verification-2026-07-08.md`(已验假设勿重验)。
-> 每轮跑完:结果写回本文档对应栏 + 验证档案 + 提交 git。旧版本单(07-02 Colab)已废,git 可查。
-
-## 已验完毕、直接当结论用(勿重跑)
-
-心跳 85ms@1.5B / 94ms@2B-VL(448×256);I_gui=16×16 灰度+逻辑回归 99.91%;
-IPM 数学精确;稀疏键(E 等)归慢塔;校准向量与文本 PE 基近正交(适配器须换基,
-blocked on 类对数)。
-
-## GPU 排程(3090 串行;R-E 走 CPU 渲染并行;R-F 晨间)
-
-R-A 扩类校准(~1.5h) → R-B 分块 BC 三臂(~4h) → R-C 心跳 SFT(~1h)
-→ R-D VL LoRA 冒烟(~0.5h) → R-G scaling 拟合(分钟级)。
-闭环评测(eval_track_cmd / rollout smoke)用 Xvfb :99 CPU 渲染,可与 GPU 训练交错。
+> **使命:先把 `train/craftground/grpo_pixel.py` 的五个必修 bug 修到"实验结果可解释",
+> 再让用户在快塔输入契约(路线 1 从零像素 vs 路线 2 类别无关提案 token)之间拍板,
+> 然后才谈训练规模。当前 GRPO-Pixel 链路只跑通过冒烟,没有一次可解释的训练。**
+>
+> 背景:本单前身是 2026-07-08"今晚定标作战单"(把 fovea 双塔 / 分块 BC / 扩类校准的大规模设定钉死)。
+> 2026-07-09 用户裁决按"苦涩的教训"退役了整条感知先验路线,该作战单里有若干行随组件失效——
+> 见下方"已作废的设定",逐行标注,未静默删除。旧版本 git 可查。
 
 ---
 
-## R-A 扩类校准:log 进 bank(解 R2 wood_rate=0 + 定"每个新类"的标准配方)
+## 1. 已验完毕、直接当结论用(勿重跑)
 
-**定的设定**:扩类标准流程(数据配比/neg_frac/epochs)——未来每个新类照此办理;
-同时产出第 4 对 (文本PE, 校准向量) 喂 V10。
+以下结论与被退役的感知路线无关,仍然成立:
 
-1. 向量:用 wood_gt(+wood_sm5p/sm6p 冒烟集)按 g1 配方拟合 log 类向量,并入
-   bank(g1_vectors_v2.pt,WOOD_CLASSES 序)。注意 `wood.py` 头注:calib_nat_neg
-   对 log 有毒(树未标注),**排除**;wood_negcert(认证无树负帧)代替。
-2. conv 头 v7:`train/fovea_twotower/train_conv_head.py --data_dirs
-   runs/data/calib640_rand{,2,3} runs/data/calib640_hardneg runs/data/wood_gt
-   runs/data/wood_negcert --test_dir runs/data/wood_gt_hold --out
-   runs/g1_conv_head_v7_wood.pt`。若脚本不支持第 4 类,标签工厂用
-   `wood.py::wood_label_img`(8 角凸包投影)改造,GT 布局见 collect_wood_gt.py。
-3. **闸门**:log 留出 mIoU ≥0.35 且 iron/coal/dirt 回退 ≤0.03(对照 v4 的 0.530)。
-4. rollout 集成冒烟:grpo_rollout_worker 换 WOOD_CLASSES+v7 头,单 worker 8 局,
-   **wood_rate>0.25** 即宣告 R2 感知瓶颈解除(下一轮 GRPO 有粮)。
-
-**▶ 结果(07-08 深夜执行,commit 70c556a/8c7244b)**:
-- 定标配方 = v4 铁/煤/土原班(calib640{,_rand,_rand2}+hardneg+motion_frames)+ wood_gt(log正)
-  + wood_negcert(log负),neg_frac 0.35,**20 epochs**,ConvSegHead ncls=5;
-  calib_nat/calib_nat_neg 排除(前者未入 v4 铁口径、后者含未标注树对 log 有毒)。
-  工程修:load_eps 容忍缺 ray_xyz;wood_label_img 课程类前脸/log 凸包分派(保 iron/coal/dirt
-  标签与 v4 逐像素一致)。产物 runs/g1_conv_head_v7b_wood.pt。
-- 离线门(eval_wood_head):**G-W3 课程回归 PASS**(regress −0.014,iron 0.606/coal 0.588/
-  dirt 0.605,dirt 反升);**G-W1 log mIoU 0.322**(<0.35 名义门,受 8 角凸包 GT 系统性
-  高估的上限卡着,非训练不足——loss 已在 0.16 收敛)。
-- **闭环 wood_chain(真 MC,v7b)决定性发现**:saw=27~174/500 → **感知已解**(学生看得见
-  log token);但 **latch=0 三局全零 → wood_rate=0**。根因从"感知盲"移到"挖掘/导航执行":
-  v17 平墙学生压不住 1 格宽橡树干+叶冠挡 raycast。**记忆 fovea-acceptance-loop 里的(b)
-  "木目标感知盲"结论已被推翻**。集成已接(worker 换 v7b+WOOD_CLASSES+iron|log 闩锁),
-  R2 现有木感知信号;wood 实际入包待 A1 树接近技能。
-- 顺带根治:干净 env.close() 零 JVM 泄漏(实测),孤儿只来自异常/中途退出漏 close()→
-  worker/wood_chain 加 atexit 兜底(SIGKILL/OOM 残留需驱动层 reaper)。
-
-## R-B 分块 BC:k 定标(V7;大规模训练最重要的单一设定)
-
-**定的设定**:chunk 大小 k、块内损失权重、22M 配方在分块下是否需调。
-
-1. 改 `train_track_cmd.py`:动作头输出 k 步(相机 bins×k + 键×k),`--chunk_k` 旗标,
-   块内损失默认均匀权重(不引入折扣,失败再议);数据侧现有示范逐窗重切标签即可
-   (逐 tick 记录,天然支持任意 k)。**保持 v17 配方其余不动**(bin 逆频权重帽 3×/
-   prev_dropout 0.5/switch_os 0.5,--d 512 --layers 7,数据=v17 同源 QC 集,
-   查 runs/trackcmd_bc_v17 的 args 记录确认 data 目录)。
-2. 三臂:k=1(重构后对照,防实现回归)、k=4、k=8。各
-   `--total_steps 3000 --run_dir runs/trackcmd_bc_chunk{k}`。
-3. 离线闸门:holdout 相机 CE/键 F1 与 v17 差 ≤5%(k=1 臂必须过,否则实现有 bug)。
-4. 闭环闸门:`eval_track_cmd` student 臂,**到达≥0.47 且 切换≥0.46×教师**
-   (v17 口径);挖掘持续段完整率(attack 连续≥23tick 的段占比)一并记录。
-5. **决策规则**:取通过闭环闸门的最大 k(并列取 k=4);全不过→k=1+复盘,
-   大规模训练回退逐 tick。**k 一旦定下,写死进集群任务书。**
-
-**▶ 结果(07-08 深夜,commit ee55896/103084b)——裁决 k=1,分块对反应式快塔否决**:
-- chunk_k 落地(头出 k 步/块内均匀权重/首步评测),k=1 与旧口径逐字兼容(v17 ckpt 加载
-  推理验过,保 R-A rollout);StudentPolicy 分块开环执行(边界解 k 步入缓冲后回放)。
-- 3 臂(v17 配方 d512/L7,3000步;full 14000步复跑证 3000 已收敛,cam_acc 0.275=0.275):
-  离线首步 cam_acc k1 0.275(≈v17 0.273)/k4 0.270/k8 0.256(−6.9% 破 5% 门,出局);
-  闭环(真MC同seed课程,tracking):arrive k1 0.625/k4 0.125/k8 0.714*(n=8噪),
-  **switch k1 0.125 > k4 0.125 > k8 0.000**(开环回放对局中换目标不可反应)。
-- **裁决:chunk_k=1**。两条硬信号(离线首步准确率随k单调降 + 闭环 switch 随k崩)一致;
-  分块想要的"挖掘持续段"属重复子动作,该由挖掘闩锁/宏承担,不该分块整个反应式策略。
-  代码保留(k>1 可用)。集群任务书写 **k=1,块内均匀权重**。
-
-## R-C 心跳微决策 SFT:慢塔 A1 行为(冻结数据格式=未来一切慢塔的输入模板)
-
-**定的设定**:状态行 schema(VL/Omni 同款沿用)、微决策词表、僵局阈值 N、
-1.5B LoRA 配置。
-
-1. 新建 `train/fovea_twotower/heartbeat_sft.py`,合成轨迹混合真实 R2 rollout 记录
-   (rec 里 inv_steps/goal_log/vis 序列)。**冻结格式**:
-   状态行 `t=<tick> 库存:<item×n,…|空> 可见:<cls(dist格)|无> 位移:<m> goal:<cls>`;
-   决策词表 `{继续, 换目标:<cls>, 重规划}`。
-2. GT 规则:新里程碑→重规划;连续 N=20 次心跳库存无Δ且位移<阈→重规划(僵局);
-   其余→继续。N 作 sweep {10,20,40} 各训一份小样,取留出准确率最高者定 N。
-3. LoRA 照 reason_delta 配方(r16 qkvo),底座 Qwen2.5-1.5B + 已有 v4 adapter 续训
-   或并行新 adapter(推荐新 adapter,防复核能力回退;跑完重测 reason_delta 留出)。
-4. **闸门**:留出决策准确率 ≥0.95、格式合规 1.0、reason_delta 复核评测不回退。
-
-## R-D VL-2B LoRA 冒烟:A2/集群 VL SFT 配置模板
-
-**定的设定**:Qwen2-VL LoRA targets/r/lr、grad-ckpt、batch、图像分辨率(448×256)。
-
-1. 玩具集 200 样本:craft/track 示范帧(448×256 重采样)+R-C 同款状态行→决策文本。
-2. peft LoRA r16 targets `q_proj,k_proj,v_proj,o_proj`(视觉塔冻结),bf16,
-   grad-checkpointing on,batch 1×梯度累积 8,lr 1e-4,200 步。
-3. **闸门**:loss 降 ≥50%、显存峰值 ≤20GB、无 NaN。数字记入配置模板表。
-
-## R-E GUI 高清采集 + V8(CPU 渲染,与 GPU 训练并行)
-
-**定的设定**:GUI GT 工厂配方;热键栏在 GUI 内的掩码归属(数据仲裁)。
-
-1. 扩 collect 脚本:640×360,fast_reset 后 give 已知物品→按 E 开背包→录帧+
-   `gui` 标志+槽位坐标表(容器布局硬编码常量=GT,零人工)。≥20 局、含空背包负例。
-2. V8:YOLOE 文本 PE 对物品图标零样本打分("iron ingot"/"oak planks"…),
-   记录逐类 AP;<0.3 则结论"GUI 页须走域内校准"(R-A 配方复用)。
-3. 高清版 I_gui 复验(16×16 逻辑回归重训一次,预期 ≥99.9%)。
-4. 顺带录一段人工/脚本在 GUI 内按数字键换热键栏的交互,仲裁掩码表。
-
-## R-F Nano2-9B QLoRA 冒烟(下载已在后台,晨间跑)
-
-**定的设定**:混合架构本地工具链风险清零(集群租卡前置条件)。
-NF4 载入(~5GB)+LoRA(in/out_proj+qkvo)50 步 dummy 文本反向。
-**闸门**:backward 通过、显存<24G、mamba-ssm 2.2.4 内核无报错。
-
-## R-G scaling 拟合:集群预算数字
-
-R-B 落地后,`train/fovea_twotower/scaling_fit.py` 吃 c2_size_{s,m,l,l2,xl} +
-c2_demo_{24,48,96} + 今晚分块臂 → 外推"到达 0.8"所需示范局数×参数量,
-**产出集群 C2 任务的两个预算数字**(目标示范量、目标模型规模)。
+- **心跳延迟**:85ms@1.5B / 94ms@2B-VL(448×256)。慢塔硬件预算基线。
+- **Omni NVFP4 慢塔在单卡 5090 原生可用**(2026-07-09 实测,`conclusion_omni_nvfp4_5090.md`):
+  权重 21.5GiB、图像 TTFT 0.154s(热)、ASR WER 0、Crafter 帧语义与像素指点(2.2–5.4px)全部合格。
+  四个 sm_120 坑已内联进 `tests/serve_omni_nvfp4.sh`。**结论:感知/指点质量无损,可自托管当 episode 级慢塔;
+  但零样本不能当控制器**(`conclusion_omni_pixel_control.md`:像素直控最好 4 块 vs 手写 39 块;
+  病灶是"感知→动作不接",相机连续标定符号/增益 LLM 拿不下来)。
+- **I_gui**:16×16 灰度 + 逻辑回归判定 GUI 开合,准确率 99.91%。
+- **IPM 数学精确**。
+- **chunk_k=1 裁决**(R-B):离线首步 cam_acc 随 k 单调降(k1 0.275 / k4 0.270 / k8 0.256,k8 破 5% 门)、
+  闭环 switch 随 k 崩(k1 0.125 > k4 0.125 > k8 0.000);块内均匀权重。已写死进 `PixelTowerConfig.chunk_k=1`。
+- **慢塔 LoRA 配方**(R-C 1.5B + R-D VL):r16 / q,k,v,o / lr1e-4(reason_delta 配方,新 adapter,防复核回退);
+  VL 视觉塔冻结。
+- **VL LoRA 冒烟配置模板**(R-D,PASS):448×256,batch1×梯度累积8,grad-ckpt on,r16 qkvo;
+  loss 降 66.6%,峰值显存 5.06GB,无 NaN。
+- **状态行 schema / 微决策词表 / 僵局阈值**(R-C):
+  `t=<tick> 库存:… 可见:<cls(dist格)> 位移:<m>m goal:<cls>`;词表 {继续, 换目标:<cls>, 重规划};
+  **N=20**(sweep 10/20/40 → 留出决策 acc 0.349/0.937/0.841);留出决策 acc 0.937 / 格式合规 1.0。
+- **9B QLoRA 本地工具链**(R-F,PASS):NF4 + LoRA(qkvo)反向跑通,loss 3.8→0.04,峰值 13.38GB。
+  **投影不能压 4bit 的结论成立,但精度档位更正**:官方 NVFP4 里 Mamba `in_proj`/`out_proj` 是 **FP8**,
+  只有 `A_log`/`D`/`conv1d`/`dt_bias` 留 **BF16**(旧单写成投影留 BF16,记错;见 `conclusion_omni_nvfp4_5090.md §2`)。
+  NF4 硬压 Mamba 投影会撞 mamba-ssm 融合内核的 raw `F.linear`,`llm_int8_skip_modules=[out_proj,conv1d,lm_head]`。
+- **稀疏键(E/背包/合成等)归慢塔**:视觉平均 BC 学不到稀疏+精准+零容差的关键动作
+  (`conclusion_fasttower_skill_ceiling.md`:合成闭环 0.00,BC holdout loss 0.0013 却背景背下来)。
+- **GRPO 起效的受控对照**(`conclusion_fasttower_skill_ceiling.md`,**决定 GRPO-Pixel 成败的核心先验**):
+  GRPO 能否起效由"目标是否视觉可见(能否产生奖励信号)"闸门决定——可见目标(木头)0.50→0.81,
+  不可见目标(石头贴石头墙)0.31→0.06 退化;且两次都是从 **BC 暖启动**起跑。
+  aim+attack+导航族从视觉 BC 全学得会(0.31–0.69);合成 GUI 学不会(动作模态问题,非对齐问题)。
 
 ---
 
-## 大规模训练设定总表(跑完填,这就是交付物)
+## 2. 已作废的设定(因 2026-07-09 组件退役而失效,逐行标注,勿沿用)
 
-| 设定 | 由哪轮定 | 值(待填) |
+**退役组件**(用户裁决,"苦涩的教训"):`g1_conv_head_*` 分割头、`g1_vectors.pt` 类向量 bank、
+`net/fovea_twotower/wood.py::wood_label_img`(8 角凸包树干 GT)、`net/fovea_twotower/token_stream.py`
+(YOLOE 解析槽位)、`net/bc/policy.py`(冻结 DINOv3 + BC)。
+
+旧"已验完毕"里的一条随之失效:
+
+- **"校准向量与文本 PE 基近正交,适配器须换基,blocked on 类对数"** —— **作废**。
+  它依赖类向量 bank + 类对数,这条通路已退役。
+
+旧"大规模训练设定总表"逐行裁决:
+
+| 旧行 | 状态 | 原因 |
 |---|---|---|
-| 快塔 chunk k / 块内权重 | R-B | ✔ **k=1**(分块否决:离线首步acc随k降+闭环switch随k崩);块内均匀权重 |
-| 快塔规模×示范量预算 | R-G | ✔ 甜点 ≤22M(外推~28M)@83局;容量杠杆封顶~2°(距教师天花板);示范曲线太噪(arrive 0.18→0.58→0.42非单调)定不出局数→**主杠杆=移动天花板(GRPO/更好教师/数据),非买容量** |
-| BC 配方(权重帽/dropout/OS/DAgger β) | R-B(默认沿 v17,回归才动) | 沿 v17:帽3×/prev_drop0.5/switch_os0.5/d512·L7 |
-| 扩类校准配方(数据配比/neg_frac/闸门) | R-A | ✔ v4铁班+wood_gt+wood_negcert;neg_frac0.35;20ep;ncls=5(课程回归PASS/log0.322上限受凸包GT限) |
-| 状态行 schema / 微决策词表 / 僵局 N | R-C | ✔ `t=<tick> 库存:… 可见:<cls(dist格)> 位移:<m>m goal:<cls>`;词表{继续,换目标:<cls>,重规划};**N=20**(sweep 10/20/40→0.349/0.937/0.841);留出决策acc **0.937**/格式合规 1.0 |
-| 慢塔 LoRA(r/targets/lr) | R-C(1.5B)+R-D(VL) | ✔ r16 / q,k,v,o / lr1e-4(reason_delta配方,新adapter);VL 视觉塔冻结 |
-| VL 图像分辨率/批量/grad-ckpt | R-D | ✔ **PASS**:448×256,batch1×累积8,grad-ckpt on,r16 qkvo;loss降66.6%,峰值显存 **5.06GB**,无NaN |
-| GUI GT 工厂配方 / 掩码表 | R-E | (CPU 并行,未跑) |
-| 混合架构工具链(本地侧) | R-F | ✔ **PASS**:9B NF4+LoRA(qkvo)反向跑通,loss 3.8→0.04,峰值 **13.38GB**。**关键坑**:Mamba `out_proj` 必须留 bf16(NF4 会撞 mamba-ssm 融合内核的 raw F.linear),`llm_int8_skip_modules=[out_proj,conv1d,lm_head]`(**更正 2026-07-09**:官方 NVFP4 里 Mamba `in_proj`/`out_proj` 是 **FP8** 而非 BF16,只有 `A_log`/`D`/`conv1d`/`dt_bias` 留 BF16;"不能把投影压到 4bit"的结论不变,档位记错了。见 knowledge/conclusion_omni_nvfp4_5090.md §2);LoRA 只挂注意力(反向仍穿 Mamba 验内核) |
-| 判官设定(4条/组排名制,全量落盘) | 已定(R2),不动 | ✔ |
+| 快塔 chunk k / 块内权重 = k=1 | **有效** | 与感知路线无关,已固化进 `PixelTowerConfig.chunk_k=1` |
+| 快塔规模×示范量预算 ≤22M@83局 | **作废/需重定** | 该数字是在退役的 fovea BC 塔(冻结 DINO + fovea)上外推的,不迁移到从零 conv 的 PixelTower;唯一存活的是定性结论"主杠杆=移动天花板(GRPO/更好教师/数据),非买容量" |
+| BC 配方(帽3×/prev_drop0.5/switch_os0.5/d512·L7)= 沿 v17 | **悬置** | 是 TrackNavTower(track_cmd)BC 配方;GRPO-Pixel 当前从随机初始化起跑、无 BC。是否复用取决于 §5 路线裁决与是否补 BC 暖启动 |
+| **扩类校准配方(数据配比/neg_frac/闸门)= v4铁班+wood_gt+wood_negcert;neg_frac0.35;20ep;ncls=5** | **作废** | 整行依赖退役的 `g1_conv_head`/`wood_gt`/`wood_negcert`/`wood_label_img`/`ncls`。且归因已更正:R-A 曾把 `wood_rate=0` 判为"挖掘/导航执行技能缺失",现更正为**表征盲**——4 类词表把 YOLOE 每帧 48.8 个提案 / 90.8% 像素覆盖压到 0.5 个框 / 1.3% 覆盖 / 准星 0% 覆盖(`tests/probe_yoloe_coverage.py`)。词表本身就是被退役的领域先验 |
+| 状态行 schema / 微决策词表 / N=20 | **有效** | 见 §1 |
+| 慢塔 LoRA(r/targets/lr) | **有效** | 见 §1 |
+| VL 图像分辨率/批量/grad-ckpt | **有效** | 见 §1 |
+| GUI GT 工厂配方 / 掩码表(R-E) | **未跑/待重定** | R-E 从未执行;GUI 路线的 GT 工厂若日后重启需另立配方 |
+| 混合架构工具链(本地侧,R-F) | **有效(档位已更正)** | 见 §1 的 FP8/BF16 更正 |
+| 判官设定(4条/组排名制,全量落盘) | **有效,但新增两条约束** | 见 §6 新增纪律 |
 
-## 纪律提醒(与用户当面定过的,违者重来)
+---
+
+## 3. 必修项——阻塞一切训练(在 `train/craftground/grpo_pixel.py`)
+
+以下 1/2/3 三条各自独立地让 `log π(a)` 算错;不修则任何实验结果都不可解释。
+主会话已核实,直接照修,勿重新论证。
+
+1. **训练/推理分布失配**。采样 `grpo_pixel.py:236` 喂 T=1(快塔实际是无历史单帧策略,位置编码恒取 `pos[:, :1]`);
+   更新 `grpo_pixel.py:286` 喂 T=64 因果序列。
+   *修法*:采样端与更新端用同一时序长度(要么都单帧、要么都带历史窗口)。
+   *不修的后果*:被求梯度的分布 ≠ 采样分布,REINFORCE 的 `log π(a)` 打在另一个模型上,优势方向失去意义。
+
+2. **采样时 dropout 未关**。`grpo_pixel.py:333` 建模后全程无 `.eval()`,而 `PixelTowerConfig.dropout=0.1`;
+   `torch.no_grad()`(`:238`)不关 dropout。
+   *修法*:采样前 `tower.eval()`,更新前 `tower.train()`。
+   *不修的后果*:采样时的策略是被随机置零扰动过的策略,记录下的 `log π(a)` 与真实策略不符。
+
+3. **温度不一致**。`grpo_pixel.py:240-241` 用 `logits/temp` 采样,`grpo_pixel.py:291-292` 的 CE/BCE 打在
+   **未除温度**的 logits 上。
+   *修法*:采样与损失对同一套(除温度或不除温度)logits 求。
+   *不修的后果*:采样分布与被优化分布温度不同,`log π(a)` 系统性偏移。
+
+4. **goal 在梯度里被换成最后一个**。rollout 每 20 tick 刷新 goal(`goal_log` 已记录逐步值),但
+   `grpo_pixel.py:285` 用 `r["goal_last"]` 重放整条 400 步轨迹。
+   *修法*:更新时按 tick 回放对应时刻的 goal(用 `goal_log` 重建逐步 goal 序列)。
+   *不修的后果*:慢塔指示在梯度里被抹成常量,前 380 步的条件信息进不了梯度,慢塔等于没接。
+
+5. **组内轨迹被顺序更新**。`grpo_pixel.py:284-297` 每个 64 帧窗口一次 `opt.step()`,一个 group ~24 次更新
+   复用同一批 adv,且**无 importance ratio / 无 clip / 无 KL to ref**——只有"组内优势"一件。
+   *修法*:一个 group 的所有窗口梯度累积后单次 `opt.step()`;补 importance ratio + clip(+ KL to ref)使之成为完整 GRPO,否则明确标注为 REINFORCE 并接受其方差。
+   *不修的后果*:后面的窗口用的是已被前面窗口改动过的策略与过期的 adv,这不是 GRPO,收敛行为不可解释。
+
+### 设计缺陷(非 bug,但决定成败)
+
+- **20 键独立 Bernoulli,随机初始化下每 tick 平均按下约 10 个键**(背包反复开合、hotbar 全按)。
+  M-IRON Step0 预登记的失败模式③"抽搐乱动"在此结构下是**必然**而非风险。
+  *修法*:`key_head.bias` 初始化到 `logit(人类按键率)` ≈ −2.9(`net/pixel_tower.py:124` 的 `key_head`)。
+- **`aim` 是空间信息却经 FiLM 全局调制**(`net/pixel_tower.py:130`),而 `_ConvStem` 已把空间结构 flatten 成
+  256 维向量(`:92`)。要学的恰是"目标像素 (x,y) → 相机增量",该结构对此映射最不友好(无平移等变性)。
+  *方向*:让 aim 以保空间的方式进网络(在 flatten 前与特征图对齐,或走 §5 路线 2 的 goal-as-query cross-attention);
+  与 §5 裁决联动,不单独动手。
+
+### 一条被自己实证结论违背的做法(必须与用户对齐)
+
+`conclusion_fasttower_skill_ceiling.md` 的受控对照显示:GRPO 两次起效都是从 **BC 暖启动**起跑
+(可见目标 0.50→0.81);当前 `grpo_pixel.py` 从**随机初始化**起跑,去掉了唯一被验证有效的前提。
+从随机初始化 + 判官稀疏优势(每组仅 1 次判官调用,见 §4 预算)直接 GRPO,与已验证的成功配方相悖。
+**这不是助手能自行决定改不改的——上报用户:是否先补 BC 暖启动再 GRPO。**
+
+---
+
+## 4. 预算事实(当前是冒烟规模,不是训练规模)
+
+默认 8 组 × 4 条 × 400 tick = 12800 环境步 ≈ 10.6 分钟游戏时间;**判官仅被调用 8 次**(每组 1 次)。
+`--smoke` 进一步压到 groups=1 / ticks=120 / seq=32。这套默认值只够验链路,不足以产生可信的学习信号。
+放大规模前,§3 五个 bug 必须先修,否则放大的是不可解释的噪声。
+
+---
+
+## 5. 待决裁决点:快塔输入契约走哪条(**待用户拍板,助手不得默认选择**)
+
+两条路线在仓库里同时存在且互斥。**不得由助手替用户选。**
+
+- **路线 1**:`net/pixel_tower.py` 的从零像素 conv stem(IMPALA 风格 4 层卷积 + FiLM goal 条件)。
+  当前**唯一被 import 的实现**(`grpo_pixel.py:56`)。
+- **路线 2**:commit `ff9b8c0` 的类别无关提案 token `[e_j(512d), cx, cy, w, h, conf, area]`
+  + goal-as-query cross-attention(慢塔文本子目标投到同一 512d 空间当 query,对 N≤256 个提案槽做
+  cross-attention,让快塔**学**出该看谁)。是 2026-07-09 更新的用户裁决(activity_log 续3)。
+
+论据并列(不得遗漏,不得替用户加权):
+
+- `conclusion_fasttower_skill_ceiling.md` 证明**冻结 DINO-CLS 的视觉 BC 能学会 aim+attack 全族**(0.31–0.69),
+  GRPO 把砍木从 0.50 推到 0.81 → 支持"大规模预训练的通用表征"有用。
+- **"苦涩的教训"反对的是人工领域先验**(词表 / 凸包 GT / 手标分割头),**而非大规模预训练的通用表征**
+  (DINOv3、类别无关 YOLOE 提案器属于后者)。路线 2 用的是类别无关提案(通用表征),与该教训不冲突。
+- 路线 1 从零 conv 抛弃了预训练感知,须**仅靠判官稀疏优势**从零学感知——这是 `conclusion_fasttower`
+  里最难的设置(干净示范量都关键:同 iron 新采 24 局 0.688 vs 旧 500 步 0.25)。
+- 路线 2 现实阻塞:YOLOE 在 sm_120(RTX 5090)上开箱即挂——`torchvision 0.26.0+cu129` 的 `_C.so` 无
+  sm_100/sm_120 cubin 且无 PTX 回退,`ops.nms` 直接 `no kernel image`。临时绕过 = NMS 搬 CPU
+  (`tests/probe_yoloe_coverage.py::patch_nms_to_cpu`);用户计划换 cu130 机器后应自愈。
+- n_cls 实测(`tests/probe_yoloe_coverage.py`,黑橡木森林):pf 无词表 48.8 提案 / 90.8% 像素 / 88% 准星覆盖;
+  4 类词表塌到 0.5 提案 / 1.3% 像素 / 0% 准星。**信息不是 YOLOE 丢的,是接在它后面的词表丢的**——
+  这正是路线 2 去掉 `cls/n_cls`、保留类别无关 `proposal_embed` 的动机。
+
+---
+
+## 6. 纪律提醒(违者重来)
+
+**沿用**(与用户当面定过):
 
 - 教师必须是学生观测的函数;教师必须确定性;特权信息只进训练侧。
 - 每级升级要有上一级在给定预算内的证伪记录,不许跳级。
 - 判官调用全量落盘(蒸馏本地判官的数据在攒)。
-- 运行时零脚本:宏只活在采集器;闩锁不进部署回路(R-A 集成冒烟里 rollout worker
-  的 raycast 闩锁暂留=已声明脚手架,A1 收口时移除)。
+- 运行时零脚本:宏只活在采集器;闩锁不进部署回路。
+  (旧单里"R-A rollout worker 的 raycast 闩锁暂留"随该感知路线退役已作废,不再是活的脚手架。)
+
+**新增两条(从 2026-07-09 三次评价体系翻车提炼)**:
+
+- **禁止手工奖励代理;任何手工统计量当训练信号或主指标前,必须先被对照臂拆穿。**
+  三次翻车同属一类错:27 维离散索引查表、system prompt 里塞带坐标的示例导致 `tree_hit_rate=0.75`
+  (恒定复读臂同样刷到 0.75,随机臂在烂指标上甚至 0.438)、以及用 `trunk_hit_rate` 当主指标。
+  GRPO-判官范式的立意就是"相对优势由判官排序给,不由手工程序统计给";手工命中率与手工进度分是同一类错。
+  里程碑(`inv_events`)只作**不可刷的汇报锚点**,不进训练信号。对照臂之间还须共享同一环境种子/画面序列——
+  random 臂与慢塔臂曾共用同一 rng 却看到不同画面序列,三臂根本不可比。
+
+- **判官会把纯噪声排成严格全序;`adv_var>0` 不等于学到东西。**
+  实测(`tests/probe_judge_io_haiku.py`):4 条证据文本完全相同、图上只是无意义色块(黑/红/绿/蓝),
+  判官仍编造语义("绿色=正向反馈信号")并给出严格全序,且**从不主动说"分不出高下"**。
+  故每个 judge-driven run 必须带一组"同轨迹不同渲染 / 退化输入"对照,测判官幻觉率;
+  判官读图依赖 `claude -p` 的 Read 权限,图片路径必须在工作区内(`grpo_pixel.py` 的 `OUT=runs/grpo_pixel`
+  是相对路径,换 cwd 启动会被拒 → 静默退化为 `fallback_milestone` 机器分,只数背包事件,不会让 run 失败——
+  必须监控 `metrics.jsonl` 的 `fallback` 字段)。
+
+---
+
+## 7. 2026-07-10 增补:苦涩教训重设计已定稿,执行清单换新
+
+当日与用户逐轮敲定的完整重设计在
+**`knowledge/design_bitter_lesson_map_integration.md`**(§6–§11 为定稿部分),
+其 §11 执行清单**取代**本单原有的模糊后续,但**不取代 §3 五个必修 bug(仍第一)**。
+要点速览(细节勿凭记忆,读设计文档):
+
+- 接口:弃 MiniLM/FiLM,subgoal 文本 token 直入 + hindsight relabel 造语言 BC 数据;
+  aim 不做 ZOH,下发 tick 经 IPM 钉进北锚定地图;
+- 视觉前端:**DINO patch 网格替代 YOLOE 的探针门控提案**(设计文档 §8 预登记,
+  探针出结果前 2026-07-09 路线 2 裁决仍现行,不得先删 YOLOE);
+- 时序:采样端帧堆叠 2–4(顺带消灭 T=1/T=64 失配);
+- 慢塔会话:设计 2(无状态重提示 + 状态行/地图行外置),prompt 契约含
+  prev_done/decision/subgoal/aim/done_when;Mamba 固定态判为吞吐性质非记忆
+  (W4 三连败 + 混合架构自身即对冲),零样本无限流永不做;
+- 慢塔选型:留 Omni(已验证资产 + 流式经济性);换塔触发条件与 Qwen-VL 备选见 §10;
+- 训练:VPT BC 暖启动为主信号,GRPO 只做精修,判官落盘攒 RM 为后手。

@@ -5,6 +5,9 @@ metadata:
   type: project
 ---
 
+> ⚠️ 已废弃(2026-07-09 用户裁决,2026-07-10 封存):本文所述"统一 YOLOE 头 + g1_conv_head + token_stream + BC 塔 + 宏 raycast"整条感知栈已按苦涩的教训退役,本文**不再是单一入口**,勿照此重建。
+> 现行入口:docs/next_session.md + knowledge/design_bitter_lesson_map_integration.md;历史数字以 fovea-experiments-index 的强度标注为准。
+
 # 凹视双脑系统:结构参考(2026-07-08 定稿)
 
 **配套文档**:[[fovea-brain-division-scale-plan]](分工定案+数据引擎+集群就绪判据)、

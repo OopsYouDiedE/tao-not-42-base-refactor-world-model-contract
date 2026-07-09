@@ -1,3 +1,5 @@
+> ⚠️ 局部废弃(2026-07-10 封存):§1-§2 裁决(连续标定不归 LLM / 离散绑定归 LLM)仍有效,且被 conclusion_omni_pixel_control 实证背书;§3 起的执行序(PPO+AD MVP / task_text / gaming500 hindsight)属退役世界模型线,勿当待办。
+
 # 设计结论:LLM 语义层接入(2026-07-03 第二场辩论收敛)
 
 > 议题:借用 LLM 因果推理指导 ActionHead。经正反两轮辩论收敛。

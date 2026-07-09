@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+> ⚠️ 局部失效(2026-07-10 标注):"接口定案(MobileCLIP 唯一文本编码器)"与排队项 V7/V8/V10 依赖已退役的 YOLOE 词表线,勿当待办;已验结论(V3 心跳 85ms / V5 VL 94ms / V4 I_gui / IPM)仍现行,以 next_session §1 为准。
+
 # 07-08 路线假设验证记录
 
 对应定案见记忆 fovea-route-decisions-2026-07-08。验证原则:能离线验的先离线验,

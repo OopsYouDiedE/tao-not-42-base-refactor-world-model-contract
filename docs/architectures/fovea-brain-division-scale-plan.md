@@ -5,6 +5,10 @@ metadata:
   type: project
 ---
 
+> ⚠️ 已废弃(2026-07-09 用户裁决,2026-07-10 封存):§6-§7"定案/正式跑"配方依赖已退役的 fovea/YOLOE 解析/conv 分割头/BC 栈与手工里程碑信号,勿当待办执行。
+> 负结果段(W4 系/Y2 高度图/C1b 装配裂缝等)仍是有效档案,被 knowledge/lessons_do_not_retry.md 按行号引用(本头恰 4 行,引用已同步 +4)。
+> 现行入口:docs/next_session.md(§2 逐行裁决)+ knowledge/design_bitter_lesson_map_integration.md。
+
 # 凹视双塔 · 慢脑/快脑分工定案与大规模训练配方(2026-07-07)
 
 **上游**:[[fovea-twotower-step1]]〜step5 的证伪记录、knowledge/design_fovea_yolo_fasttower.md

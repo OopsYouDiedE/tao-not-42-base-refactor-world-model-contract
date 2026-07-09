@@ -1,3 +1,6 @@
+> ⚠️ 已废弃(2026-07-09 用户裁决,2026-07-10 封存):conv 分割头 / 类向量 bank / 手标校准整条路线已退役,勿照此重建。仅 §4.5 YOLOE 打分数学仍被路线 2 沿用(arch_current.md 引用)。
+> 现行入口:docs/next_session.md + knowledge/design_bitter_lesson_map_integration.md。
+
 # 凹视双塔·快塔 YOLO 化与"慢塔指导下追踪/导航"设计
 
 > 本文回答三问:(2) Minecraft 分割能否只调向量适配;(3) 快塔能否用 YOLO 作图像解析头;

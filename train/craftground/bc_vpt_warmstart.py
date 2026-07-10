@@ -106,8 +106,9 @@ def _window_batch(img_u8: torch.Tensor, act: torch.Tensor, s: int, device,
     """
     b, t_n = img_u8.shape[:2]
     ts = torch.arange(s - 1, t_n - 1)                            # 监督 tick
-    idx = ts[:, None] + torch.arange(-(s - 1), 1)[None, :]       # [Nt,s] 旧→新
-    img = img_u8[:, idx].to(device, non_blocking=True).float() / 255.0
+    idx = (ts[:, None] + torch.arange(-(s - 1), 1)[None, :]).to(device)  # [Nt,s] 旧→新
+    # 先传原始帧再在 GPU 上做堆叠索引:CPU 侧展开会把批膨胀 s 倍(实测数据管线饿死 GPU)
+    img = img_u8.to(device, non_blocking=True)[:, idx].float() / 255.0
     img = img.reshape(b, len(ts), s * 3, *img.shape[-2:])        # [B,Nt,3s,H,W]
     img = img.reshape(-1, 1, *img.shape[2:])                     # [N,1,3s,H,W]
     bins, keys, prev_all = encode_targets(act.to(device, non_blocking=True))

@@ -21,7 +21,7 @@ metadata:
 - 别再用离线 acc / BC loss 当闭环行为有效性的证据 — D 曲线:同配方同规模跨示范子集,离线
   acc 几乎相同而闭环 arrive 在 0.06–0.81 乱跳 — 证据:docs/architectures/fovea-experiments-index.md:260-274。
 - 别再在高帧率下用 raw PSNR 对比 persistence 判世界模型 — 指标结构性偏袒复读(重建税+静止
-  像素灌水),是数学性质非模型无能;用 EV(Δz)/开环 — 证据:knowledge/conclusion_minecraft_dreamer4_run.md:157-170。
+  像素稀释),是数学性质非模型无能;用 EV(Δz)/开环 — 证据:knowledge/conclusion_minecraft_dreamer4_run.md:157-170。
 
 ## 教师与可学性
 

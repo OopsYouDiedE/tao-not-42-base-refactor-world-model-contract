@@ -135,7 +135,7 @@ DreamerV3 论文中**没有直接报告 Minecraft Diamond 任务的性能数据*
 
 ### 4.1 推荐蒸馏方向
 
-**VPT → 小模型** (推荐优先级: ⭐⭐⭐⭐⭐)
+**VPT → 小模型**（推荐优先级：高）
 - **优势:**
   - VPT 已有成熟权重，可立即开始蒸馏
   - `rl-from-foundation-2x` (108MB) 已针对钻石任务优化
@@ -147,7 +147,7 @@ DreamerV3 论文中**没有直接报告 Minecraft Diamond 任务的性能数据*
 
 ### 4.2 DreamerV3 作为学生模型
 
-**从 VPT 蒸馏到 DreamerV3 架构** (推荐优先级: ⭐⭐⭐)
+**从 VPT 蒸馏到 DreamerV3 架构**（推荐优先级：中）
 - **优势:**
   - DreamerV3 的世界模型可提供更好的样本效率
   - 结合 VPT 的先验 + DreamerV3 的规划能力

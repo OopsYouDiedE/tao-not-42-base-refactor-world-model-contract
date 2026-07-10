@@ -20,8 +20,8 @@
 DINO-CLS 快头 `runs/ftt_c2bc/best.pt`(BCPolicy)闭环挖铁:**pickup_rate=0.25**(PASS 门 0.15,教师 0.8+)。
 → 快塔能学到挖铁但只有约 1/4 局成功,与教师差距大。差距根源=快塔须**从视觉**学教师**从 raycast**做的事。
 
-## 3. 给学生塞"教师 Mamba belief latent" vs "完成后单帧向量"(`tests/probe_mamba_seed.py`)
-问:塞慢塔(ContextTower/W1)的 belief 潜向量能否减少学生要学的/提升效果?小学生逐帧(无自身时序)。
+## 3. 给学生注入"教师 Mamba belief latent" vs "完成后单帧向量"(`tests/probe_mamba_seed.py`)
+问:注入慢塔(ContextTower/W1)的 belief 潜向量能否减少学生要学的/提升效果?小学生逐帧(无自身时序)。
 
 **方法学关键(教训应用)**:动作位 belief **偷看了 a_t 本身**→ 线性 R²=0.84 是**泄漏**假象。改用**动作前**
 (消息位)belief 去泄漏后:
@@ -38,7 +38,7 @@ DINO-CLS 快头 `runs/ftt_c2bc/best.pt`(BCPolicy)闭环挖铁:**pickup_rate=0.25
 - **相机 R² 全负**=相机动作视觉不可预测;按键弱可预测(0.15~0.22,attack↔正对方块)。
 
 **根因诊断(非"Mamba 不好")**:s8 教师是 **raycast 特权驱动**,其动作不是视觉/belief 的函数 → **任何视觉表征
-都难 BC 它**。所以"塞更富的 latent"不是解药;解药是**让动作变得视觉可预测**——换视觉驱动教师,或让慢塔把
+都难 BC 它**。所以"注入更富的 latent"不是对策;对策是**让动作变得视觉可预测**——换视觉驱动教师,或让慢塔把
 raycast/几何编进 belief(W1 没有)。这也解释了 §2 快塔 0.25 的上限:BC 一个特权教师,视觉学生天花板就在这。
 
 ## 4. 下一步(按终审优先级)

@@ -24,11 +24,11 @@
 | 科技树/任务依赖/episode 间试错归因 | 瞄准/走位/跳跃时机(禁入) |
 | 新游戏 DAG 生成器(消掉逐游戏人工成本) | 重映射 dose-response(北极星主线) |
 
-## 3. 本轮挖出的仓库硬事实(已核实)
+## 3. 本轮核实的仓库硬事实
 
 1. `train/craftground/env.py::DISCRETE_TO_V2`:27 动作无 inventory/craft/GUI——
-   **agent 当前物理上不能合成**;smelt_iron 之后的成就墙是**执行器缺失墙**而非探索
-   指数墙(修正 conclusion_craftground_run 的归因);`spaces.py` 的 ACTION_NAMES
+   **agent 当前物理上不能合成**;smelt_iron 之后的成就瓶颈是**执行器缺失**而非探索
+   指数问题(修正 conclusion_craftground_run 的归因);`spaces.py` 的 ACTION_NAMES
    注释表与实际映射不符,应修。
 2. CraftGround 首轮 4/16 基线**不可用作对照臂**:权重丢失、无随机基线(其结论
    文档自评"没有它所有成就数无意义")。
@@ -47,7 +47,7 @@
    (增强版 B,LLM 必须超过它而非裸 PPO)/ C 虚构重命名版防先验泄漏 / 处理组 LLM
    一次性编译计划。LLM 臂最后进场。
 4. 可证伪判据:LLM 零人工生成的依赖计划 ≥ 手写 DAG 90% 成就进度;处理组>增强 B;
-   写明两条败线:处理组≯B→降格课程生成器;通道死亡→实验无信息量,止损。
+   写明两条失败判据:处理组≯B→降格课程生成器;通道死亡→实验无信息量,止损。
 
 ## 5. 红线(违反即回到否决)
 

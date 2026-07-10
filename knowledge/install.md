@@ -24,7 +24,7 @@ uv pip install -e .[dev]  # 加开发工具
 1. **CraftGround 环境**(真 Minecraft Java 版):`obs["rgb"]` 取 RGB;headless 用
    Xvfb / 软渲染,根目录 `xorg.conf.headless` 备用。Colab 简单配置可跑。
 2. **Omni 慢塔(NVFP4,本地 vLLM)**:启动脚本 `tests/serve_omni_nvfp4.sh`,
-   四个 sm_120(RTX 5090)坑已内联进脚本;实测口径见
+   四个 sm_120(RTX 5090)问题的修复已内联进脚本;实测口径见
    `knowledge/conclusion_omni_nvfp4_5090.md`(权重 21.5GiB / TTFT 0.154s)。
 3. **Haiku 判官**:`claude` CLI(`claude -p --model haiku`),判官读图依赖 Read 权限,
    图片路径必须在工作区内(见 `docs/next_session.md §6` 的 fallback 陷阱)。
@@ -39,5 +39,5 @@ DINOv3 权重 gated,需 HF token(见 `net/backbone.py` 与 `utils/io.py` 的 HF_
 python train/craftground/grpo_pixel.py --smoke   # 链路冒烟(groups=1/ticks=120)
 ```
 
-CUDA/AMP 相关改动务必跑 micro CUDA 冒烟,单测全绿不代表 GPU 路径没崩
+CUDA/AMP 相关改动务必跑 micro CUDA 冒烟,单测全绿不代表 GPU 路径正常
 (教训见记忆 cuda-amp-smoke 批次)。

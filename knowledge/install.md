@@ -30,8 +30,8 @@ uv pip install -e .[dev]  # 加开发工具
    图片路径必须在工作区内(见 `docs/next_session.md §6` 的 fallback 陷阱)。
 
 另:MiniLM 句向量(`sentence-transformers/all-MiniLM-L6-v2`)随核心依赖自动可用;
-YOLOE(路线 2,探针门控期)在 sm_120 上需 NMS 搬 CPU 的绕过
-(`tests/probe_yoloe_coverage.py::patch_nms_to_cpu`),换 cu130 后应自愈。
+DINOv3 权重 gated,需 HF token(见 `net/backbone.py` 与 `utils/io.py` 的 HF_TOKEN 说明),
+无 token 时降级 dinov2 开放权重。(YOLOE 已废弃删码,sm_120 NMS 绕过随之无关。)
 
 ## 3. 冒烟自检
 

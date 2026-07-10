@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
-"""§8 预登记裁决探针:DINO patch 网格 vs YOLOE 提案 token,回归准星→最近目标角偏移。
+"""DINO 瞄准可学性探针:冻结 patch 网格 + ridge,回归准星→最近目标角偏移。
 
-预登记(knowledge/design_bitter_lesson_map_integration.md §8,2026-07-10):
-  预测:DINO 臂 ≥ YOLOE 臂,且地形样本(hole/slope)上显著更强。
-  判据:臂1(DINO) ≥ 臂2(YOLOE) ⇒ YOLOE 退役获得与词表退役同强度实测依据;
-       臂1 输在瞄准精度 ⇒ 跑臂1b(fovea 双尺度:全图粗 + 准星裁剪细,裁剪不缩放);
-       臂1b 仍输 ⇒ 维持路线 2,§8 作废。
-  纪律:探针出结果前路线 2(YOLOE)仍是现行裁决,不得先删 YOLOE 代码。
+沿革:原为 §8 "DINO vs YOLOE" 裁决探针;2026-07-10 用户直接拍板 DINO、YOLOE 整线
+废弃,双臂对比作废,本探针降级为**单臂验证**:确认 DINO patch 特征对瞄准任务可学
+(预期 R² 显著 >0,地形分层 hole/slope 不塌)。若 FAIL 则触发 fovea 双尺度臂(dino_fovea)。
 
 数据清单(采集需活环境,本探针只管评测):runs/probe_aim/manifest.jsonl,每行
   {"img": "<path>", "dx_deg": <float>, "dy_deg": <float>, "terrain": "flat|hole|slope"}
 dx/dy = 准星到最近可交互目标的角偏移(度);标签由采集侧 raycast/GT 给(特权信息只进训练侧)。
 
-用法:python tests/probe_dino_vs_yoloe_aim.py --manifest runs/probe_aim/manifest.jsonl
+用法:python tests/probe_dino_aim.py --manifest runs/probe_aim/manifest.jsonl
 """
 from __future__ import annotations
 
@@ -87,35 +84,14 @@ def feats_dino(imgs: list, fovea: bool, device: str, kind: str = "dinov3") -> np
     return np.stack(out)
 
 
-def feats_yoloe(imgs: list, device: str, max_det: int = 64) -> np.ndarray:
-    """臂2:YOLOE 类别无关提案 token [geo6 ⊕ e_j(512)],按 conf 降序,pad 0 后展平。"""
-    from net.fovea_twotower.yolo_unified import UnifiedYoloe26  # 懒加载
-    yu = UnifiedYoloe26(max_det=max_det)
-    out = []
-    with torch.no_grad():
-        for im in imgs:
-            boxes, confs, _m = yu.propose(im)
-            e = yu.proposal_embed(yu.embed(im), boxes).cpu().numpy() \
-                if len(boxes) else np.zeros((0, 512), np.float32)
-            buf = np.zeros((max_det, 518), np.float32)
-            for j in np.argsort(-confs)[:max_det]:
-                x1, y1, x2, y2 = boxes[j]
-                geo = [(x1 + x2) / 2 / 640, (y1 + y2) / 2 / 384, (x2 - x1) / 640,
-                       (y2 - y1) / 384, confs[j], (x2 - x1) * (y2 - y1) / (640 * 384)]
-                buf[j] = np.concatenate([np.asarray(geo, np.float32), e[j]])
-            out.append(buf.reshape(-1))
-    return np.stack(out)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", default="runs/probe_aim/manifest.jsonl")
-    ap.add_argument("--arms", default="dino,yoloe", help="dino,dino_fovea,yoloe")
+    ap.add_argument("--arms", default="dino", help="dino,dino_fovea")
     args = ap.parse_args()
     mf = Path(args.manifest)
     if not mf.exists():
-        sys.exit(f"缺数据清单 {mf}(采集需活环境,见模块 docstring;探针出结果前"
-                 f"路线 2 仍现行)")
+        sys.exit(f"缺数据清单 {mf}(采集需活环境,见模块 docstring)")
     rows = [json.loads(ln) for ln in mf.read_text().splitlines() if ln.strip()]
     from PIL import Image
     imgs = [np.asarray(Image.open(r["img"]).convert("RGB")) for r in rows]
@@ -126,8 +102,7 @@ def main() -> None:
     report = {}
     for arm in args.arms.split(","):
         x = {"dino": lambda: feats_dino(imgs, False, device),
-             "dino_fovea": lambda: feats_dino(imgs, True, device),
-             "yoloe": lambda: feats_yoloe(imgs, device)}[arm]()
+             "dino_fovea": lambda: feats_dino(imgs, True, device)}[arm]()
         rep = {"all": ridge_r2(x, y)}
         for t in np.unique(terr):
             m = terr == t
@@ -138,7 +113,7 @@ def main() -> None:
     out = Path("runs/probe_aim/report.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
-    print(f"写入 {out};对照 §8 预登记判据裁决。")
+    print(f"写入 {out};判据:R² 显著>0 且地形分层不塌,FAIL 则跑 dino_fovea 臂。")
 
 
 if __name__ == "__main__":

@@ -202,8 +202,8 @@
 
 - 接口:弃 MiniLM/FiLM,subgoal 文本 token 直入 + hindsight relabel 造语言 BC 数据;
   aim 不做 ZOH,下发 tick 经 IPM 钉进北锚定地图;
-- 视觉前端:**DINO patch 网格替代 YOLOE 的探针门控提案**(设计文档 §8 预登记,
-  探针出结果前 2026-07-09 路线 2 裁决仍现行,不得先删 YOLOE);
+- 视觉前端:~~DINO 替代 YOLOE 的探针门控提案~~ → **2026-07-10 后半用户直接拍板 DINO,
+  YOLOE 整线废弃且已删码**(设计文档 §8 作废降级为 DINO 单臂探针 `tests/probe_dino_aim.py`);
 - 时序:采样端帧堆叠 2–4(顺带消灭 T=1/T=64 失配);
 - 慢塔会话:设计 2(无状态重提示 + 状态行/地图行外置),prompt 契约含
   prev_done/decision/subgoal/aim/done_when;Mamba 固定态判为吞吐性质非记忆

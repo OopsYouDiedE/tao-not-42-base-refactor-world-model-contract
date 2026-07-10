@@ -30,8 +30,8 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
 | 部件 | 位置 | 单测 | 接线条件 |
 |---|---|---|---|
 | ipm_ground / MapWriter / MapReader / AimPin | `net/map_io.py` | `tests/unit/test_map_io.py` 5/5(IPM 精确几何/写读闭环/W_c 梯度/北锚定运动账本/钉点生命周期) | 随 TokenPolicyTower 接线;yaw/pitch 符号与 CraftGround 的常量标定属训练侧,首次接线时用 env pose 标定 |
-| TokenPolicyTower(goal-as-query cross-attn + UTF-8 字节语言 token) | `net/token_tower.py` | `tests/unit/test_token_tower.py` 4/4(形状/各组梯度/反义 token 可分/空组容错) | §8 探针裁决视觉前端(DINO vs YOLOE)后接线;A1 语言通道 grounding 需 hindsight relabel BC 数据 |
-| DINO vs YOLOE 裁决探针 | `tests/probe_dino_vs_yoloe_aim.py`(ridge 对偶式已合成数据验证) | — | 需活环境采 (帧, 准星角偏移, 地形) 清单 `runs/probe_aim/manifest.jsonl`;标签 raycast 只进训练侧 |
+| TokenPolicyTower(goal-as-query cross-attn + UTF-8 字节语言 token) | `net/token_tower.py` | `tests/unit/test_token_tower.py` 4/4(形状/各组梯度/反义 token 可分/空组容错) | 视觉前端已拍板 DINO(2026-07-10 用户裁决,YOLOE 整线已删),待接线;A1 语言通道 grounding 需 hindsight relabel BC 数据 |
+| DINO 瞄准可学性探针(单臂) | `tests/probe_dino_aim.py`(原 DINO vs YOLOE 双臂,YOLOE 臂随裁决摘除;ridge 对偶式已合成数据验证) | — | 需活环境采 (帧, 准星角偏移, 地形) 清单 `runs/probe_aim/manifest.jsonl`;标签 raycast 只进训练侧 |
 
 慢塔设计 2 契约(prev_done/decision/subgoal/aim/done_when + 状态行)**已接线**进
 `grpo_pixel.py`(解析/状态行有 `tests/unit/test_slow_contract.py` 4/4;真实 Omni
@@ -41,7 +41,7 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
 
 | 部件 | 位置 | 谁 import | 运行时? | 现状 |
 |---|---|---|---|---|
-| EgoMapNorthLoc / EgoMapClip / EgoMapNaive / EgoMapNorth / MapQuery | `net/fovea_twotower/ego_map.py` | 仅 `train/fovea_twotower/map_probe.py:24`、`map_loc_probe.py:27`、`tests/integration/assembly_a1.py:25`、`map_approach_ablation.py:21` | 否 | 无任何策略读过它。探针结论:自定位 0.33×dead(G-loc1 PASS);clip 3 级嵌套 75% 预算下近场无损、覆盖半径 2×;MapQuery 严口径 0.27 FAIL(方位分量,最近实例歧义) |
+| EgoMapNorthLoc / EgoMapClip / EgoMapNaive / EgoMapNorth / MapQuery | `net/fovea_twotower/ego_map.py` | `net/map_io.py:22`(现行地图 IO)、`train/fovea_twotower/map_probe.py`、`map_loc_probe.py`、`tests/unit/test_map_io.py` | 否 | 无任何策略读过它。探针结论:自定位 0.33×dead(G-loc1 PASS);clip 3 级嵌套 75% 预算下近场无损、覆盖半径 2×;MapQuery 严口径 0.27 FAIL(方位分量,最近实例歧义) |
 
 ## GRPO 长程 harness
 
@@ -69,11 +69,16 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
 - `net/encoders/`、`net/dino_tokenizer.py`、`net/backbone.py` — 未接入但保留
   (DINO vs YOLOE 裁决探针与 C3-DINO 前端候选,见 design_bitter_lesson §8)。
 - `net/vpt_lib/` — **代码未 import**,但需与"口径被沿用"区分:mu-law 动作编解码这一**设计口径
-  被间接沿用**(grpo_pixel.py:205-210 `bins_to_deg` 内联了 mu=8.0 的 mu-law,与
-  `train/minecraft/vpt_action.py` 同源),vendored 的 vpt_lib 网络本体则未上线。
-- `net/fovea_twotower/` 的感知+快塔子树(`tower.py`、`token_stream.py`、`yolo_unified.py`、
-  `yolo_parse.py`、`seg_head.py`、`wood.py`)— 按 grpo_pixel.py:6-9 裁决退役,不在像素运行时路径上
-  (ego_map.py 亦在此目录,见上表)。
+  被间接沿用**(grpo_pixel.py `bins_to_deg` 内联了 mu=8.0 的 mu-law,与
+  `train/minecraft/vpt_action.py` 同源),vendored 的 vpt_lib 网络本体则未上线
+  (E1 BC 暖启动的数据管线,保留)。
+- ~~`net/fovea_twotower/` 的感知+快塔子树(`tower.py`、`token_stream.py`、`yolo_unified.py`、
+  `yolo_parse.py`、`seg_head.py`、`wood.py`)~~ — **已删除(2026-07-10 用户拍板 DINO,
+  YOLOE 整线废弃;连同 train/fovea_twotower 44 个退役训练器、9 个 integration 脚本、
+  yolo_backbone_encoder、train_ppo_ad 等,git 历史可查)**。目录仅存 ego_map.py(现行)。
+  保留的 train/fovea_twotower:grpo_harness(运行时)、map_probe/map_loc_probe(地图现行)、
+  judge_exam 系 + judge_train(判官对照纪律 + E3 本地 RM 锚)、nano9b_qlora_smoke
+  (QLoRA 工具链结论的复现锚)。
 
 ## 宏技能层
 

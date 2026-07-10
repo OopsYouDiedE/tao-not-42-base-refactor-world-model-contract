@@ -9,7 +9,7 @@
 ## 1. W：世界模型 + 快速物理置换面
 
 - 主干：多游戏预训练的 Dreamer4（tokenizer + SpaceTimeTransformer + shortcut 头），
-  吃 gaming-500-hours 通用动作-动力学对（见 design_gaming500_hd_pretrain.md）。
+  吃 gaming-500-hours 通用动作-动力学对（见 design_gaming500_hd_pretrain.md，该文档已删，git 历史可查）。
 - **"快速削除旧物理"的机制**：微调面 = action_proj + 各层 AdaLN 调制 Linear
   （零初始化，~4% 参数）。换游戏时只训此面（可配更高 lr），旧游戏物理以残差调制
   方式被新游戏快速覆写，主干视觉/通用动力学保留——这正是"削除旧规律"而非

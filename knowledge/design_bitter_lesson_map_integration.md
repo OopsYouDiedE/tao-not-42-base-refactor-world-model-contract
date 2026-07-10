@@ -361,17 +361,17 @@ system 提示词零领域知识;每次调用的 user 内容 = 四行结构化输
 
 ## 12. 下一会话执行清单(顺序即优先级;进度标记 2026-07-10)
 
-1. ✅ 修五个 log π bug(+D1 帧堆叠+按键先验;`tests/unit/test_grpo_pixel_fixes.py` 5/5);
+> 各项的单测数、判据与 file:line 明细不在此重复。接线状态的单一明细来源 =
+> `knowledge/status_built_not_wired.md`;BC 暖启动与渲染/冒烟的数字入档
+> `conclusion_fasttower_skill_ceiling.md` 末节与 `conclusion_craftground_run.md §3`。
+
+1. ✅ 修五个 log π bug(+D1 帧堆叠+按键先验;验收 `tests/unit/test_grpo_pixel_fixes.py`);
 2. ✅(改道)视觉前端:用户直接拍板 DINO,YOLOE 整线删码;原双臂探针降级为
    DINO 单臂可学性验证(`tests/probe_dino_aim.py`),仍待活环境采 manifest;
-3. ◐ 地图模块与目标结构:`net/map_io.py`(IPM/MapWriter/MapReader/AimPin,单测 5/5)+
-   `net/token_tower.py`(goal-as-query + UTF-8 字节语言 token,单测 4/4)已建成,
+3. ◐ 地图模块与目标结构:`net/map_io.py` + `net/token_tower.py` 已建成,
    **前端已定 DINO,可直接接线**;yaw/pitch 与 CraftGround 的符号标定属训练侧,接线时做;
-4. ✅ 慢塔设计 2 契约已接线进 grpo_pixel(prev_done/decision/done_when + 状态行外置,
-   解析单测 4/4;真实 Omni 格式合规率属大模型验证,未跑);
-5. ◐ VPT BC 暖启动已训第一批(2026-07-10:bc_vpt_warmstart,holdout ce+bce 0.6350 /
-   keyF1 0.651,ckpt `runs/checkpoints/bc_vpt/best.pt`,`--init-from` 就绪;数据 58 clips
-   滚动池,过拟合点恒在 600–1200 步 ⇒ 加数据是纯规模杠杆);hindsight relabel 语言标注未做;
-6. GRPO 精修中的判官退化对照臂(其余项已随 1 落地);✅ CraftGround `--smoke` 已过
-   (2026-07-10 L4:判官真排序 / 自标定实测 cam_gain 1.09px/deg / --init-from 实载;
-   慢塔降级——真精修需带慢塔的机器)。
+4. ✅ 慢塔设计 2 契约已接线进 grpo_pixel(真实 Omni 格式合规率属大模型验证,未跑);
+5. ◐ VPT BC 暖启动已训第一批,`--init-from` 就绪;加数据是纯规模杠杆;
+   hindsight relabel 语言标注未做;
+6. ◐ GRPO 精修:判官退化对照臂待补(其余项已随 1 落地);✅ CraftGround `--smoke` 已过
+   (慢塔降级口径——真精修需带慢塔的机器)。

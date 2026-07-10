@@ -20,7 +20,7 @@
 | R0 | 自由文本 JSON | 20–40 token | 早期 tool-use |
 | R1 | 约束解码 + 紧凑 DSL(`click 512 384`) | 6–10 token | function calling / constrained decoding(模式合法性≈免费) |
 | R2 | 注册动作 token(动作离散为专用词元) | 1–7 token | RT-2、OpenVLA(256 bin 借稀有词元) |
-| R3 | 专用动作头/动作专家(零解码,一次前向出整块动作) | 0 token | VPT 分层头(本仓 `net/vpt_lib/action_head.py` + `train/minecraft/vpt_action.py` mu-law 11-bin 相机头)、π0 流匹配动作专家、Helix(latent→200Hz 头)、LAPA 潜动作 |
+| R3 | 专用动作头/动作专家(零解码,一次前向出整块动作) | 0 token | VPT 分层头(本仓曾 vendored 的 `net/vpt_lib/action_head.py`[prune3 已删] + `train/minecraft/vpt_action.py` mu-law 11-bin 相机头)、π0 流匹配动作专家、Helix(latent→200Hz 头)、LAPA 潜动作 |
 
 OpenVLA 自身的演化(R2 → OFT 变体的并行解码+连续头,吞吐 25–50×)说明:**延迟真成瓶颈时,
 领域自己会从 R2 迁到 R3**——机器人已迁,computer-use 未迁(原因见 §4 反方)。

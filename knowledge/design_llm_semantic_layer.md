@@ -4,7 +4,7 @@
 
 > 议题:借用 LLM 因果推理指导 ActionHead。经正反两轮辩论收敛。
 > 相关:mental_world.md §6(北极星)、design_wca_agent.md(A 只吃 W 隐状态硬约束)、
-> conclusion_g500_gates_probe.md(今日闸门实测)、train/minecraft/task_text.py(条件通路)。
+> conclusion_g500_gates_probe.md(今日闸门实测)、train/minecraft/task_text.py(条件通路,已随 prune3 删除)。
 
 ## 1. 裁决
 

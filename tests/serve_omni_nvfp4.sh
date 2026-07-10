@@ -28,7 +28,7 @@
 # PTX JIT 吃不下 CUDA 12.9 的 PTX ⇒ 加载期 profile_run 直接
 #   torch.AcceleratorError: CUDA error: the provided PTX was compiled with an unsupported toolchain
 # LLM 主干不受影响(它选的是 FlashInfer,有预编译 cubin)。故必须把**编码器**注意力换掉。
-# 最小复现探针已删(prune3);sm_120 PTX 坑结论入档 knowledge/conclusion_omni_nvfp4_5090.md §四坑。
+# 最小复现探针已删(prune3);sm_120 PTX 问题结论入档 knowledge/conclusion_omni_nvfp4_5090.md §1。
 #
 # 坑 3(同上环境):FlashInfer 需要为 sm_120 **JIT 编译** cutlass FP8 GEMM,但它的
 # _normalize_cuda_arch() 硬编码 "SM 12.x requires CUDA >= 12.9";本机系统 nvcc 是 12.8

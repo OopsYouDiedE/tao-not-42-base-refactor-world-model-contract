@@ -2,14 +2,13 @@
 
 > **文档定位（SSOT）**：本文讲宏观架构、算法意图、设计动机，以及当前能诚实主张什么、离目标多远。
 > 易变的实现细节（精确 Shape/Dtype、层数、超参）归代码：冻结骨干见 [net/backbone.py](../net/backbone.py)，
-> 积木见 [blocks/](../blocks/)，Dreamer 系实现与训练手册见 [dreamer.md](dreamer.md)，
-> 数据契约见 [train/minecraft/](../train/minecraft/)（`vpt_action`/`vpt_dataset`/`task_text`）。
+> 积木见 [blocks/](../blocks/)，数据契约见 [train/minecraft/](../train/minecraft/)（`vpt_action`/`vpt_dataset`）。
 >
 > **退役说明（2026-06，统一世界基座重设计）**：原 Minecraft Δz-JEPA 活模型
 > （`net/world_model.py` 及 `heads/dynamics/effect_tokenizer`）与一度并行的 RSSM + 后继特征切片
 > （`net/rssm.py`）已删除退役。本文只保留仍有效的设计立场与方向；退役方案的具体结构与 8 式数学、损失
-> 设计见 git 历史。当前可训练的世界模型是 Crafter 上的 DreamerV3（见 [dreamer.md](dreamer.md)），
-> 跨域共享权重的统一基座仍在设计中。本文是设计锚点，不记录历史活动（历史活动归 git log 与项目记忆）。
+> 设计见 git 历史。Dreamer 系复刻（DreamerV3/Dreamer4）已于 2026-07-10 随世界模型线整体删除（git 历史可查），
+> 当前运行时是 GRPO 快塔线（train/craftground）；跨域共享权重的统一基座仍在设计中。本文是设计锚点，不记录历史活动（历史活动归 git log 与项目记忆）。
 
 ---
 
@@ -82,7 +81,7 @@ Mamba 的长序列线性扫描优势也用不上。
 **当前北极星，表述为一条可证伪命题**：把"用试错学会玩法"压成"看一段视频 + 试跑几步，靠**脑内记忆**在**权重冻结**下 in-context 适应新玩法"。
 
 - **验证杠杆**：训练/测试**环境分布 disjoint**——测试时遇到的控制映射/任务在训练里没出现过，唯一能解释适应的就是 in-context（h 记忆）而非权重已记住答案。
-- **脚手架**：控制重映射（逐 episode，零新数据即制造"同一画面、不同操作语义"的 in-context 信号）；[task_text.py](../train/minecraft/task_text.py)（任务条件，已就位）。
+- **脚手架**：控制重映射（逐 episode，零新数据即制造"同一画面、不同操作语义"的 in-context 信号）；任务条件通路（原 task_text.py）已随退役管线删除，待重建。
 - **证据档**：① 逐 episode 操作重映射（看一段被重映射的视频 → 推出本 episode 的操作语义）；② episodic loss-on-query（在 query 段上算适应增益）。
 - **评估协议**：baselines（无记忆 / 随机 h）对照 + dose-response（适应增益随 context 视频长度单调）。真环境（headless 软渲染）解锁主动交互轴 + rollout 通关率，离线数据测不了这些。
 - **已知架构缺口**（待补，非阻塞）：逆动力学头对 context 全盲（看不到适应信号）；单个 h token 容量有限，承载不下一整套玩法记忆；缺"有用 context"的梯度压力（模型没有动机真去用 context）。这些是把方向变成结果前需要解决的问题。

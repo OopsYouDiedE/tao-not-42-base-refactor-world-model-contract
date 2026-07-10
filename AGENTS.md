@@ -11,7 +11,7 @@
 - 所有项目文档（`.md` 文件）必须使用**中文**撰写和更新。
 - **SSOT 原则**：代码是逻辑的唯一事实来源。Markdown 只说明宏观架构、算法设计思路与物理含义，禁止在 Markdown 中描述容易变动的微观实现细节。
 - 所有 Class / Function 必须用 NumPy / Google 风格 Docstring 明确声明 Shape 和 Dtype 契约。
-- 任何对 `net/` 或 `train/` 的目录结构、类名、核心方法签名的修改，**必须同步更新** `knowledge/` 中对应专题与 `knowledge/code_analysis.md`。
+- 任何对 `net/` 或 `train/` 的目录结构、类名、核心方法签名的修改，**必须同步更新** `knowledge/` 中对应专题（如 `arch_current.md` / `status_built_not_wired.md`）。
 - 废弃模块必须**物理删除**原文件，禁止留空文件或仅写注释，并在 commit message 中明确描述迁移路径。
 - 每次完成一轮修改后必须提交一次 Git commit。
 

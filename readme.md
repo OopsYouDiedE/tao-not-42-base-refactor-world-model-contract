@@ -2,51 +2,41 @@
 
 游戏驱动的快速迁移模型基座。在预训练底座上，通过数分钟自监督交互学习"动作在当前场景里会产生什么效果"，并以此为核心输出游戏实时指导信号。游戏是训练载体，不是最终产品。
 
-> **重构中（2026-06，统一世界基座重设计）**：原 **Minecraft Δz-JEPA 世界模型**（`net/world_model.py` 等）
-> 与并行的 **RSSM + 后继特征切片**（`net/rssm.py`）已删除退役。当前仓库的世界模型从 `blocks/` 算子库重新组装：
-> `net/dreamerv3/`（可训练，已在 Crafter 上跑通）、`net/dreamer4/`（可训练：离线 VPT 见
-> `train/minecraft/train_dreamer4`，在线 CraftGround 见 `train/craftground/train_dreamer4`）。跨域共享权重的统一基座仍在设计中。
-> 设计意图见 [knowledge/mental_world.md](knowledge/mental_world.md)，Dreamer 系实现见 [knowledge/dreamer.md](knowledge/dreamer.md)。
-
-当前目标仍是"看视频掌握玩法"的快速迁移底座（见 [knowledge/mental_world.md](knowledge/mental_world.md) §6）；Δz-JEPA 是已退役的第一版实现。
+> **现状（2026-07）**：当前唯一在跑的主线是 **GRPO-Pixel 双塔线**（真 Minecraft / CraftGround）：
+> 从零像素快塔（20Hz）+ Omni 慢塔（1Hz 文本子目标 + 像素指点）+ Haiku 判官组内排序 + VPT 人类视频 BC 暖启动。
+> 早期的世界模型线（Δz-JEPA / RSSM / DreamerV3 / Dreamer4）已整线退役删除（git 历史可查）；
+> 其设计愿景保留在 [knowledge/mental_world.md](knowledge/mental_world.md)，外部版图调研保留在
+> [knowledge/world_model_landscape.md](knowledge/world_model_landscape.md)。
 
 ---
 
 ## 快速安装
 
-本项目支持**模块化可选依赖** — 只装你需要的功能：
-
 ```bash
-# 仅核心依赖
-pip install -e .
+# 自动检测平台（Colab / 本机 / 服务器），按需加系统依赖
+python install_env.py
 
-# Crafter PPO+AD 训练
-pip install -e .[ppo-ad]
-
-# DreamerV3 世界模型
-pip install -e .[dreamer]
-
-# 全部（包括开发工具）
-pip install -e .[all]
+# 或手动
+pip install -e .          # 仅核心依赖
+uv pip install -e .[dev]  # 加开发工具
 ```
 
-或者用传统的 `-r` 方式：
-```bash
-pip install -r requirements/ppo-ad.txt      # PPO+AD
-pip install -r requirements/all.txt         # 全部
-```
-
-详见 **[INSTALL.md](INSTALL.md)** — 完整的安装指南与环境配置。
+当前主线的三个运行时依赖（CraftGround 环境 / Omni 慢塔 / Haiku 判官）与冒烟自检见
+**[knowledge/install.md](knowledge/install.md)**。
 
 ---
 
-## 设计原则
+## 设计原则（现行主线）
 
-- **JEPA 潜空间预测**：不解码回像素，预测潜表征**增量** Δz；persistence（预测 0）= 1.0 基线。
-- **冻结视觉骨干 + EMA 目标**：DINOv3 ViT-S/16 冻结，目标编码器是在线权重的 EMA 副本（稳定训练目标）。
-- **逆动力学接地可控闸 c**：从潜变化反推动作，把"哪些变化由动作引起"压进 c。
-- **世界模型退到训练期**：动力学预测用于自监督与想象式优化，推理期不在控制环里跑 rollout。
-- 框架采用 **Transformer**（已弃用 Mamba：核心状态改为有限抽象潜向量后，逐像素 SSM 的适用前提消失）。
+- **两个时间尺度**：快塔 20Hz 反应式动作（相机 mu-law 11-bin CE + 20 键 Bernoulli），
+  慢塔 1Hz 输出文本子目标与像素指点；慢塔输出零阶保持，异步不阻塞快塔。
+- **苦涩的教训**：不做人工领域先验（词表 / 手标 GT / 手写奖励代理）；
+  利用大规模预训练的通用表征（DINO patch、VPT 人类视频）与可扩展的训练信号（BC 暖启动 + 判官排序精修）。
+- **判官给序不给分**：相对优势由判官组内排序产生；手工统计量不进训练信号，里程碑只作汇报锚点。
+- **特权信息只进训练侧**：raycast / env pose 只用于标定与评测，不进部署回路。
+- **自标定**：分辨率 / FOV / 相机增益 / 步速是环境参数不是代码常量，开局探针实测（`net/calibration.py`）。
+
+完整定稿设计见 [knowledge/design_bitter_lesson_map_integration.md](knowledge/design_bitter_lesson_map_integration.md)（§6–§12）。
 
 ---
 
@@ -79,34 +69,29 @@ runs/              下载数据 / checkpoints / 日志  [gitignored]
 
 ## 环境
 
-- **生产（训练）**：Linux + CUDA。依赖见 [requirements.txt](requirements.txt)（torch / transformers /
-  opencv / numpy / wandb 等）；Crafter 训练另需 `pip install crafter`。
+- **生产（训练）**：Linux + CUDA。核心依赖经 `pip install -e .` 安装；
+  CraftGround 另需 Java 21 与 X 渲染（见 [knowledge/install.md](knowledge/install.md)）。
 - **开发（测试 + net 前向）**：Windows + CUDA 同样可跑——Mamba 已弃用，不再有平台限制。
 - DINOv3 权重受访问限制：需 HuggingFace token，经 Colab Secret（`HF_TOKEN`）或仓库根 `.env` 注入
   （`utils/io.py` 的 `get_hf_token`）。无 token 时使用开放权重 dinov2 预设。
 
-```bash
-pip install -r requirements.txt
-```
-
 ---
 
-## 训练
-
-当前可训练的世界模型是 Crafter 上的 DreamerV3，操作步骤与调参见 [knowledge/dreamer.md](knowledge/dreamer.md)。
+## 训练与冒烟
 
 ```bash
-# Crafter DreamerV3（冒烟：tiny，约 4k 步）
-python -m train.crafter.train_dreamerv3 --size tiny --total-steps 4000 \
-    --prefill 500 --run-dir runs/crafter_smoke
+# GRPO-Pixel 链路冒烟（groups=1 / ticks=120；需 CraftGround 环境）
+python train/craftground/grpo_pixel.py --smoke
 
-# Crafter DreamerV3（正式：small，后台 + 行缓冲日志）
-nohup python -m train.crafter.train_dreamerv3 --size small --total-steps 200000 \
-    --run-dir runs/crafter_dreamerv3 > runs/crafter_dreamerv3/train.log 2>&1 &
+# VPT 人类视频 BC 暖启动（数据下载见 tests/download_vpt_data.py）
+python -m train.craftground.bc_vpt_warmstart --help
 
-# Crafter PPO + Achievement Distillation
-python -m train.crafter.train_ppo_ad --help
+# 用 BC checkpoint 暖启动 GRPO
+python train/craftground/grpo_pixel.py --init-from runs/checkpoints/bc_vpt/best.pt
 ```
+
+渲染路径选型（Xvfb / Xorg+RAW / ZEROCOPY）实测口径见
+[knowledge/conclusion_craftground_run.md](knowledge/conclusion_craftground_run.md) §3。
 
 ---
 
@@ -123,9 +108,14 @@ python -m pytest tests/unit/                       # 当前运行时与定稿未
 | 文档 | 内容 |
 |---|---|
 | [AGENTS.md](AGENTS.md) | 助手约束与代码规范：I1–I8、生产纯净、SSOT、放置 / 写作 / 拆分合并 |
-| [knowledge/code_analysis.md](knowledge/code_analysis.md) | 精确到函数的代码结构与方法说明 |
-| [knowledge/mental_world.md](knowledge/mental_world.md) | 设计愿景与诚实边界（宏观架构、算法意图、当前能主张什么） |
-| [knowledge/dreamer.md](knowledge/dreamer.md) | Dreamer 系（DreamerV3 + Dreamer4）设计与 Crafter 训练手册 |
+| [docs/next_session.md](docs/next_session.md) | 现行交接单：现行结论 / 待办 / 纪律 |
+| [knowledge/design_bitter_lesson_map_integration.md](knowledge/design_bitter_lesson_map_integration.md) | 定稿设计（§6–§12）：接口 / 视觉前端 / 地图 / 慢塔会话 / 训练顺序 |
+| [knowledge/arch_current.md](knowledge/arch_current.md) | 当前在跑结构的数学契约（file:line 级） |
+| [knowledge/status_built_not_wired.md](knowledge/status_built_not_wired.md) | 已建成未接线部件清单（接线判据 + file:line） |
+| [knowledge/install.md](knowledge/install.md) | 安装指南（当前主线三运行时依赖 + 冒烟自检） |
+| [knowledge/lessons_do_not_retry.md](knowledge/lessons_do_not_retry.md) | 负结果登记表（方案本身不成立的路线，提案前检索） |
+| [knowledge/papers_in_use.md](knowledge/papers_in_use.md) | 当前在用的外部成果清单（部件 × 成果对照） |
+| [knowledge/mental_world.md](knowledge/mental_world.md) | 设计愿景与诚实边界（宏观架构、算法意图） |
 | [knowledge/world_model_landscape.md](knowledge/world_model_landscape.md) | 世界模型外部版图调研与设计对照 |
 
 Godot 子系统文档见 [assets/godot_meta_rl/README.md](assets/godot_meta_rl/README.md)。

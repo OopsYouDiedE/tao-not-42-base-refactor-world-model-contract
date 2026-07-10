@@ -18,7 +18,7 @@
 | 快塔相机动作头 | OpenAI VPT(部分在用) | 上游 GitHub `openai/Video-Pre-Training`(MIT);arXiv **待补** | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 软 KL 蒸馏 / 逆动力学(distill_vpt 退役);vendored `net/vpt_lib/` 网络本体已删(prune3,全库零 import;口径已内联进 `train/craftground/action_contract.py`/`train/minecraft/vpt_action.py`) | `train/minecraft/vpt_action.py:13,19-30`;`net/pixel_tower.py:18-20` |
 | 快塔卷积干 | IMPALA-CNN(风格引用) | arXiv **待补**;仓库注为"OpenAI VPT / snu-mllab Achievement-Distillation 的 IMPALA-CNN" | 从零手写"IMPALA 风格"小卷积干(不 import 现成实现,不载预训练) | 不用其残差深塔 / 预训练权重 | `net/pixel_tower.py:77`;`blocks/impala.py:8` |
 | 训练算法 | GRPO(组内相对优势策略梯度) | arXiv **待补**(仓库无论文引用) | 判官排序 → 组内 z 归一优势 → REINFORCE(`loss=adv·(CE+BCE)`) | 当前实现是 REINFORCE 变体,未加 importance-ratio/clip/KL(待补全成完整 GRPO) | `train/craftground/grpo_pixel.py:1-23,195-200,272-298`;`train/fovea_twotower/grpo_harness.py:52-55` |
-| 方法论立场 | Sutton《The Bitter Lesson》 | 仓库原文写 "Sutton 2019"(随笔,非 arXiv) | 不为单个游戏打人工感知补丁;裁决退役词表/凸包GT/手标分割头 | 反对的是人工领域先验,非大规模预训练通用表征 | `net/pixel_tower.py:3`;`train/craftground/grpo_pixel.py:6-9`;`docs/next_session.md:146-147` |
+| 方法论立场 | Sutton《The Bitter Lesson》 | 仓库原文写 "Sutton 2019"(随笔,非 arXiv) | 不为单个游戏打人工感知补丁;裁决退役词表/凸包GT/手标分割头 | 反对的是人工领域先验,非大规模预训练通用表征 | `net/pixel_tower.py:3`;`train/craftground/grpo_pixel.py:6-9`;`knowledge/design_bitter_lesson_map_integration.md §2` |
 
 ## 二、"部分在用"两条的边界说明
 

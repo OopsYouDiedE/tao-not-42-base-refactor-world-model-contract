@@ -30,9 +30,12 @@ MAPPING = [
     ("runs/checkpoints/bc_vpt/best.pt", "vpt-bc-pixeltower-v1-run3"),   # canonical
     ("runs/checkpoints/bc_vpt/last.pt", "vpt-bc-pixeltower-v1-run3"),
     ("runs/checkpoints/bc_vpt/metrics.jsonl", "vpt-bc-pixeltower-v1-run3"),
-    ("runs/checkpoints/bc_vpt2/best.pt", "vpt-bc-pixeltower-v1-run4"),  # 滚动池 200k 步(在训)
+    ("runs/checkpoints/bc_vpt2/best.pt", "vpt-bc-pixeltower-v1-run4"),  # 滚动池 lr2e-4(过拟合止于 20k,存档)
     ("runs/checkpoints/bc_vpt2/last.pt", "vpt-bc-pixeltower-v1-run4"),
     ("runs/checkpoints/bc_vpt2/metrics.jsonl", "vpt-bc-pixeltower-v1-run4"),
+    ("runs/checkpoints/bc_vpt3/best.pt", "vpt-bc-pixeltower-v1-run5"),  # 滚动池持续学习 lr5e-5(在训)
+    ("runs/checkpoints/bc_vpt3/last.pt", "vpt-bc-pixeltower-v1-run5"),
+    ("runs/checkpoints/bc_vpt3/metrics.jsonl", "vpt-bc-pixeltower-v1-run5"),
     ("runs/grpo_pixel/tower.pt", "craftground-grpo-pixeltower-v1-run1"),  # Qwen 慢塔真跑
     ("runs/grpo_pixel/metrics.jsonl", "craftground-grpo-pixeltower-v1-run1"),
 ]

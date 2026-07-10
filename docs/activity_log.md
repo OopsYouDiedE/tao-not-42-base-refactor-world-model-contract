@@ -692,3 +692,32 @@ import 链与文档引用),主线执行:
 - 遗留:action_contract.py:22 指向 vpt_lib 的注释因硬禁触区未改,登记待后续处理。
 - 验收:残留 import 全库 grep 零命中;pytest tests/unit 41 passed;
   net 核心模块 import OK;grpo_pixel/bc 顶层 import 全解析到存在文件,AST parse 全清。
+
+## 2026-07-10 VPT BC 暖启动第一批:数据管线+训练器+三次 run(SubAgent 执行,主会话收尾)
+
+- **纪律事件**:主会话用 OCR 读 F3 调试屏 yaw 做标定被用户叫停;禁令与"单帧全局
+  相位相关在人类录像上不可靠(静态覆盖层锁零位移,增益衰减 ~7×)"两条录
+  lessons_do_not_retry;probe_vpt_calib.py 保留为负结果证据。相机单位改按上游
+  数据集格式常量 0.15 deg/px。另录用户纪律:结论入档覆盖既有定论文件,不新建。
+- **契约收敛**:action_contract.py 单一定义(V2_KEYS/mu-law/stack_frames,新增
+  deg_to_bins 逆变换);grpo_pixel 改消费方;删断链死码 vpt_action_bridge
+  (import 已删的 train_dreamer4,c5e1b84 遗漏)。
+- **bc_vpt_warmstart.py**:VPT→V2 键置换 / mu-law 编码 / T=1+S=4 / prev 量化-置零 /
+  holdout 全 tick 评估 vs 多数类基线;单测 5 项;全 unit 41/41。grpo_pixel 加 --init-from。
+- **数据**:download_vpt_data 多批(58 clips / 33.7 万 ticks,all_6xx/7xx,滚动池);
+  .part 原子 rename 修半截文件竞态(run2 崩于读到半写 mp4)。
+- **训练**(L4,batch 96=1536 tick/step,bf16):踩坑帧堆叠 CPU 展开饿死 GPU
+  (17-47%→98%,峰值 10.3k ticks/s);run1 恒定 lr 过拟合(holdout 0.66→0.93);
+  run2 cosine 到 0.6597@1200;run3 池扩到 58 clips:全局最优 **0.6350@600**
+  (cam_acc 0.830 vs 基线 0.8225,nz acc 0.1617,keyF1 0.651),15000 步末端过拟合 2.77。
+  判读与逐键表入 conclusion_fasttower_skill_ceiling.md 末节(覆盖写,未新建文件)。
+- **渲染基准**(并行 SubAgent,fdbb43e):四臂结果回填 conclusion_craftground_run.md §3
+  ——ZEROCOPY 在无头 Xorg 下跑通(kwin 断言避开)但慢于 Xorg+RAW 32%(上游每帧
+  cudaGraphicsGLRegisterImage 固定开销);EGL 驱动层可用/CraftGround 栈不支持;
+  rollout 采集首选 Xorg+RAW(37.3 sps,2.8× CPU 基线)。端到端口径(--e2e)补测中断
+  (用户 Ctrl+C 停 agent),脚本半成品在工作区,留待后续。
+- **清理第三批**(并行 SubAgent,d903a8a):-61 文件/-9822 行,manifest 在
+  runs/prune3_manifest.md;边界项(Godot 线、vpt_lib 注释)待用户复核(next_session §8)。
+- **未验/开放**:闭环(--init-from GRPO)未跑——本机 L4(sm_89)不能跑 Omni NVFP4
+  慢塔,CraftGround 冒烟只能在有慢塔或降级(零指导+判官)口径下做;hindsight relabel
+  语言标注未做;goal 零向量训练的 FiLM 分布外问题登记在案。

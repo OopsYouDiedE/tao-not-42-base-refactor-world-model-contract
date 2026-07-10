@@ -369,5 +369,7 @@ system 提示词零领域知识;每次调用的 user 内容 = 四行结构化输
    **前端已定 DINO,可直接接线**;yaw/pitch 与 CraftGround 的符号标定属训练侧,接线时做;
 4. ✅ 慢塔设计 2 契约已接线进 grpo_pixel(prev_done/decision/done_when + 状态行外置,
    解析单测 4/4;真实 Omni 格式合规率属大模型验证,未跑);
-5. VPT BC 暖启动 + hindsight relabel 语言标注管线(需 VPT 数据与 GPU 训练预算);
+5. ◐ VPT BC 暖启动已训第一批(2026-07-10:bc_vpt_warmstart,holdout ce+bce 0.6350 /
+   keyF1 0.651,ckpt `runs/checkpoints/bc_vpt/best.pt`,`--init-from` 就绪;数据 58 clips
+   滚动池,过拟合点恒在 600–1200 步 ⇒ 加数据是纯规模杠杆);hindsight relabel 语言标注未做;
 6. GRPO 精修中的判官退化对照臂(其余项已随 1 落地);首次真跑前:CraftGround `--smoke`。

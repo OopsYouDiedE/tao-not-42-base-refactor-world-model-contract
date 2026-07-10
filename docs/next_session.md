@@ -215,7 +215,10 @@
   prev_done/decision/subgoal/aim/done_when;Mamba 固定态判为吞吐性质非记忆
   (W4 三连败 + 混合架构自身即对冲),零样本无限流永不做;
 - 慢塔选型:留 Omni(已验证资产 + 流式经济性);换塔触发条件与 Qwen-VL 备选见 §10;
-- 训练:VPT BC 暖启动为主信号,GRPO 只做精修,判官落盘攒 RM 为后手。
+- 训练:VPT BC 暖启动为主信号(✅ 2026-07-10 首批已训:`runs/checkpoints/bc_vpt/best.pt`,
+  holdout cam_acc 0.830 vs 基线 0.8225 / keyF1 0.651 / ce+bce 0.6350,grpo_pixel 有
+  `--init-from`;hindsight relabel 未做;详见 conclusion_fasttower_skill_ceiling.md 末节),
+  GRPO 只做精修,判官落盘攒 RM 为后手。
 
 ---
 

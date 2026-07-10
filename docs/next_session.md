@@ -74,6 +74,14 @@
 
 ## 3. 必修项——阻塞一切训练(在 `train/craftground/grpo_pixel.py`)
 
+> ✅ **2026-07-10 已修**:五条全部落地(①改为双侧 T=1+帧堆叠 S=4,失配从结构上消灭;
+> ②eval 采样/train 更新且 dropout=0;③损失打在 logits/temp 上;④goal 逐 tick 落盘
+> 386 维向量并回放,goal_log 补存 aim;⑤组内梯度累积单次 opt.step=严格 on-policy
+> REINFORCE)。另注入按键先验 bias=logit(0.05)、尾部 tick 不再丢弃。
+> 数学验收:`tests/unit/test_grpo_pixel_fixes.py`(CUDA 5/5 过)。
+> **未验**:真实 CraftGround 冒烟(需 Xvfb+Omni 服务)——放大规模前先跑一次 `--smoke`。
+> 以下原文保留作论证与验收判据。
+
 以下 1/2/3 三条各自独立地让 `log π(a)` 算错;不修则任何实验结果都不可解释。
 主会话已核实,直接照修,勿重新论证。
 

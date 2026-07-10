@@ -11,16 +11,22 @@
      "像素 → 相机增量"这个连续标定由快塔**学**出来,不许用 FOV 几何公式代劳。
 
 数据流:
-    CraftGround 原始像素 640x360 --下采样--> [3,90,160]
+    CraftGround 原始像素 640x360 --下采样--> [3,90,160] --帧堆叠 S=4--> [12,90,160]
         ↓                                    ↑ goal_vec[386] = MiniLM(subgoal)[384] ⊕ aim/1000[2]
     PixelTower(从零) --> cam bins(11) + keys(20)  ← 慢塔 Omni 每 SLOW_EVERY tick 刷新一次
-        ↓ 温度采样
+        ↓ 温度采样(T=1,eval 模式)
     4 条 rollout / 组(同 world seed)
         ↓ 联络表图 + 行为文本
     Haiku 判官从好到差排名 --> 名次取负 --> group_advantage(z 归一) --> REINFORCE
-        loss = adv * ( CE(cam_logits, 采样bin) + BCE(key_logits, 采样key) )
+        loss = adv * ( CE(cam_logits/temp, 采样bin) + BCE(key_logits/temp, 采样key) )
+        一个 group 梯度累积后单次 opt.step(严格 on-policy)
 
 里程碑(inv_events)**只作不可刷的汇报锚点**,不进训练信号。
+
+2026-07-10 五个 log π 修复(next_session §3,详见 update() docstring):
+    ① 双侧 T=1+帧堆叠  ② eval 采样/train 更新(dropout=0)  ③ 温度双侧一致
+    ④ goal 逐 tick 落盘并回放(含 aim)  ⑤ 组内梯度累积单次 opt.step
+数学验收单测:tests/unit/test_grpo_pixel_fixes.py(CUDA 冒烟)。
 
 与旧 grpo_r1.update 的两处关键修正(旧实现让慢塔静默失效):
     旧: g = torch.zeros(1,1)      新: goal_vec 真的接进 FiLM 条件
@@ -159,7 +165,7 @@ def evidence_text(r: dict) -> str:
     disp = float(np.abs(np.diff(pose[:, [0, 2]], axis=0)).sum()) if len(pose) > 1 else 0.0
     fwd = float(keys[:, V2_KEYS.index("forward")].mean())
     atk = float(keys[:, V2_KEYS.index("attack")].mean())
-    goals = "→".join(f"第{s}步『{g}』" for s, g in r["goal_log"][:6]) or "无"
+    goals = "→".join(f"第{s}步『{g}』" for s, g, _aim in r["goal_log"][:6]) or "无"
     return (f"里程碑:{ms};总步数 {len(keys)};水平位移 {disp:.0f} 格;"
             f"前进键占比 {fwd:.2f};攻击键占比 {atk:.2f};"
             f"相机总转动 {float(np.abs(r['cam_deg']).sum()):.0f} 度;"
@@ -210,6 +216,16 @@ def bins_to_deg(b: np.ndarray) -> np.ndarray:
     return v * CAM_MAX_DEG
 
 
+def stack_frames(imgs: np.ndarray, s: int) -> np.ndarray:
+    """[T,H,W,3] → [T,3s,H,W]:每 tick 取最近 s 帧沿通道拼接(旧→新),开局用首帧填充。
+
+    与采样端 rollout 的 deque 堆叠**逐字节同序**——这是"采样 π = 更新 π"的一部分。
+    """
+    t_n = len(imgs)
+    idx = np.clip(np.arange(t_n)[:, None] + np.arange(-(s - 1), 1)[None, :], 0, None)
+    return imgs[idx].transpose(0, 1, 4, 2, 3).reshape(t_n, s * 3, *imgs.shape[1:3])
+
+
 def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) -> dict:
     from craftground.environment.action_space import no_op_v2  # noqa: F401
     obs, _ = env.reset()
@@ -217,23 +233,30 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) 
         obs = env.step(no_op())[0]
 
     cfg = tower.cfg
+    tower.eval()                                          # 修复②:采样在确定性网络上
     goal = torch.zeros(cfg.goal_dim, device=device)
     subgoal, aim = "", [500.0, 500.0]
-    imgs, prevs, cam_b, key_b, frames, pose, cam_deg = [], [], [], [], [], [], []
+    imgs, prevs, goals, cam_b, key_b, frames, pose, cam_deg = [], [], [], [], [], [], [], []
     goal_log, inv_events, inv_steps = [], set(), {}
     prev = np.zeros(cfg.n_mouse + cfg.n_keys, np.float32)
+    fstack: list[np.ndarray] = []                         # 最近 frame_stack 帧,旧→新
 
     for t in range(ticks):
         rgb = np.asarray(obs["rgb"], dtype=np.uint8)
         if t % SLOW_EVERY == 0:                            # 慢塔按自身节拍刷新
             goal, subgoal, aim = slow(rgb)
-            goal_log.append((t, subgoal))
+            goal_log.append((t, subgoal, aim))             # 修复④配套:aim 一并落盘
         if t % max(1, ticks // 24) == 0:
             frames.append(np.asarray(Image.fromarray(rgb).resize((160, 90))))
 
         small = np.asarray(Image.fromarray(rgb).resize((IMG_HW[1], IMG_HW[0])),
                            dtype=np.float32) / 255.0
-        img = torch.from_numpy(small).permute(2, 0, 1)[None, None].to(device)
+        fstack.append(small)
+        if len(fstack) < cfg.frame_stack:                  # 开局首帧填充
+            fstack = [small] * (cfg.frame_stack - len(fstack)) + fstack
+        fstack = fstack[-cfg.frame_stack:]
+        stacked = np.concatenate(fstack, axis=2)           # [H,W,3S] 旧→新
+        img = torch.from_numpy(stacked).permute(2, 0, 1)[None, None].to(device)
         pv = torch.from_numpy(prev)[None, None].to(device)
         with torch.no_grad():
             cam_l, key_l = tower(img, goal[None], pv)
@@ -258,44 +281,64 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) 
                 inv_steps[name] = t
 
         imgs.append(small); prevs.append(prev.copy())
+        goals.append(goal.detach().cpu().numpy())          # 修复④:goal 逐 tick 落盘
         cam_b.append(cb); key_b.append(kp); cam_deg.append(deg)
         pose.append([full.x, full.y, full.z])
         prev = np.concatenate([deg / CAM_MAX_DEG, kp.astype(np.float32)])
 
-    return dict(imgs=np.stack(imgs), prevs=np.stack(prevs), cam=np.stack(cam_b),
-                keys=np.stack(key_b), cam_deg=np.stack(cam_deg),
+    return dict(imgs=np.stack(imgs), prevs=np.stack(prevs), goals=np.stack(goals),
+                cam=np.stack(cam_b), keys=np.stack(key_b), cam_deg=np.stack(cam_deg),
                 pose=np.asarray(pose, np.float32), frames=frames,
-                goal_log=goal_log, inv_events=inv_events, inv_steps=inv_steps,
-                goal_last=goal.detach().cpu())
+                goal_log=goal_log, inv_events=inv_events, inv_steps=inv_steps)
 
 
-def update(tower, opt, rolls, adv, seq: int, device: str) -> float:
-    """REINFORCE:loss = adv * ( CE(cam, 采样bin) + BCE(key, 采样key) )。
+def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> float:
+    """REINFORCE(on-policy):loss = adv * ( CE(cam, 采样bin) + BCE(key, 采样key) )。
 
-    CE 打在**采样到的** bin 上 ⇒ 等价 -log π(a);故 adv*CE 的梯度即
-    ∇ adv·(-log π(a)),最小化它 = 最大化 adv·log π(a)。
+    CE 打在**采样到的** bin 上 ⇒ 等价 -log π(a);最小化 adv·CE = 最大化 adv·log π(a)。
+
+    2026-07-10 修复(编号对应 next_session §3):
+      ① 采样/更新同分布:双侧都是 T=1 + frame_stack(帧堆叠由 stack_frames 与采样端
+         deque 逐字节同序),失配从结构上消灭;tick 沿 batch 维成批,尾部 tick 不再丢弃。
+      ② 采样 tower.eval() / 更新 tower.train()(且 cfg.dropout=0,两模式恒等)。
+      ③ 温度一致:损失打在与采样相同的 logits/temp 上,π 是同一个分布。
+      ④ goal 逐 tick 回放(rollout 已逐 tick 落盘 386 维向量,不再抹成 goal_last)。
+      ⑤ 一个 group 全部梯度累积后**单次 opt.step()**:采样分布 = 被更新分布,
+         这是严格 on-policy 的 REINFORCE;不做多步复用,故无需 ratio/clip/KL。
+         (若未来改多步复用,必须补 importance ratio,见 arch_current §5.4。)
+    chunk 只是显存分块,数学上无意义(梯度按全组 tick 数归一后累加)。
     """
-    tot = n = 0.0
-    for r, a_w in zip(rolls, adv):
-        if abs(float(a_w)) < 1e-6:
-            continue
-        T = len(r["cam"])
-        goal = r["goal_last"].to(device)[None]
-        for i0 in range(0, max(T - seq, 1), seq):
-            sl = slice(i0, i0 + seq)
-            img = torch.from_numpy(r["imgs"][sl]).permute(0, 3, 1, 2)[None].to(device)
-            pv = torch.from_numpy(r["prevs"][sl])[None].to(device)
+    tower.train()
+    opt.zero_grad()
+    active = [(r, float(a_w)) for r, a_w in zip(rolls, adv) if abs(float(a_w)) >= 1e-6]
+    denom = float(sum(len(r["cam"]) for r, _ in active))
+    if denom == 0:
+        return 0.0
+    s = tower.cfg.frame_stack
+    tot = 0.0
+    for r, a_w in active:
+        t_n = len(r["cam"])
+        stacked = stack_frames(r["imgs"], s)               # [T,3S,H,W] 与采样端同序
+        for i0 in range(0, t_n, chunk):                    # 覆盖全部 tick,含尾段
+            sl = slice(i0, min(i0 + chunk, t_n))
+            img = torch.from_numpy(stacked[sl]).unsqueeze(1).to(device)   # [B,1,3S,H,W]
+            pv = torch.from_numpy(r["prevs"][sl]).unsqueeze(1).to(device)  # [B,1,·]
+            goal = torch.from_numpy(r["goals"][sl]).to(device)             # [B,386] 逐tick
             cam_l, key_l = tower(img, goal, pv)            # goal/prev 真的进梯度
+            cam_l = cam_l[:, 0, 0] / temp                  # [B,n_mouse,bins] 与采样同温度
+            key_l = key_l[:, 0, 0] / temp                  # [B,n_keys]
             cb = torch.from_numpy(r["cam"][sl]).long().to(device)
             kp = torch.from_numpy(r["keys"][sl].astype(np.float32)).to(device)
-            ce = F.cross_entropy(cam_l[0, :, 0].reshape(-1, CAM_BINS), cb.reshape(-1))
-            bce = F.binary_cross_entropy_with_logits(key_l[0, :, 0], kp)
-            loss = float(a_w) * (ce + bce)
-            opt.zero_grad(); loss.backward()
-            torch.nn.utils.clip_grad_norm_(tower.parameters(), 1.0)
-            opt.step()
-            tot += float(loss); n += 1
-    return tot / max(n, 1)
+            ce = F.cross_entropy(cam_l.reshape(-1, CAM_BINS), cb.reshape(-1),
+                                 reduction="sum") / cam_l.shape[1]
+            bce = F.binary_cross_entropy_with_logits(key_l, kp, reduction="sum") \
+                / key_l.shape[1]
+            loss = a_w * (ce + bce) / denom                # 全组 tick 均值口径
+            loss.backward()                                # 只累积,不 step
+            tot += float(loss.detach())
+    torch.nn.utils.clip_grad_norm_(tower.parameters(), 1.0)
+    opt.step()                                             # 修复⑤:整组唯一一次 step
+    return tot
 
 
 def main() -> None:
@@ -304,7 +347,8 @@ def main() -> None:
     ap.add_argument("--groups", type=int, default=8)
     ap.add_argument("--per-group", type=int, default=4)
     ap.add_argument("--rollout-ticks", type=int, default=400)
-    ap.add_argument("--seq", type=int, default=64)
+    ap.add_argument("--chunk", type=int, default=128,
+                    help="更新时的显存分块(tick 数);纯工程参数,不改数学")
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--temp", type=float, default=1.3)
     ap.add_argument("--port", type=int, default=8700)
@@ -314,7 +358,7 @@ def main() -> None:
     if "DISPLAY" not in os.environ:
         sys.exit("need DISPLAY (Xvfb :99)")
     if args.smoke:
-        args.rollout_ticks, args.groups, args.seq = 120, 1, 32
+        args.rollout_ticks, args.groups, args.chunk = 120, 1, 32
 
     OUT.mkdir(parents=True, exist_ok=True)
     device = "cuda"
@@ -356,7 +400,7 @@ def main() -> None:
         env.close()
 
         adv, jmeta = judge(g, rolls)
-        loss = update(tower, opt, rolls, adv, args.seq, device)
+        loss = update(tower, opt, rolls, adv, args.chunk, args.temp, device)
         torch.save(dict(tower=tower.state_dict(), cfg=vars(cfg), group=g),
                    OUT / "tower.pt")
 

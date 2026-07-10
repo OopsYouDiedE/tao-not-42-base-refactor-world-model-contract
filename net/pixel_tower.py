@@ -49,13 +49,22 @@ class PixelTowerConfig:
     d: int = 256
     heads: int = 4
     layers: int = 3
-    dropout: float = 0.1
+    dropout: float = 0.0    # 策略梯度正确性:采样 π 与更新 π 必须同网络;dropout 会造成两次
+                            # 独立随机 mask ⇒ log π(a) 打在另一个网络实例上(2026-07-10 修复)
     goal_dim: int = 384
     n_mouse: int = 2
     camera_bins: int = 11
     n_keys: int = 20
     max_len: int = 256
     chunk_k: int = 1
+    frame_stack: int = 4    # 帧堆叠 S:stem 吃 [3S,H,W]。单帧测不出任何速度量(自身移动/
+                            # 目标接近/相机惯性),而相机控制是伺服问题——误差导数是基本控制量。
+                            # DQN(2013) 起所有像素策略都堆帧或带递归;S=4 同时把长程记忆职责
+                            # 明确划给地图(空间)与慢塔(任务)。(2026-07-10,设计文档 §7 D1)
+    key_prior: float = 0.05  # 按键先验:bias←logit(p)。零 bias 下 sigmoid(0)=0.5 ⇒ 随机初始化
+                             # 每 tick 期望按下 n_keys/2=10 个键(背包反复开合、hotbar 全按),
+                             # "抽搐乱动"是结构必然。p=0.05 ⇒ 起点期望 1 键/tick,把"人类多数
+                             # tick 只按少数键"写进初始分布——先验注入,非采样后手工屏蔽。
 
 
 class _FFN(nn.Module):
@@ -74,18 +83,21 @@ class _FFN(nn.Module):
 
 
 class _ConvStem(nn.Module):
-    """IMPALA 风格的小卷积干:[B,3,H,W] → [B,d]。从零训练,无预训练先验。"""
+    """IMPALA 风格的小卷积干:[B,C,H,W] → [B,d]。从零训练,无预训练先验。
 
-    def __init__(self, d: int, img_hw: tuple[int, int]):
+    C = 3 × frame_stack(堆叠帧沿通道拼接,旧→新);帧差即速度,一阶导数可观测。
+    """
+
+    def __init__(self, d: int, img_hw: tuple[int, int], in_ch: int = 3):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(3, 32, 5, stride=2, padding=2), nn.ReLU(inplace=True),
+            nn.Conv2d(in_ch, 32, 5, stride=2, padding=2), nn.ReLU(inplace=True),
             nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(64, 96, 3, stride=2, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(96, 128, 3, stride=2, padding=1), nn.ReLU(inplace=True),
         )
         with torch.no_grad():
-            n = self.net(torch.zeros(1, 3, *img_hw)).flatten(1).shape[1]
+            n = self.net(torch.zeros(1, in_ch, *img_hw)).flatten(1).shape[1]
         self.proj = nn.Linear(n, d)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -96,7 +108,7 @@ class PixelTower(nn.Module):
     """像素输入、goal 条件的因果策略塔。
 
     Shapes:
-        img   [B,T,3,H,W] float32 in [0,1]
+        img   [B,T,3·frame_stack,H,W] float32 in [0,1](堆叠帧沿通道拼接,旧→新)
         goal  [B,goal_dim] float32(L2 归一的冻结句向量;无指导时传零向量)
         prev  [B,T,n_mouse+n_keys] float32(上一步动作,cam 已归一到 [-1,1])
         →  cam_logits [B,T,k,n_mouse,camera_bins],  key_logits [B,T,k,n_keys]
@@ -109,7 +121,7 @@ class PixelTower(nn.Module):
         super().__init__()
         self.cfg = cfg
         d = cfg.d
-        self.stem = _ConvStem(d, cfg.img_hw)
+        self.stem = _ConvStem(d, cfg.img_hw, in_ch=3 * cfg.frame_stack)
         self.goal_q = nn.Linear(cfg.goal_dim, d)
         self.goal_bias = nn.Linear(cfg.goal_dim, d)
         self.act_embed = nn.Linear(cfg.n_mouse + cfg.n_keys, d)
@@ -122,6 +134,9 @@ class PixelTower(nn.Module):
         self.norm = nn.LayerNorm(d)
         self.cam_head = nn.Linear(d, cfg.chunk_k * cfg.n_mouse * cfg.camera_bins)
         self.key_head = nn.Linear(d, cfg.chunk_k * cfg.n_keys)
+        with torch.no_grad():  # 按键先验注入(见 PixelTowerConfig.key_prior)
+            p = cfg.key_prior
+            self.key_head.bias.fill_(float(torch.log(torch.tensor(p / (1 - p)))))
 
     def forward(self, img: torch.Tensor, goal: torch.Tensor, prev: torch.Tensor):
         B, T = img.shape[:2]

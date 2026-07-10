@@ -774,3 +774,30 @@ import 链与文档引用),主线执行:
 - 结论覆盖写入 conclusion_fasttower_skill_ceiling.md(五 run 动力学、run5 指标列、200:1 规律)。
 - 训练进程终止操作被工具权限层拦截,已上报用户等待裁决;进程暂在跑(对 best.pt 无影响)。
 - 池 119 clips,磁盘 37%,下载器正常。DINO 前端接线 SubAgent 进行中(DINOv3 优先)。
+
+## 2026-07-10 09:15–11:00 加长版 GRPO 正式 run:判官定罪与协议重建(主会话执行)
+
+- **首启 8×4×2000**(09:15,BC 暖启动 canonical run5-best + Qwen 慢塔 + Haiku 全排序判官):
+  g0–g2 完成(判官真排序 fallback=false、slow_fail=0、慢塔 p50 1.96s、每组墙钟 1024–1067s、
+  锚点里程碑全 0),g3 采集中被停。该三组入档定位为「旧判官协议(rank_v1)对照臂」。
+- **退化对照臂(旧协议,g0 轨迹)**:同内容 4 退化渲染 + 相同证据文本,Haiku 3/3 轮给
+  严格全序,幻觉率 100%,判词明写按画质排序(blur 三轮垫底)。与上轮结论一致。
+- **两处定罪,用户裁决立即改**:①判官全排序协议——幻觉率 100% + g1_r2(溺亡后卡死亡
+  画面 1100 tick)被排名次 1;②死亡不可自主复活——上游 CraftGround `MinecraftEnv.kt:473`
+  对 DeathScreen 特判禁点击(光标映射 :465 存在,VPT 有复活示范,缺口在环境层),
+  不用 `handleCommand("respawn")` 后门。
+- **grpo_pixel.py 改动**:判官协议 pairwise_v2(成对×正反两问+举证责任倒置+一致性门+
+  Copeland,全并列⇒adv 全零⇒跳过更新;调用全量落盘带 protocol 字段);死亡即截断
+  (`full.is_dead`⇒break,death_step 进证据文本与 metrics);world seed 先验筛选
+  (heightmap 无 leaves/log 换 seed,特权只进训练侧);`--judge-model`/`--seed-tries`。
+  编译+单测 5/5+静态自检(解析器/一致性门/环检测)通过。
+- **离线验证(不占 GPU)**:退化臂新协议 Haiku 6/6 对并列(原始 9 tie+3 动摇被一致性门
+  拦截),幻觉率 0,验收 PASS;旧证据重判 A/B——Haiku pairwise 真轨迹组几乎无 tie
+  (g0/g1 0/6)且 g1 死亡条仍排 1;Sonnet(`--effort low`)tie 率 4/6、2/6、5/6、6/6,
+  死亡条降第 2,空进展 g3(400t) 全并列。Sonnet 更守纪律的证据存在;主 run 按裁决仍用
+  Haiku,换判官待用户裁决。产物 `runs/grpo_pixel/{deg2k_*,g*_rejudge_pairwise_*.jsonl}`。
+- **带新协议 --smoke 全链路 PASS**:seed 筛选(1 次通过)、12/12 判官调用 0 失败、
+  一致性门后 2/6 tie、无环、更新执行、fallback=false。
+- **重启主 run 8×4×2000**(10:48,新判官+死亡截断+有树 seed 筛选):g0 首 seed
+  913350807 报无树(冒烟同 seed 曾报有树,疑为并发负载下 60 tick 地形未载完的保守
+  误判,换 seed 后通过);健康检查 +30 慢塔调用/180s,rollout 正常推进。结果待后续入档。

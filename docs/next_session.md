@@ -97,6 +97,31 @@
    稀疏键可学性上限已有受控结论（视觉平均 BC 学不会，归慢塔），加权不改变该结论。
 4. **GRPO 精修**：前置是有慢塔的机器（5090/Blackwell）或换塔（备选见设计文档 §10）。
    每 run 必须带判官退化输入对照臂（§6 纪律）。
+   ▶ **死亡即截断（用户裁决，下一 run 起执行）**：8×4×2000 run（2026-07-10）中
+   g1_r2 溺亡后卡死亡画面到 episode 结束，自主复活物理上不可能——根因在上游：
+   CraftGround `MinecraftEnv.kt:473` 对 DeathScreen 特判，在 `MouseInfo.onAction()`
+   之前 return（保护 disconnect 按钮），死亡界面上光标能动（camera×20/3→moveMouseBy，
+   :465 的 GUI 光标映射存在）但点击全被禁；VPT 数据含死亡→点复活示范，可学性不缺，
+   缺口在环境层。环境留有 `handleCommand("respawn")` 后门，但不用 respawn 宏：
+   **死亡即截断 episode，证据文本写明「第 N 步死亡」**。附带排序失真证据：该 run
+   判官把 g1_r2（死亡条）排名次 1——死亡状态不在判官可辨证据里，截断+文本标注
+   同时修复此失真。▶ 已实现（2026-07-10 当天）：`rollout()` 检测 `full.is_dead`
+   即 break，`death_step` 落盘进 metrics 与证据文本。
+   ▶ **判官协议 pairwise_v2 已上线（2026-07-10 用户定罪裁决，替换全排序 rank_v1）**：
+   成对比较（C(4,2) 对×正反两问，12 次调用/组）+ 举证责任倒置（默认 tie，判胜负必须
+   引用帧号/统计量，无数字引用机械降为 tie）+ 一致性门（正反不一致⇒tie，胜负图有环⇒
+   全组并列）→ Copeland 计分；全并列 ⇒ adv 全零 ⇒ update 的 |adv|<1e-6 跳过。
+   `--judge-model` 可换判官（Sonnet 对照臂口径 `--model sonnet --effort low`，
+   CLI 2.1.206）。落盘每次调用带 protocol 字段，RM 训练按协议过滤（rank_v1 数据有
+   画质偏好污染）。**退化臂验收 PASS**：同内容 4 退化渲染，Haiku 原始 9 tie + 3 次
+   动摇全被一致性门拦截，最终 6/6 对并列，幻觉率 0（rank_v1 同口径为 3/3 严格全序）。
+   旧证据重判 A/B（g0–g2 为 8×4×2000 被停臂,g3 为 4×4×400 档案）：Haiku pairwise
+   在真轨迹组仍几乎无 tie（g0/g1 0/6）且 g1 死亡条仍排 1;Sonnet+low tie 率高
+   （4/6、2/6、5/6、6/6），把 g1 死亡条降到第 2,对空进展的 g3(400t) 给全并列。
+   Sonnet 更守纪律的证据存在,但主 run 按裁决仍用 Haiku;是否换判官待用户裁决。
+   ▶ **world seed 先验筛选已上线**：reset 后读 heightmap（48×48 列顶层 block_name,
+   特权,只进训练侧）,无 leaves/log 换 seed（≤8 次,`--seed-tries`）,保证「拿木头」
+   物理可能;与受控对照固定 SCENE 同一性质,方法同 probe_dino_aim 树候选筛查。
 5. **候选项（不阻塞）**：craftground 上游若修掉 ZEROCOPY 每帧 register/unregister，
    env.step 的 4.3 ms 差距还会缩小；CraftGround 全无 X 渲染需上游 mixin/GLFW 特性，
    估数天级且收益存疑（Xorg 路径已通）。

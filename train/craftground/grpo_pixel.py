@@ -15,9 +15,10 @@
         ↓                                    ↑ goal_vec[386] = MiniLM(subgoal)[384] ⊕ aim/1000[2]
     PixelTower(从零) --> cam bins(11) + keys(20)  ← 慢塔 Omni 每 SLOW_EVERY tick 刷新一次
         ↓ 温度采样(T=1,eval 模式)
-    4 条 rollout / 组(同 world seed)
+    4 条 rollout / 组(同 world seed;seed 经出生点有树先验筛选;死亡即截断)
         ↓ 联络表图 + 行为文本
-    Haiku 判官从好到差排名 --> 名次取负 --> group_advantage(z 归一) --> REINFORCE
+    判官成对比较(pairwise_v2:C(4,2) 对×正反两问,默认 tie + 举证 + 一致性门)
+        --> Copeland 计分 --> group_advantage(z 归一;全并列 ⇒ 全零跳过) --> REINFORCE
         loss = adv * ( CE(cam_logits/temp, 采样bin) + BCE(key_logits/temp, 采样key) )
         一个 group 梯度累积后单次 opt.step(严格 on-policy)
 
@@ -148,15 +149,23 @@ def state_line(t: int, inv_steps: dict, pose_hist: list, goal_hist: list) -> str
     return (f"STATE t={t} inventory:{inv} displacement:{disp:.0f}blocks "
             f"recent_subgoals:{hist}")
 
-# 判官 rubric v2(2026-07-10):只给**任务**,不给手写进度阶梯——阶梯是人写的价值函数,
-# 会经排序渗进训练信号(苦涩的教训);推进程度由判官从证据自行判断。游戏无关,任务走模板。
-RUBRIC_TMPL = """任务:{task}
-下面几条是同一世界、同一策略的并行尝试。每条证据 = 一张 8 帧时间均匀抽样的联络表图(先后从左到右、上到下) + 行为统计文本。
-把它们按"对完成上述任务的真实推进与意图质量"从好到差排名。不提供进度阶梯:请从图中场景变化与行为证据自行判断谁推进得更远、意图更明确。
+# 判官协议 pairwise_v2(2026-07-10 用户定罪裁决,替换全排序 rank_v1)。
+# rank_v1 定罪证据:同内容 4 退化渲染,判官 3/3 轮给严格全序(幻觉率 100%),按画质
+# 而非推进排序;8×4×2000 run 中 g1_r2(溺亡后卡死亡画面)被排名次 1。
+# 三处修法:①成对比较替代全排序(C(k,2) 对,正反各问一次);②举证责任倒置
+# (默认 tie,判胜负必须引用具体帧号/统计量,引用空洞按 tie 计);③一致性门
+# (正反不一致 ⇒ tie;胜负图有环 ⇒ 全组并列)。Copeland 计分合成名次;
+# 全并列 ⇒ adv 全零 ⇒ update 的 |adv|<1e-6 跳过。落盘记录带 protocol 字段,
+# 将来 RM 训练按协议过滤(rank_v1 数据有画质偏好污染)。
+PAIR_RUBRIC_TMPL = """任务:{task}
+下面 A、B 两条是同一世界、同一策略的并行尝试。每条证据 = 一张 8 帧时间均匀抽样的联络表图(先后从左到右、上到下) + 行为统计文本。
+问题:对完成上述任务的真实推进与意图质量,A 和 B 谁更好?
+**默认结论是 tie(不分胜负)。**只有当你能引用具体证据——帧号(如「A 第 5 帧出现树干特写」)或统计量差异(如「位移 100 vs 24 格」)——支持一方确实推进更远时,才允许判胜负。
 防刷分警告:文本统计量可以靠原地乱转刷高,不可单独作为进度证据;必须结合图中场景与行为判断。图文矛盾时以图为准。
-最好=名次1。真分不出高下的允许并列(同名次),不要为拉开差距而编造。
-先用 Read 工具逐张读取下面列出的联络表图,再逐条作答。
-输出格式严格为每行一条『第N条: 名次X』(N 从 0 起,X 为数字),不输出其他内容。"""
+画质、清晰度、色彩观感与任务推进无关,不得作为证据。
+先用 Read 工具读取两张联络表图,再作答。
+输出严格为单行 JSON,不输出其他内容:
+{{"winner": "A"|"B"|"tie", "evidence": "<引用的具体帧号或统计量;tie 时可留空>"}}"""
 
 
 # ────────────────────────────────────────────────────── 慢塔
@@ -234,47 +243,149 @@ def evidence_text(r: dict) -> str:
     atk = float(keys[:, V2_KEYS.index("attack")].mean())
     goals = "→".join(f"第{e[0]}步『{e[1]}』" + ("✓" if e[5] else "")
                      for e in r["goal_log"][:6]) or "无"
-    return (f"里程碑:{ms};总步数 {len(keys)};水平位移 {disp:.0f} 格;"
+    death = (f"第 {r['death_step']} 步死亡(episode 截断);"
+             if r.get("death_step") is not None else "")
+    return (f"{death}里程碑:{ms};总步数 {len(keys)};水平位移 {disp:.0f} 格;"
             f"前进键占比 {fwd:.2f};攻击键占比 {atk:.2f};"
             f"相机总转动 {float(np.abs(r['cam_deg']).sum()):.0f} 度;"
             f"慢塔子目标轨迹:{goals}")
 
 
-def _parse_ranks(out: str, k: int) -> dict | None:
-    got = {int(m.group(1)): float(m.group(2)) for m in
-           re.finditer(r"第\s*(\d+)\s*条\s*[:：]\s*名次\s*([\d.]+)", out)}
-    return got if len(got) == k and set(got) == set(range(k)) else None
+def _parse_pair(txt: str) -> dict | None:
+    """成对判官单行 JSON 解析。举证责任倒置的机械检查:判胜负却引用空洞
+    (evidence 缺失或不含任何数字——帧号/统计量必然带数字)⇒ 降级为 tie。"""
+    try:
+        d = json.loads(re.search(r"\{.*\}", txt, re.S).group())
+    except Exception:  # noqa: BLE001
+        return None
+    w = str(d.get("winner", "")).strip().lower()
+    ev = str(d.get("evidence", ""))
+    if w not in ("a", "b", "tie"):
+        return None
+    if w in ("a", "b") and not re.search(r"\d", ev):
+        w = "tie"
+    return {"winner": w, "evidence": ev}
 
 
-def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK) -> tuple[np.ndarray, dict]:
-    """Haiku 排序 → 名次取负当分数 → 组内 z 归一化当优势。
+def judge_pair_call(img_a: str, ev_a: str, img_b: str, ev_b: str, task: str,
+                    model: str, effort: str | None = None) -> tuple[str, str, dict | None]:
+    """单次成对判官调用(重试 1 次;异常/解析失败返回 parsed=None,上层按 tie 计)。"""
+    prompt = (PAIR_RUBRIC_TMPL.format(task=task)
+              + f"\n\n### A\n联络表图:{img_a}\n{ev_a}\n### B\n联络表图:{img_b}\n{ev_b}")
+    cmd = ["claude", "-p", "--model", model]
+    if effort:                             # Sonnet 对照臂用 --effort low;Haiku 主臂不带
+        cmd += ["--effort", effort]
+    out, parsed = "", None
+    for _ in range(2):
+        try:
+            p = subprocess.run(cmd + [prompt], capture_output=True, text=True,
+                               timeout=600)
+            out = p.stdout
+        except Exception:  # noqa: BLE001  单次调用失灵不拖垮整组
+            continue
+        parsed = _parse_pair(out)
+        if parsed:
+            break
+    return prompt, out, parsed
 
-    全量落盘的 (证据, 排序) 对同时是未来本地 RM 的训练数据(设计文档 §11.4:
-    名次可离线展开成成对偏好,轨迹比较从"每组 1 次 API 排序"演进到"无限次本地打分")。
+
+def _win_graph_cycle(wins: dict[int, set], k: int) -> bool:
+    """胜负图找环(A>B>C>A 一类;k≤8,DFS 三色)。"""
+    color = [0] * k
+
+    def dfs(u: int) -> bool:
+        color[u] = 1
+        for v in wins.get(u, ()):
+            if color[v] == 1 or (color[v] == 0 and dfs(v)):
+                return True
+        color[u] = 2
+        return False
+
+    return any(color[i] == 0 and dfs(i) for i in range(k))
+
+
+def judge_pairwise(items: list[tuple[str, str]], task: str, model: str = "haiku",
+                   effort: str | None = None, log_path: Path | None = None
+                   ) -> tuple[list[float], dict]:
+    """成对判官协议 pairwise_v2:C(k,2) 对 × 正反两问 → 一致性门 → Copeland 计分。
+
+    items = [(联络表图路径, 证据文本), ...]。返回 (copeland_scores, meta)。
+    调用全量落盘(log_path,jsonl,每行含 prompt/reply/verdict/protocol 字段),
+    同时是未来本地 RM 的训练数据;旧 rank_v1 落盘按 protocol 过滤。
     """
-    lines = []
+    from itertools import combinations
+    k = len(items)
+    records, outcome, n_fail = [], {}, 0
+    for i, j in combinations(range(k), 2):
+        res = []
+        for (a, b), order in (((i, j), "fwd"), ((j, i), "rev")):
+            prompt, out, parsed = judge_pair_call(items[a][0], items[a][1],
+                                                  items[b][0], items[b][1],
+                                                  task, model, effort)
+            if parsed is None:             # 解析失败按 tie 计,并记数(别静默当胜负)
+                n_fail += 1
+                verdict = "tie"
+            elif parsed["winner"] == "tie":
+                verdict = "tie"
+            else:
+                verdict = a if parsed["winner"] == "a" else b
+            records.append(dict(protocol="pairwise_v2", pair=[i, j], order=order,
+                                a=a, b=b, model=model, effort=effort,
+                                verdict=verdict, parsed=parsed,
+                                reply=out.strip()[:2000], prompt=prompt))
+            res.append(verdict)
+        outcome[(i, j)] = res[0] if res[0] == res[1] else "tie"  # 一致性门:正反不一致⇒tie
+    if log_path is not None:
+        with open(log_path, "a") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    wins: dict[int, set] = {}
+    for (i, j), v in outcome.items():
+        if v != "tie":
+            wins.setdefault(v, set()).add(j if v == i else i)
+    cycle = _win_graph_cycle(wins, k)
+    scores = [0.0] * k
+    if not cycle:                          # 环 ⇒ 全组并列(scores 全零)
+        for (i, j), v in outcome.items():
+            if v == "tie":
+                continue
+            loser = j if v == i else i
+            scores[v] += 1.0               # Copeland:胜 +1 / 负 -1 / tie 0
+            scores[loser] -= 1.0
+    ranks = {str(i): float(1 + sum(1 for s in scores if s > scores[i]))
+             for i in range(k)}            # 竞赛名次,并列同名次
+    meta = dict(protocol="pairwise_v2",
+                judge=model + (f"+effort={effort}" if effort else ""),
+                judge_calls=len(records), judge_call_fail=n_fail,
+                pair_tie=sum(1 for v in outcome.values() if v == "tie"),
+                cycle=cycle, copeland=scores, ranks=ranks)
+    return scores, meta
+
+
+def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK,
+          model: str = "haiku") -> tuple[np.ndarray, dict]:
+    """成对判官 → Copeland 分 → 组内 z 归一化当优势。
+
+    全并列(含胜负图有环)⇒ scores 全零 ⇒ group_advantage 全零(std_floor)⇒
+    update 的 |adv|<1e-6 条款跳过该组,不产生假梯度。
+    """
+    items = []
     for j, r in enumerate(rolls):
         img = (OUT / f"g{g}_r{j}.png").resolve()
         contact_sheet(r["frames"], img)
-        lines.append(f"### 第{j}条\n联络表图:{img}\n{evidence_text(r)}")
-    prompt = RUBRIC_TMPL.format(task=task) + "\n\n" + "\n".join(lines)
-    (OUT / f"g{g}_judge_prompt.txt").write_text(prompt)
+        items.append((str(img), evidence_text(r)))
+    (OUT / f"g{g}_items.json").write_text(
+        json.dumps(items, ensure_ascii=False, indent=1))
 
-    ranks = None
-    for _ in range(2):
-        p = subprocess.run(["claude", "-p", "--model", "haiku", prompt],
-                           capture_output=True, text=True, timeout=600)
-        (OUT / f"g{g}_judge_reply.txt").write_text(p.stdout)
-        ranks = _parse_ranks(p.stdout, len(rolls))
-        if ranks:
-            break
-
-    if ranks:
-        scores = [-ranks[j] for j in range(len(rolls))]
-        meta = {"judge": "haiku", "ranks": ranks, "fallback": False}
-    else:  # 判官两轮失败 ⇒ 回退不可刷的里程碑机器分(并记数,别静默)
-        scores = [len(r["inv_events"]) for r in rolls]
-        meta = {"judge": "fallback_milestone", "ranks": None, "fallback": True}
+    scores, meta = judge_pairwise(items, task, model=model,
+                                  log_path=OUT / f"g{g}_judge_pairs.jsonl")
+    if meta["judge_call_fail"] == meta["judge_calls"]:  # 判官全灭 ⇒ 回退里程碑机器分
+        scores = [float(len(r["inv_events"])) for r in rolls]
+        meta = {"judge": "fallback_milestone", "protocol": "pairwise_v2",
+                "ranks": None, "fallback": True}
+    else:
+        meta["fallback"] = False
     return group_advantage(scores), meta
 
 
@@ -366,6 +477,7 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float,
     goal_log, inv_events, inv_steps = [], set(), {}
     prev = np.zeros(cfg.n_mouse + cfg.n_keys, np.float32)
     fstack: list[np.ndarray] = []                         # 最近 frame_stack 帧,旧→新
+    death_step = None                                     # 死亡即截断(用户裁决 2026-07-10)
 
     for t in range(ticks):
         rgb = np.asarray(obs["rgb"], dtype=np.uint8)
@@ -423,11 +535,15 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float,
         pose.append([full.x, full.y, full.z])
         prev = np.concatenate([deg / CAM_MAX_DEG, kp.astype(np.float32)])
 
+        if bool(getattr(full, "is_dead", False)):          # 死亡即截断:上游 MinecraftEnv.kt:473
+            death_step = t                                 # 禁死亡界面点击,自主复活不可能;
+            break                                          # 不用 respawn 宏,证据文本写明死亡步
+
     return dict(imgs=np.stack(imgs), prevs=np.stack(prevs), goals=np.stack(goals),
                 cam=np.stack(cam_b), keys=np.stack(key_b), cam_deg=np.stack(cam_deg),
                 pose=np.asarray(pose, np.float32), frames=frames,
                 goal_log=goal_log, inv_events=inv_events, inv_steps=inv_steps,
-                calib=calib,
+                calib=calib, death_step=death_step,
                 **(v2rt.export() if v2rt is not None else {}))
 
 
@@ -505,6 +621,11 @@ def main() -> None:
     ap.add_argument("--dino", choices=("dinov3", "dinov2"), default="dinov3",
                     help="v2 视觉骨干(dinov3 gated 需 HF_TOKEN;dinov2 开放备选)")
     ap.add_argument("--no-calib", action="store_true", help="跳过开局自标定探针")
+    ap.add_argument("--judge-model", default="haiku",
+                    help="判官模型(claude CLI --model 值;对照臂可换 sonnet)")
+    ap.add_argument("--seed-tries", type=int, default=8,
+                    help="world seed 先验筛选:出生点 heightmap 48×48 无树则换 seed 的"
+                         "最大尝试数(特权信息只进训练侧,保证任务物理可能)")
     ap.add_argument("--init-from", default="",
                     help="BC 暖启动 checkpoint(bc_vpt_warmstart 产出;GRPO 只做精修,"
                          "受控对照见 conclusion_fasttower_skill_ceiling)")
@@ -560,24 +681,43 @@ def main() -> None:
     rng = np.random.default_rng(0)
 
     for g in range(args.groups):
-        wseed = str(int(rng.integers(0, 1 << 30)))
-        env_cfg = InitialEnvironmentConfig(
-            image_width=640, image_height=360,
-            gamemode=GameMode.SURVIVAL, difficulty=Difficulty.PEACEFUL,
-            world_type=WorldType.DEFAULT, seed=wseed,
-            screen_encoding_mode=ScreenEncodingMode.RAW)
-        env_cfg.set_allow_mob_spawn(False); env_cfg.freeze_time(True)
-        env_cfg.freeze_weather(True)
-        env = CraftGroundEnvironment(env_cfg,
-                                     action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
-                                     port=args.port + g, find_free_port=True, verbose=False)
+        # world seed 先验筛选(实验设计,非拐棍):出生点 heightmap(48×48 列顶层
+        # block_name,特权,只进训练侧)无 leaves/log ⇒「拿木头」物理不可能 ⇒ 换 seed。
+        # 与受控对照固定 SCENE 同一性质;方法同 tests/probe_dino_aim.py 树候选筛查。
         t0 = time.time()
+        env, wseed, has_tree, att = None, "", False, 0
+        for att in range(args.seed_tries):
+            wseed = str(int(rng.integers(0, 1 << 30)))
+            env_cfg = InitialEnvironmentConfig(
+                image_width=640, image_height=360,
+                gamemode=GameMode.SURVIVAL, difficulty=Difficulty.PEACEFUL,
+                world_type=WorldType.DEFAULT, seed=wseed,
+                screen_encoding_mode=ScreenEncodingMode.RAW,
+                requires_heightmap=True)
+            env_cfg.set_allow_mob_spawn(False); env_cfg.freeze_time(True)
+            env_cfg.freeze_weather(True)
+            env = CraftGroundEnvironment(env_cfg,
+                                         action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
+                                         port=args.port + g, find_free_port=True,
+                                         verbose=False)
+            obs0, _ = env.reset()
+            for _ in range(60):                            # 等地形加载再读 heightmap
+                obs0 = env.step(no_op_v2())[0]
+            has_tree = any("leaves" in h.block_name or "log" in h.block_name
+                           for h in obs0["full"].height_info)
+            if has_tree or att == args.seed_tries - 1:
+                break
+            print(f"[g{g}] seed={wseed} 出生点无树,换 seed", flush=True)
+            env.close()
+        if not has_tree:
+            print(f"[g{g}] {args.seed_tries} 次筛选无树,按最后 seed 继续(如实入档)",
+                  flush=True)
         rolls = [rollout(env, tower, slow, no_op_v2, rng, args.rollout_ticks, device,
                          args.temp, do_calib=not args.no_calib, v2rt=v2rt)
                  for _ in range(args.per_group)]
         env.close()
 
-        adv, jmeta = judge(g, rolls, task=args.task)
+        adv, jmeta = judge(g, rolls, task=args.task, model=args.judge_model)
         loss = update(tower, opt, rolls, adv, args.chunk, args.temp, device)
         if args.tower == "v1":             # v1/v2 checkpoint 分文件,互不污染
             torch.save(dict(tower=tower.state_dict(), cfg=vars(cfg), group=g),
@@ -587,6 +727,8 @@ def main() -> None:
                             tower_version="v2", group=g), OUT / "tower_v2.pt")
 
         m = dict(group=g, tower=args.tower, world_seed=wseed, n=len(rolls),
+                 seed_attempts=att + 1, seed_has_tree=has_tree,
+                 deaths=[r.get("death_step") for r in rolls],
                  adv=[round(float(a), 3) for a in adv], adv_var=round(float(np.var(adv)), 4),
                  **jmeta,
                  milestones={k: sum(1 for r in rolls if k in r["inv_events"])

@@ -307,22 +307,37 @@ def relabel_dir(pool: str, url_map: dict[str, str], window: int) -> dict:
     return agg
 
 
-def scan_vocab(pools: list[str]) -> dict[str, int]:
-    """重扫目录里全部已标注 jsonl 的 subgoal 词表(统计与 vocab 文件的唯一事实源)。"""
-    vocab: dict[str, int] = {}
-    for pool in pools:
-        for f in sorted(os.listdir(pool)):
-            if not f.endswith(".jsonl"):
-                continue
-            try:
-                with open(os.path.join(pool, f), "r", encoding="utf-8") as fh:
-                    for line in fh:
-                        sg = json.loads(line).get("subgoal")
-                        if sg:
-                            vocab[sg] = vocab.get(sg, 0) + 1
-            except (OSError, ValueError):
-                continue
-    return vocab
+def scan_stats(pool: str) -> dict:
+    """全量重扫目录:词表+覆盖率统计(幂等重跑后的唯一事实源,不依赖单次运行增量)。"""
+    st = dict(n_clips=0, n_unlabeled_clips=0, n_frames=0, n_labeled=0, n_gui=0,
+              n_labeled_nongui=0, vocab={})
+    for f in sorted(os.listdir(pool)):
+        if not f.endswith(".jsonl"):
+            continue
+        try:
+            with open(os.path.join(pool, f), "r", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            first = json.loads(lines[0]) if lines else {}
+        except (OSError, ValueError, IndexError):
+            continue
+        if not first.get("relabel_v"):
+            st["n_unlabeled_clips"] += 1
+            continue
+        st["n_clips"] += 1
+        for line in lines:
+            rec = json.loads(line)
+            st["n_frames"] += 1
+            gui = bool(rec.get("gui"))
+            st["n_gui"] += gui
+            sg = rec.get("subgoal")
+            if sg:
+                st["n_labeled"] += 1
+                st["n_labeled_nongui"] += not gui
+                st["vocab"][sg] = st["vocab"].get(sg, 0) + 1
+    st["coverage"] = round(st["n_labeled"] / max(st["n_frames"], 1), 4)
+    st["coverage_nongui"] = round(st["n_labeled_nongui"]
+                                  / max(st["n_frames"] - st["n_gui"], 1), 4)
+    return st
 
 
 def main() -> None:
@@ -342,16 +357,21 @@ def main() -> None:
         for pool in pools:
             print(f"── 回填 {pool}", flush=True)
             agg = relabel_dir(pool, url_map, args.window)
-            stats_path = pool.rstrip("/") + "_relabel_stats.json"
-            agg["window"] = args.window
-            agg["coverage"] = round(agg["n_labeled"] / max(agg["n_frames"], 1), 4)
-            with open(stats_path, "w", encoding="utf-8") as f:
-                json.dump(agg, f, ensure_ascii=False, indent=1, sort_keys=True)
-            print(f"   ✓ {agg['n_clips']} 段,覆盖率 {agg['coverage']:.1%},"
-                  f"词表 {len(agg['vocab'])},统计 → {stats_path}", flush=True)
-    vocab = scan_vocab(pools)
+            print(f"   本次新标 {agg['n_clips']} 段 / 跳过 {agg['n_skipped']}", flush=True)
+    vocab_all: dict[str, int] = {}
+    for pool in pools:                        # 统计与词表都从全量重扫来(幂等重跑安全)
+        st = scan_stats(pool)
+        st["window"] = args.window
+        stats_path = pool.rstrip("/") + "_relabel_stats.json"
+        with open(stats_path, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False, indent=1, sort_keys=True)
+        print(f"   ✓ {pool}: {st['n_clips']} 段已标(未标 {st['n_unlabeled_clips']}),"
+              f"覆盖率 {st['coverage']:.1%}(非GUI {st['coverage_nongui']:.1%}),"
+              f"词表 {len(st['vocab'])} → {stats_path}", flush=True)
+        for k, v in st["vocab"].items():
+            vocab_all[k] = vocab_all.get(k, 0) + v
     vpath = pools[0].rstrip("/") + "_goal_vocab.json"
-    enc = encode_vocab(list(vocab), device="cpu")
+    enc = encode_vocab(list(vocab_all), device="cpu")
     with open(vpath, "w", encoding="utf-8") as f:
         json.dump(enc, f)
     print(f"✅ 词表 {len(enc)} 条(MiniLM 384 维,L2 归一)→ {vpath}", flush=True)

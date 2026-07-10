@@ -814,3 +814,7 @@ import 链与文档引用),主线执行:
 - **Sonnet-low 主 run 巡检(13:0x)**:g0–g2 入档,fallback/judge_call_fail/slow_fail 全 0;
   g0 死亡 2/4(截断生效)、g1 无死亡 tie 4/6、g2 tie 3/6;里程碑仍全 0;g3 筛有树 seed 中
   (无树率约五成,按设计)。磁盘 46%,下载池正常(266 段)。
+- **Sonnet-low 主 run 巡检(14:2x)**:g3–g6 入档,机制指标持续全绿(fallback/judge_call_fail/
+  slow_fail 全 0)。g3、g6 全并列⇒零梯度跳过更新;g5 关键样本:r2/r3 死亡截断(1935/1597)
+  但 r2 凭死前推进并列第 1、r3 垫底——死亡不再机械决定名次。里程碑八组全 0。
+  g7 rollout 中(GPU 86%),磁盘 47%,下载池 301 段。

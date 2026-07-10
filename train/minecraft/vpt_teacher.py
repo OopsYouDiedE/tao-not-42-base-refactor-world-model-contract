@@ -156,7 +156,8 @@ class VPTTeacher:
         return None if s is None else tree_map(lambda x: x.to(self.device), s)
 
     @torch.no_grad()
-    def forward_frames(self, frames_u8: torch.Tensor, state, first0: bool):
+    def forward_frames(self, frames_u8: torch.Tensor, state, first0: bool,
+                       autocast: bool = False):
         """一段时间块前向(状态延续)。
 
         Parameters
@@ -176,7 +177,8 @@ class VPTTeacher:
         ob = {"img": frames_u8.unsqueeze(0).to(self.device)}      # [1,T,H,W,C]
         first = torch.zeros(1, t_n, dtype=torch.bool, device=self.device)
         first[0, 0] = bool(first0)
-        (pd, _v, _), state = self.policy(ob, first, state)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=autocast):
+            (pd, _v, _), state = self.policy(ob, first, state)
         # 头输出 [B=1, T, 1, n](TensorType shape=(1,) 的冗余维)→ [T, n]
         return {k: v[0, :, 0].float().cpu() for k, v in pd.items()}, state
 
@@ -195,15 +197,8 @@ def read_teacher_frames(mp4: str) -> np.ndarray:
     return np.stack(out) if out else np.zeros((0, 128, 128, 3), np.uint8)
 
 
-def label_segment(teacher: VPTTeacher, mp4: str, jsonl: str, chunk: int = 128) -> dict:
-    """单段打标:教师顺序前向全段(记忆跨块延续),返回 npz 载荷。
-
-    Returns
-    -------
-    dict:keys [T,20] f16 概率(V2 键序)、cam [T,2,11] f16 教师 bin 边缘分布
-    (轴序 dx,dy;训练侧用 remap_cam 转我们 bin)、cam_on [T] f16、
-    top_combo [T] u16(教师最可能 buttons 联合类,审计用)、gui [T] bool。
-    """
+def load_inputs(mp4: str, jsonl: str) -> tuple[np.ndarray, np.ndarray]:
+    """单段教师输入:(frames [T,128,128,3] u8, gui [T] bool),T=帧/动作行数取小。"""
     frames = read_teacher_frames(mp4)
     gui = []
     with open(jsonl, "r", encoding="utf-8") as f:
@@ -212,11 +207,26 @@ def label_segment(teacher: VPTTeacher, mp4: str, jsonl: str, chunk: int = 128) -
     t_n = min(len(frames), len(gui))
     if t_n == 0:
         raise RuntimeError(f"{mp4}: 空段")
-    frames = torch.from_numpy(frames[:t_n])
+    return frames[:t_n], np.array(gui[:t_n], dtype=bool)
+
+
+def label_segment(teacher: VPTTeacher, frames: np.ndarray, gui: np.ndarray,
+                  chunk: int = 128, autocast: bool = False) -> dict:
+    """单段打标:教师顺序前向全段(记忆跨块延续),返回 npz 载荷。
+
+    Returns
+    -------
+    dict:keys [T,20] f16 概率(V2 键序)、cam [T,2,11] f16 教师 bin 边缘分布
+    (轴序 dx,dy;训练侧用 remap_cam 转我们 bin)、cam_on [T] f16、
+    top_combo [T] u16(教师最可能 buttons 联合类,审计用)、gui [T] bool。
+    """
+    t_n = len(frames)
+    frames = torch.from_numpy(frames)
     keys, cams, ons, tops = [], [], [], []
     state = None
     for i0 in range(0, t_n, chunk):
-        pd, state = teacher.forward_frames(frames[i0:i0 + chunk], state, first0=(i0 == 0))
+        pd, state = teacher.forward_frames(frames[i0:i0 + chunk], state,
+                                           first0=(i0 == 0), autocast=autocast)
         pk, ct, on = teacher_to_v2(pd)
         keys.append(pk.half()); cams.append(ct.half()); ons.append(on.half())
         tops.append(pd["buttons"].argmax(-1).to(torch.int32))
@@ -224,7 +234,7 @@ def label_segment(teacher: VPTTeacher, mp4: str, jsonl: str, chunk: int = 128) -
                 cam=torch.cat(cams).numpy(),
                 cam_on=torch.cat(ons).numpy(),
                 top_combo=torch.cat(tops).numpy().astype(np.uint16),
-                gui=np.array(gui[:t_n], dtype=bool))
+                gui=gui)
 
 
 def main() -> None:
@@ -235,6 +245,8 @@ def main() -> None:
     ap.add_argument("--weights", default="runs/data/models/vpt_teacher/rl-from-foundation-2x.weights")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--chunk", type=int, default=128)
+    ap.add_argument("--decoders", type=int, default=2,
+                    help="cv2 解码预取线程数(GPU 前向若快于解码,加大到不再是瓶颈)")
     ap.add_argument("--limit", type=int, default=0, help=">0 只标前 N 段(冒烟)")
     args = ap.parse_args()
 
@@ -261,11 +273,38 @@ def main() -> None:
         pairs = pairs[:args.limit]
     print(f"待打标 {len(pairs)} 段(已完成 {len(done)})", flush=True)
 
-    for i, (mp4, jl) in enumerate(pairs):
+    # 解码预取:下一段在后台线程解码,GPU 前向与 cv2 解码流水线化(墙钟≈max 而非和)
+    import queue as _q
+    import threading as _th
+    n_dec = max(1, args.decoders)
+    pre: _q.Queue = _q.Queue(maxsize=n_dec + 1)
+
+    def _producer(shard: int):
+        for mp4, jl in pairs[shard::n_dec]:
+            try:
+                pre.put((mp4, load_inputs(str(mp4), str(jl))))
+            except (RuntimeError, OSError, ValueError) as e:   # 滚动池半写段:跳过
+                pre.put((mp4, e))
+        pre.put(None)
+
+    for k in range(n_dec):
+        _th.Thread(target=_producer, args=(k,), daemon=True).start()
+    use_ac = args.device.startswith("cuda")
+    i, ended = -1, 0
+    while ended < n_dec:
+        item = pre.get()
+        if item is None:
+            ended += 1
+            continue
+        i += 1
+        mp4, loaded = item
         t0 = time.time()
+        if isinstance(loaded, Exception):
+            print(f"[{i}] {mp4.stem} 失败:{loaded}", flush=True)
+            continue
         try:
-            payload = label_segment(teacher, str(mp4), str(jl), chunk=args.chunk)
-        except (RuntimeError, OSError, ValueError) as e:   # 滚动池半写段:跳过
+            payload = label_segment(teacher, *loaded, chunk=args.chunk, autocast=use_ac)
+        except (RuntimeError, OSError, ValueError) as e:
             print(f"[{i}] {mp4.stem} 失败:{e}", flush=True)
             continue
         np.savez_compressed(out / f"{mp4.stem}.npz", **payload)

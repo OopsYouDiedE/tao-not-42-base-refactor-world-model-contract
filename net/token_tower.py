@@ -39,9 +39,10 @@ class TokenTowerConfig:
     n_q: int = 4              # 策略 query 数
     vis_dim: int = 384        # 视觉 token 维(DINOv3 ViT-S patch=384;YOLOE 提案=518)
     map_dim: int = 64         # 地图 token 维(MapReader.d_out)
-    geo_dim: int = 12         # 数值 goal:aim_uv(2) ⊕ 钉点 xy/half+age(3) ⊕
-                              # SelfCalib.physics_vector(6) ⊕ 备用(1)。物理参数是
-                              # 自标定测出的环境状态,喂 query 而非写死进权重(多游戏)。
+    geo_dim: int = 16         # 数值 goal:aim_uv(2) ⊕ 钉点 xy/half+age(3) ⊕
+                              # SelfCalib.physics_vector(10:增益/FOV/步速/延迟/模式,
+                              # 各带有效位) ⊕ 备用(1)。物理参数是自标定测出的环境状态,
+                              # 喂 query 而非写死进权重(多游戏迁移的载体)。
     lang_vocab: int = 257     # UTF-8 字节 + pad
     lang_len: int = 48
     n_mouse: int = 2

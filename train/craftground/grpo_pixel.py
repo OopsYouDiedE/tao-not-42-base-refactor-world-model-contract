@@ -59,7 +59,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from net.calibration import SelfCalib, probe_plan                # noqa: E402
+from net.calibration import (SelfCalib, control_mode, fit_latency,  # noqa: E402
+                             flow_shift, probe_plan_multi)
 from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
 from train.fovea_twotower.grpo_harness import group_advantage    # noqa: E402
 
@@ -294,10 +295,9 @@ def stack_frames(imgs: np.ndarray, s: int) -> np.ndarray:
 
 
 def calibrate(env, no_op, obs) -> tuple[SelfCalib, object]:
-    """开局自标定:发已知相机命令测光流增益(纯观测);步速用 pose(特权,只进训练侧)。
-
-    净漂移为零的对称探针序列(probe_plan),约 8+6 tick。产出的 SelfCalib 随 episode
-    携带:physics_line 进慢塔 prompt,physics_vector 备 token 塔,fov 备 IPM 接线。
+    """开局自标定(加固版):先压低视线(看地面纹理,天空低纹理测不出流),
+    多幅度对称探针 → 延迟扫描 → 按延迟错位配对测增益/曲线 → 模式脉冲 →
+    步速(pose,特权只进训练侧)。约 40 tick。产出 SelfCalib 随 episode 携带。
     """
     calib = SelfCalib(img_w=IMG_HW[1], img_h=IMG_HW[0])
 
@@ -305,12 +305,46 @@ def calibrate(env, no_op, obs) -> tuple[SelfCalib, object]:
         return np.asarray(Image.fromarray(np.asarray(o["rgb"], np.uint8))
                           .resize((IMG_HW[1], IMG_HW[0])), np.float32)
 
-    for yaw, pitch in probe_plan(unit_deg=4.0):
-        f0 = small(obs)
+    def cam_step(yaw, pitch):
         a = no_op()
         a["camera_yaw"], a["camera_pitch"] = float(yaw), float(pitch)
-        obs = env.step(a)[0]
-        calib.update_camera(f0, small(obs), yaw, pitch)
+        return env.step(a)[0]
+
+    obs = cam_step(0, 20)                                 # 压低视线:地面纹理
+    plan = probe_plan_multi((2.0, 4.0, 8.0))
+    frames, cmds = [small(obs)], []
+    for yaw, pitch in plan:
+        obs = cam_step(yaw, pitch)
+        frames.append(small(obs))
+        cmds.append((yaw, pitch))
+    for _ in range(3):                                    # 尾部 no-op:延迟>0 时的响应帧
+        obs = env.step(no_op())[0]
+        frames.append(small(obs))
+        cmds.append((0.0, 0.0))
+    flows = np.array([flow_shift(frames[i], frames[i + 1])[:2]
+                      for i in range(len(cmds))], np.float32)
+    lag, lag_corr = fit_latency(flows, np.array(cmds, np.float32))
+    if lag_corr >= 0.3:                                   # 测得出延迟才采信
+        calib.latency_ticks = lag
+    k = calib.latency_ticks or 0
+    for i in range(len(plan)):                            # 按延迟错位配对喂增益/曲线证据
+        calib.update_camera(frames[i + k], frames[i + k + 1], *plan[i])
+    calib.fit_curve()
+
+    pulse = 6.0                                           # 模式脉冲:1 tick 命令 + 3 tick 静默
+    f_a = small(obs)
+    obs = cam_step(pulse, 0)
+    f_b = small(obs)
+    mag_during = abs(flow_shift(f_a, f_b)[0])             # 脉冲期的流
+    afters = []
+    for _ in range(3):
+        obs = env.step(no_op())[0]
+        f_c = small(obs)
+        afters.append(abs(flow_shift(f_b, f_c)[0]))       # 静默期的流:骤停=位置增量
+        f_b = f_c
+    calib.mode = control_mode(mag_during, float(np.mean(afters)))
+    obs = cam_step(-pulse, 0)                             # 回正净漂移
+
     p0 = obs["full"]
     for _ in range(6):                                    # 前进 6 tick 测步速(训练侧)
         a = no_op()

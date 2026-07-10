@@ -835,3 +835,9 @@ import 链与文档引用),主线执行:
   闭环复现)与慢塔指导落地率;判官侧本 run 已守纪律(有据才有梯度),没有第一个
   里程碑就没有可锚定的推进差,信号层依旧未证实但责任链已从判官移到策略侧。
   判决入 design_bitter_lesson §10.1 末段 + conclusion_fasttower_skill_ceiling 注记。
+- **bc_vpt4(hindsight relabel)开训与首个风险信号(15:2x 巡检)**:训练在跑(200k 步,
+  lr 5e-5,goal-drop 0.25,GPU 24%——数据管线瓶颈与历轮一致);但 step 25.5k 处
+  真 goal F1≈zero-goal F1≈0.75、lab_true≈lab_perm≈0.66——goal 通道仍无分离,
+  已令 relabel agent 优先核查接线(goal 向量是否真非零入 FiLM)与标签谱系分布
+  (短语是否单一化),训练暂不杀。另 key_f1_mean 0.75 与 canonical 0.6148 口径
+  待确认是否可比。磁盘 50%,池 336 段。

@@ -14,7 +14,7 @@
 #   --max-num-seqs    384    -> 8       (慢系统 worker 并发极低,不需要大 batch)
 # 实测 KV cache 容量 289,408 token(fp8),故 --max-model-len 131072 仍有 2.2x 并发余量。
 # image 上限拉到 64:Lumine 式多帧历史要把 (图,动作) 对灌进上下文;一帧 640x360 仅 ~298 token,
-# 100 帧 ≈ 30k token,Mamba 的常数状态让"直接灌历史"成为可行选项(见 tests/probe_omni_minecraft_lumine.py)。
+# 100 帧 ≈ 30k token,Mamba 的常数状态让"直接灌历史"成为可行选项(Lumine 指点复现探针已删,结论入档 knowledge/conclusion_omni_pixel_control.md)。
 #
 # 坑:model card 的 "RTX Pro: append --moe-backend triton" **对 NVFP4 权重无效**——
 # triton 不在 NVFP4 MoE 的后端集合里,vLLM 直接 ValueError:
@@ -28,7 +28,7 @@
 # PTX JIT 吃不下 CUDA 12.9 的 PTX ⇒ 加载期 profile_run 直接
 #   torch.AcceleratorError: CUDA error: the provided PTX was compiled with an unsupported toolchain
 # LLM 主干不受影响(它选的是 FlashInfer,有预编译 cubin)。故必须把**编码器**注意力换掉。
-# 最小复现:tests/probe_sm120_ptx.py
+# 最小复现探针已删(prune3);sm_120 PTX 坑结论入档 knowledge/conclusion_omni_nvfp4_5090.md §四坑。
 #
 # 坑 3(同上环境):FlashInfer 需要为 sm_120 **JIT 编译** cutlass FP8 GEMM,但它的
 # _normalize_cuda_arch() 硬编码 "SM 12.x requires CUDA >= 12.9";本机系统 nvcc 是 12.8

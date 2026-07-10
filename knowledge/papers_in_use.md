@@ -10,12 +10,12 @@
 |---|---|---|---|---|---|
 | 慢塔底座 | Nemotron-3-Nano-Omni | arXiv:2604.24954;HF `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-{BF16,FP8,NVFP4}`(NVIDIA Open Model Agreement) | 读一帧游戏画面 → 文本子目标 + 目标像素;NVFP4 本地 vLLM 加载 | 不解码长思维链驱动 30Hz 动作;不做像素直控(零样本失败) | `docs/architectures/nemotron-3-nano-omni-architecture.md:10-14`;`train/craftground/grpo_pixel.py:62,97-98,116-124` |
 | 慢塔量化格式 | Omni 官方 NVFP4/FP8 分层量化 | 同上权重(NVFP4 变体) | 专家张量 NVFP4 + 注意力/共享专家 FP8,5090 单卡自托管 | Mamba 本体不 4bit 化(官方原样) | `docs/architectures/nemotron-3-nano-omni-architecture.md:44-50`;`knowledge/conclusion_omni_nvfp4_5090.md` |
-| 慢塔提示范式 | Lumine | arXiv:2511.08892(Qwen2-VL-7B 底座玩原神) | 语言原生动作串 + 显式推理 + 多帧历史 + 像素指点配方逐条移植 | 未用其原神微调权重;我们是零样本,未 SFT | `knowledge/conclusion_omni_pixel_control.md:12`;`tests/probe_omni_minecraft_lumine.py:4`;`docs/activity_log.md:349` |
+| 慢塔提示范式 | Lumine | arXiv:2511.08892(Qwen2-VL-7B 底座玩原神) | 语言原生动作串 + 显式推理 + 多帧历史 + 像素指点配方逐条移植 | 未用其原神微调权重;我们是零样本,未 SFT | `knowledge/conclusion_omni_pixel_control.md:12`(探针 probe_omni_minecraft_lumine 已于 prune3 删除,结论入档此文);`docs/activity_log.md:349` |
 | 慢塔像素指点坐标约定 | Omni 自身被训练过的表示 | 1000×1000 归一化像素坐标 | `aim` 点用 0..1000 归一坐标(实测标定出的原生表示) | 角度/度数标定不归它(符号量级不可靠) | `knowledge/conclusion_omni_pixel_control.md:82`;`train/craftground/grpo_pixel.py:76-82` |
 | 句向量编码器 | Sentence-Transformers MiniLM | `sentence-transformers/all-MiniLM-L6-v2`(384d,冻结) | 把慢塔文本子目标编码成 goal 向量喂快塔 FiLM 条件 | 不微调、不做检索 | `train/craftground/grpo_pixel.py:326-331` |
-| 判官 | Anthropic Claude Haiku | `claude -p --model haiku`(CLI) | 组内并行 rollout 从好到差排名 → 名次取负 → 组内 z 归一当相对优势 | 不产生动作、不做感知;只给序 | `train/craftground/grpo_pixel.py:187`;`tests/probe_judge_io_haiku.py:2-16` |
+| 判官 | Anthropic Claude Haiku | `claude -p --model haiku`(CLI) | 组内并行 rollout 从好到差排名 → 名次取负 → 组内 z 归一当相对优势 | 不产生动作、不做感知;只给序 | `train/craftground/grpo_pixel.py:187`;判官幻觉体检结论见 `knowledge/lessons_do_not_retry.md`(探针 probe_judge_io_haiku 已于 prune3 删除) |
 | 快塔视觉前端(2026-07-10 用户拍板方向,接线中) | DINOv3(Meta,自监督 ViT) | HF repo 见 `net/backbone.py` `_HF_REPOS`(dinov3 ViT-S/16,gated;dinov2 开放降级);arXiv **待补** | 冻结 patch 网格(保空间结构)作快塔视觉 token + 地图稠密写入;fovea 双尺度裁剪备选 | 不用 CLS 单向量(旧 BC 用法已退役);不微调骨干 | `net/backbone.py:21-43`;`tests/probe_dino_aim.py`;`knowledge/design_bitter_lesson_map_integration.md §7/§8` |
-| 快塔相机动作头 | OpenAI VPT(部分在用) | GitHub `openai/Video-Pre-Training`(MIT);vendored `net/vpt_lib/`;arXiv **待补** | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 软 KL 蒸馏 / 逆动力学(distill_vpt 退役) | `train/minecraft/vpt_action.py:13,19-30`;`net/vpt_lib/NOTICE:1-8`;`net/pixel_tower.py:18-20` |
+| 快塔相机动作头 | OpenAI VPT(部分在用) | 上游 GitHub `openai/Video-Pre-Training`(MIT);arXiv **待补** | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 软 KL 蒸馏 / 逆动力学(distill_vpt 退役);vendored `net/vpt_lib/` 网络本体已删(prune3,全库零 import;口径已内联进 `train/craftground/action_contract.py`/`train/minecraft/vpt_action.py`) | `train/minecraft/vpt_action.py:13,19-30`;`net/pixel_tower.py:18-20` |
 | 快塔卷积干 | IMPALA-CNN(风格引用) | arXiv **待补**;仓库注为"OpenAI VPT / snu-mllab Achievement-Distillation 的 IMPALA-CNN" | 从零手写"IMPALA 风格"小卷积干(不 import 现成实现,不载预训练) | 不用其残差深塔 / 预训练权重 | `net/pixel_tower.py:77`;`blocks/impala.py:8` |
 | 训练算法 | GRPO(组内相对优势策略梯度) | arXiv **待补**(仓库无论文引用) | 判官排序 → 组内 z 归一优势 → REINFORCE(`loss=adv·(CE+BCE)`) | 当前实现是 REINFORCE 变体,未加 importance-ratio/clip/KL(待补全成完整 GRPO) | `train/craftground/grpo_pixel.py:1-23,195-200,272-298`;`train/fovea_twotower/grpo_harness.py:52-55` |
 | 方法论立场 | Sutton《The Bitter Lesson》 | 仓库原文写 "Sutton 2019"(随笔,非 arXiv) | 不为单个游戏打人工感知补丁;裁决退役词表/凸包GT/手标分割头 | 反对的是人工领域先验,非大规模预训练通用表征 | `net/pixel_tower.py:3`;`train/craftground/grpo_pixel.py:6-9`;`docs/next_session.md:146-147` |
@@ -24,7 +24,7 @@
 
 ### VPT —— 动作表示在用,BC 路线退役
 - **在用**:相机 mu-law 离散分箱头的口径(`CAMERA_BINS=11` / `CAMERA_MU`),理由是 MSE 回归下"恒预测 0"是平凡解,mu-law 分箱把 0 变成众多类之一;VPT 原版同样用 mu-law 离散相机。20 个二值键的动作契约同源。见 `train/minecraft/vpt_action.py:10-13,29-30`。
-- **未用**:`net/vpt_lib/` 虽是 OpenAI VPT 策略网络的原样 vendored 副本,但其用途(`distill_vpt.py` 的 teacher 软 KL 蒸馏)属退役的 BC 预训练路线。见 `net/vpt_lib/NOTICE:5-6`。
+- **已删**:`net/vpt_lib/`(OpenAI VPT 策略网络的原样 vendored 副本)其用途(teacher 软 KL 蒸馏)属退役的 BC 预训练路线,全库零 import,已于 prune3 物理删除;需要时重拉上游 `openai/Video-Pre-Training`。mu-law 口径不依赖它,已内联进 `action_contract.py`/`vpt_action.py`。
 
 ### YOLOE —— 整线废弃(2026-07-10 用户拍板)
 - 2026-07-09 曾裁决路线 2(类别无关提案 token);**2026-07-10 用户按苦涩的教训再推一步

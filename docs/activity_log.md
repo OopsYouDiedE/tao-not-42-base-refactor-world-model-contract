@@ -672,3 +672,23 @@ import 链与文档引用),主线执行:
 - 结果(单环境 640×360×500 step,同一动作序列):Xvfb-RAW 13.1 sps / Xorg-RAW 37.3 sps /
   **Xorg-ZEROCOPY 25.3 sps(obs 直落 cuda:0,跑通)** / EGL 无 X:驱动层可用、CraftGround 栈不支持。
   数据与判读回填 `knowledge/conclusion_craftground_run.md §3`(旧"ZEROCOPY 未启用"表述就地更新)。
+
+## 2026-07-10 第三批深度清理(prune3,-61 文件 / -9822 行)
+
+- 判据:仅存现行运行时(grpo_pixel import 链 + BC 线)+ design_bitter_lesson §7/§11/§12
+  定稿未来部件;assets/ 整棵不动。测绘=两个 Explore 子代理独立反查 import 链 + 主会话独立复核。
+- 删:net/vpt_lib vendored 整棵(17,全库零 import,口径已内联 action_contract/vpt_action)、
+  gaming500 系(12,退役)、omni/其余一次性探针(8,结论已入档 conclusion_*)、
+  tests/integration 整棵(15,已死:内部 import 更早删掉的 collect_s8/skill_ceiling)、
+  tests/performance/bench_render(1)、退役世界模型残件(guidance_bus/task_text/notebooks×2,4)、
+  scripts/sys_monitor(1)。目录消失:net/vpt_lib、train/gaming500、tests/integration、
+  tests/performance、notebooks。
+- 边界裁决(详见 next_session §8 与 runs/prune3_manifest.md):留 godot python 驱动
+  (assets 硬禁触子系统的唯一桥)、gpu_run.sh(当前运行时 headless 渲染启动器,env.py 引用);
+  删 task_text(仅退役 LLM 线引用)、sys_monitor(仅归档引用)。train/craftground/* 全未动(硬禁触区)。
+- 文档就地更新(不新建):readme 目录树、papers_in_use(vpt_lib 指向上游 + lumine/judge_io
+  锚改指 conclusion)、status_built_not_wired(LoRA/harness/宏技能/vpt_lib 条目标已删)、
+  AGENTS.md §8(L2/L2.5/L3 例更新)、serve_omni_nvfp4.sh(复现注释改指 conclusion)。
+- 遗留:action_contract.py:22 指向 vpt_lib 的注释因硬禁触区未改,登记待后续处理。
+- 验收:残留 import 全库 grep 零命中;pytest tests/unit 41 passed;
+  net 核心模块 import OK;grpo_pixel/bc 顶层 import 全解析到存在文件,AST parse 全清。

@@ -216,3 +216,31 @@
   (W4 三连败 + 混合架构自身即对冲),零样本无限流永不做;
 - 慢塔选型:留 Omni(已验证资产 + 流式经济性);换塔触发条件与 Qwen-VL 备选见 §10;
 - 训练:VPT BC 暖启动为主信号,GRPO 只做精修,判官落盘攒 RM 为后手。
+
+---
+
+## 8. 2026-07-10 prune3 清理边界裁决(供用户复核)
+
+第三批清理删 61 文件 / 9822 行(清单 `runs/prune3_manifest.md`;仅存现行运行时 +
+design_bitter_lesson 定稿未来部件;assets/ 整棵不动)。边界项逐条裁决:
+
+**删除的边界项**:
+- `train/minecraft/task_text.py` — 仅被已封存的 design_llm_* 退役世界模型线与愿景文档
+  mental_world 引用,不在 design_bitter_lesson 定稿结构里,零运行时 import。
+- `scripts/sys_monitor.py` — 一次性 GPU 利用率监控,唯一引用在 dreamer4 退役 conclusion
+  与 activity_log(归档),非当前/未来运行时。
+
+**保留的边界项(记引用)**:
+- `train/godot_meta_rl/vec_env.py` + `utils/godot_rl/*` — assets/godot_meta_rl 是硬禁触
+  子系统,此 py 是其唯一驱动桥;删则孤儿化不可动资产。无设计文档现行引用,按"宁可少删
+  边界项"保留。**若用户确认 Godot 线彻底退役,下一批可连同 install_env.py `--godot`/
+  pyproject `godot` 组/AGENTS.md §8 godot 例一并清。**
+- `scripts/gpu_run.sh` — 当前 CraftGround 运行时的 headless/Xvfb 渲染启动器,被禁触区
+  `train/craftground/env.py:91-92` 引用;是运行时依赖,非死码。
+- `tests/serve_omni_nvfp4.sh`、`tests/probe_dino_aim.py`、`tests/probe_vpt_calib.py`、
+  net DINO 前端(backbone/dino_tokenizer)、token_tower/map_io/ego_map、judge_exam 系 +
+  judge_train、map_probe/map_loc_probe、nano9b_qlora_smoke — design_bitter_lesson
+  §7/§8/§11/§12 逐条点名,详见 manifest 边界裁决表。
+
+**未处理(硬约束冲突)**:`train/craftground/action_contract.py:22` 指向已删 vpt_lib 的
+注释因该文件属硬禁触区未改;是无害历史注释(口径已内联),禁触解除后再处理。

@@ -93,9 +93,9 @@ tests/
 | 层 | 目录 | 放什么 | 禁止放 |
 |---|---|---|---|
 | L1 积木 | `blocks/` | 与任务无关的可复用算子（注意力 / 门控残差 / 时间编码 / 卷积编解码 / 分布 / SIGReg） | 任何领域字眼（Minecraft/Crafter/VPT）、训练逻辑 |
-| L2 网络 | `net/` | 模型与部件：`dreamerv3/`、`dreamer4/`、`ppo_ad/` 等世界模型/策略，`backbone.py` 骨干加载；结构 schema `config.py`（纯 dataclass）与各部件 `build_*` 工厂 | 训练循环、loss、mock、数据加载、yaml/文件 IO |
-| L2.5 第三方 | `net/vpt_lib/` | 原样 vendored 的 OpenAI VPT（见其 `NOTICE`）。**本规范不约束 vendored 目录**；升级方式是重拉上游覆盖 | 我们改写的代码 |
-| L3 训练域 | `train/<game>/` | 该数据集/游戏的**全部领域逻辑 + 训练**：数据契约（动作编解码、数据集、任务文本）、回放、loss、循环/装配 `train_*.py`（CLI/main）。**不同数据集的区分全压在这一层**（`train/crafter/`、`train/minecraft/`、`train/craftground/`、`train/godot_meta_rl/` 各自自洽） | 模型定义、跨域可复用算子 |
+| L2 网络 | `net/` | 模型与部件：快塔 `pixel_tower.py`、地图 `map_io.py`/`fovea_twotower/ego_map.py`、`token_tower.py`、DINO 前端 `backbone.py`/`dino_tokenizer.py`、自标定 `calibration.py`；结构 schema `config.py`（纯 dataclass）与各部件 `build_*` 工厂 | 训练循环、loss、mock、数据加载、yaml/文件 IO |
+| L2.5 第三方 | `net/<vendored>/`（当前无）| 原样 vendored 的第三方（附 `NOTICE`）。**本规范不约束 vendored 目录**；升级方式是重拉上游覆盖。曾有 `net/vpt_lib/`（OpenAI VPT），全库零 import 已删（prune3），需要时重拉上游 `openai/Video-Pre-Training` | 我们改写的代码 |
+| L3 训练域 | `train/<game>/` | 该数据集/游戏的**全部领域逻辑 + 训练**：数据契约（动作编解码、数据集）、回放、loss、循环/装配 `train_*.py`（CLI/main）。**不同数据集的区分全压在这一层**（`train/minecraft/`、`train/craftground/`、`train/godot_meta_rl/` 各自自洽） | 模型定义、跨域可复用算子 |
 | 配置 | `configs/<game>/` | 模型结构 yaml 预设（部件选择 + 超参；缺键取 `net.config` 默认） | 模型定义、训练逻辑、数据契约 |
 | 测试 / 离线脚本 | `tests/` | **所有** mock、CPU 兼容、离线降级、骨干冒烟、一次性诊断；`unit/` 与 `integration/` | 生产依赖、大体积产物（→ `runs/`） |
 | 文档 | `knowledge/` | 宏观设计意图与"为什么"（中文，SSOT） | 历史活动流水账（→ git log） |

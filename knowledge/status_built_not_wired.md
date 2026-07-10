@@ -52,12 +52,12 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
 | `grpo_update`(优势加权 BC 骨架) | grpo_harness.py:68 | 无 | 否 | 从未被调用 |
 | 意图一致性 / 全败组条款 / MILESTONES 链 | grpo_harness.py:22-49 | — | 否 | 三层过程优势设计只在冒烟里干跑过;grpo_pixel 用 Haiku 判官排序代替,只借 `group_advantage` 的 z 归一 |
 
-## 慢塔侧 LoRA adapter(两个,均未接)
+## 慢塔侧 LoRA adapter(两个,均未接)——**已删除(prune3)**
 
-| 部件 | 位置 | 谁 import/消费 | 运行时? | 现状 |
-|---|---|---|---|---|
-| 心跳微决策 adapter(1.5B) | `train/fovea_twotower/heartbeat_sft.py`(训练器) | 无人加载 | 否 | 训出的 adapter 无任何运行时消费方 |
-| 差额规划 adapter `reason_delta_lora_v4` | 由 `reason_delta_sft.py:218` 训 | 仅 `fullloop_chain.py:64,247`、`m_iron.py:101`、`grpo_rollout_worker.py:66`(全非运行时) | 否 | 当前慢塔直接用 Omni 出 JSON(grpo_pixel `SlowTower`,不加载任何 LoRA) |
+两个 adapter 训练器(`heartbeat_sft.py`、`reason_delta_sft.py`)及其非运行时消费方
+(`fullloop_chain.py`、`m_iron.py`、`grpo_rollout_worker.py`)均无任何运行时消费方,
+已于 prune3 物理删除(git 历史可查)。当前慢塔直接用 Omni 出 JSON(grpo_pixel `SlowTower`,
+不加载任何 LoRA);QLoRA 工具链结论的复现锚保留在 `train/fovea_twotower/nano9b_qlora_smoke.py`。
 
 ## net/ 下运行时未触及的整棵子树
 
@@ -68,10 +68,10 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
   与 dreamer 系 tests;git 历史可查)**。
 - `net/encoders/`、`net/dino_tokenizer.py`、`net/backbone.py` — 未接入但保留
   (DINO vs YOLOE 裁决探针与 C3-DINO 前端候选,见 design_bitter_lesson §8)。
-- `net/vpt_lib/` — **代码未 import**,但需与"口径被沿用"区分:mu-law 动作编解码这一**设计口径
-  被间接沿用**(grpo_pixel.py `bins_to_deg` 内联了 mu=8.0 的 mu-law,与
-  `train/minecraft/vpt_action.py` 同源),vendored 的 vpt_lib 网络本体则未上线
-  (E1 BC 暖启动的数据管线,保留)。
+- ~~`net/vpt_lib/`~~ — **已删除(prune3,全库零 import)**。需与"口径被沿用"区分:mu-law
+  动作编解码这一**设计口径被间接沿用**(action_contract.py `bins_to_deg` 内联了 mu=8.0 的
+  mu-law,与 `train/minecraft/vpt_action.py` 同源),vendored 的 vpt_lib 网络本体从未上线,
+  需要时重拉上游 `openai/Video-Pre-Training`。
 - ~~`net/fovea_twotower/` 的感知+快塔子树(`tower.py`、`token_stream.py`、`yolo_unified.py`、
   `yolo_parse.py`、`seg_head.py`、`wood.py`)~~ — **已删除(2026-07-10 用户拍板 DINO,
   YOLOE 整线废弃;连同 train/fovea_twotower 44 个退役训练器、9 个 integration 脚本、
@@ -80,9 +80,10 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
   judge_exam 系 + judge_train(判官对照纪律 + E3 本地 RM 锚)、nano9b_qlora_smoke
   (QLoRA 工具链结论的复现锚)。
 
-## 宏技能层
+## 宏技能层——**脚本已删(prune3)**
 
-| 部件 | 位置 | 运行时? | 现状 |
-|---|---|---|---|
-| 挖掘宏(raycast 闩锁,iron_ore ≤5.5 格) | `tests/integration/fullloop_chain.py:170`;另见 `capture_wood_traj.py:125`、`map_approach_ablation.py:60` | 否 | 只活在 integration 脚本里 |
-| GUI 合成宏 | — | 否 | 从未建过;仅 `craft_skill.py` 有可脚本化教师,无宏层。grpo_pixel 无任何宏 |
+挖掘宏(raycast 闩锁)与可脚本化 GUI 合成教师只活在 `tests/integration/` 脚本里
+(`craft_skill.py`、`fullloop_chain.py` 等),整个 `tests/integration/` 目录已于 prune3
+物理删除(已死:内部还 import 更早删掉的 `collect_s8.py`/`skill_ceiling.py`,不可运行)。
+grpo_pixel 运行时无任何宏;运行时零脚本纪律沿用。技能天花板结论入档
+`knowledge/conclusion_fasttower_skill_ceiling.md`。

@@ -55,22 +55,20 @@ pip install -r requirements/all.txt         # 全部
 ```
 blocks/            L1 算子库（attention/conv/encoder/decoder/distributions/dynamics/encodings/
                    quantization/regularization/sequence/mlp，I1–I8 已实现）
-net/               网络组件
+net/               网络组件（快塔 pixel_tower + 地图 map_io/ego_map + token_tower + DINO 前端 backbone/dino_tokenizer + 自标定 calibration）
   backbone.py      load_backbone（冻结 DINOv2/v3 HF 加载；mock 骨干见 tests/，经依赖注入）
   config.py        结构 schema（纯 dataclass，无 IO）
-  dreamerv3/       DreamerV3 世界模型（从 blocks 重建：RSSM + 编解码 + 想象 actor-critic + 稀疏 planner；可训练）
-  dreamer4/        Dreamer4 时空 Transformer 世界模型（从 blocks 组装：tokenizer + shortcut forcing；
-                   世界模型 loss 已接线，离线/在线训练循环见 train/minecraft、train/craftground）
-  ppo_ad/          Crafter PPO + Achievement Distillation actor-critic
-  vpt_lib/         vendored OpenAI VPT（第三方，见 NOTICE；不受代码规范约束）
+  pixel_tower.py   当前在跑的从零像素快塔（IMPALA 风格卷积干 + FiLM + 因果时序 + mu-law 相机头）
+  map_io.py / fovea_twotower/ego_map.py  北锚定自我中心特征地图 IO（IPM/MapWriter/MapReader/AimPin）
+  token_tower.py   goal-as-query cross-attention + UTF-8 字节语言 token（定稿未来结构，接线中）
 train/             训练域：不同数据集的区分全压在这一层（数据契约 + 循环 + 装配）
-  crafter/         Crafter 域：env / 回放 / PPO+AD（train_ppo_ad）/ DreamerV3（train_dreamerv3）/ goal / planner
-  minecraft/       VPT 数据集域：vpt_action / vpt_dataset / task_text 数据契约 + train_bc（离线行为克隆，
-                   冻结 DINO 骨干 + net/bc 因果时序策略；真数据下载见 tests/download_vpt_data.py）
+  craftground/     当前运行时：grpo_pixel（GRPO 快塔）+ bc_vpt_warmstart（BC 暖启动）+ action_contract + env 系
+  minecraft/       VPT 数据集域：vpt_action / vpt_dataset 数据契约（真数据下载见 tests/download_vpt_data.py）
+  fovea_twotower/  grpo_harness（group_advantage）+ 判官对照（judge_exam 系/judge_train）+ 地图探针 + QLoRA 冒烟锚
   godot_meta_rl/   Godot RL 共享内存对接（vec_env：SB3 VecEnv 适配）
 utils/             通用基础设施：io（yaml 读取 + HF token）/ godot_rl（Godot 跨平台共享内存基础设施）
 assets/godot_meta_rl/  Godot 引擎工程（C# Main.cs 编排 + GDScript 环境 + 场景），见其 README
-tests/             unit/（SIGReg / 空间位置编码，CPU 可跑）+ integration/（test_dreamer_build）
+tests/             unit/（当前运行时与定稿未来部件的单测，CPU/CUDA 可跑）+ 现行探针（probe_dino_aim / probe_vpt_calib / download_vpt_data）
 knowledge/         设计文档（见下方文档索引）
 runs/              下载数据 / checkpoints / 日志  [gitignored]
 ```
@@ -115,8 +113,7 @@ python -m train.crafter.train_ppo_ad --help
 ## 测试
 
 ```bash
-python -m pytest tests/unit/                       # SIGReg / 空间位置编码（CPU）
-python -m pytest tests/integration/                # DreamerV3 构建 + CPU 前向/反向冒烟
+python -m pytest tests/unit/                       # 当前运行时与定稿未来部件单测（CPU/CUDA）
 ```
 
 ---

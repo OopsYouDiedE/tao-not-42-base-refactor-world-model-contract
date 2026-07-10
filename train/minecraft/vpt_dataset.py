@@ -258,8 +258,10 @@ class VPTStreamDataset(IterableDataset):
             if not ret:
                 break
             if self.img_size:
-                f = cv2.resize(f, (self.img_size, self.img_size),
-                               interpolation=cv2.INTER_AREA)
+                # int → 方形(遗留口径);(H,W) 元组 → 保宽高比预设(cv2.resize 收 (W,H))
+                hw = ((self.img_size, self.img_size) if isinstance(self.img_size, int)
+                      else tuple(self.img_size))
+                f = cv2.resize(f, (hw[1], hw[0]), interpolation=cv2.INTER_AREA)
             frames.append(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
             if limit and len(frames) >= limit:
                 break

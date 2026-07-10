@@ -62,19 +62,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from net.calibration import (SelfCalib, control_mode, fit_latency,  # noqa: E402
                              flow_shift, probe_plan_multi)
 from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
+from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG,  # noqa: E402
+                                               V2_KEYS, bins_to_deg, stack_frames)
 from train.fovea_twotower.grpo_harness import group_advantage    # noqa: E402
 
 OUT = Path("runs/grpo_pixel")          # 必须在工作区内:判官(claude CLI)要 Read 联络表图
 SLOW_EVERY = 20                        # 慢塔刷新周期(tick);20 tick = 1s = 1Hz
 IMG_HW = (90, 160)
 MODEL = "nemotron_3_nano_omni"
-
-# CraftGround V2 里的 20 个二值键(与 TrackNavConfig.n_keys=20 一致)
-V2_KEYS = ["forward", "back", "left", "right", "jump", "sneak", "sprint", "attack", "use",
-           "drop", "inventory", "hotbar.1", "hotbar.2", "hotbar.3", "hotbar.4",
-           "hotbar.5", "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9"]
-CAM_BINS = 11
-CAM_MAX_DEG = 18.0                     # 每 tick 相机增量上限(与 StudentPolicy 同口径)
 
 # 设计 2 会话契约(2026-07-10,设计文档 §9/§11):无状态重提示 + 状态全外置。
 # 每次调用 = 固定 system(prefix cache 可命中)+ TASK/STATE/PHYSICS 行 + 当前帧。
@@ -276,24 +271,6 @@ def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK) -> tuple[np.ndarr
 
 # ────────────────────────────────────────────────────── rollout & update
 
-def bins_to_deg(b: np.ndarray) -> np.ndarray:
-    """mu-law 分箱 → 度。bin 中心 [-1,1] 经 mu-law 解压后乘 CAM_MAX_DEG。"""
-    x = (b.astype(np.float32) / (CAM_BINS - 1)) * 2 - 1          # [-1,1]
-    mu = 8.0
-    v = np.sign(x) * (np.power(1 + mu, np.abs(x)) - 1) / mu
-    return v * CAM_MAX_DEG
-
-
-def stack_frames(imgs: np.ndarray, s: int) -> np.ndarray:
-    """[T,H,W,3] → [T,3s,H,W]:每 tick 取最近 s 帧沿通道拼接(旧→新),开局用首帧填充。
-
-    与采样端 rollout 的 deque 堆叠**逐字节同序**——这是"采样 π = 更新 π"的一部分。
-    """
-    t_n = len(imgs)
-    idx = np.clip(np.arange(t_n)[:, None] + np.arange(-(s - 1), 1)[None, :], 0, None)
-    return imgs[idx].transpose(0, 1, 4, 2, 3).reshape(t_n, s * 3, *imgs.shape[1:3])
-
-
 def calibrate(env, no_op, obs) -> tuple[SelfCalib, object]:
     """开局自标定(加固版):先压低视线(看地面纹理,天空低纹理测不出流),
     多幅度对称探针 → 延迟扫描 → 按延迟错位配对测增益/曲线 → 模式脉冲 →
@@ -491,6 +468,9 @@ def main() -> None:
     ap.add_argument("--task", default=DEFAULT_TASK,
                     help="长程任务目标(领域知识只活在此行,换游戏换这里)")
     ap.add_argument("--no-calib", action="store_true", help="跳过开局自标定探针")
+    ap.add_argument("--init-from", default="",
+                    help="BC 暖启动 checkpoint(bc_vpt_warmstart 产出;GRPO 只做精修,"
+                         "受控对照见 conclusion_fasttower_skill_ceiling)")
     ap.add_argument("--port", type=int, default=8700)
     ap.add_argument("--smoke", action="store_true", help="短 rollout,只验链路")
     args = ap.parse_args()
@@ -515,6 +495,10 @@ def main() -> None:
     cfg = PixelTowerConfig(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(V2_KEYS),
                            camera_bins=CAM_BINS)
     tower = build_pixel_tower(cfg).to(device)
+    if args.init_from:                     # BC 暖启动(结构 cfg 必须一致,load 严格校验)
+        ck = torch.load(args.init_from, map_location=device, weights_only=True)
+        tower.load_state_dict(ck["tower"])
+        print(f"init from {args.init_from} (bc_step={ck.get('step')})", flush=True)
     opt = torch.optim.AdamW(tower.parameters(), lr=args.lr)
     print(f"PixelTower params = {sum(p.numel() for p in tower.parameters()) / 1e6:.2f} M",
           flush=True)

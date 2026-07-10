@@ -80,6 +80,12 @@
 > REINFORCE)。另注入按键先验 bias=logit(0.05)、尾部 tick 不再丢弃。
 > 数学验收:`tests/unit/test_grpo_pixel_fixes.py`(CUDA 5/5 过)。
 > **未验**:真实 CraftGround 冒烟(需 Xvfb+Omni 服务)——放大规模前先跑一次 `--smoke`。
+> 2026-07-10 注:CraftGround 冒烟可用 GPU 渲染路径——无头 Xorg :1(NVIDIA)实测 RAW 37.3 sps,
+> 为 Xvfb(13.1 sps)2.8×;ZEROCOPY 已跑通(obs 直落 cuda:0)但比 RAW 慢 32%,rollout 采集首选
+> Xorg+RAW。配置与病灶见 `knowledge/conclusion_craftground_run.md §3`,复跑
+> `tests/bench_render_craftground.py`。候选项(不展开):CraftGround 全无 X 渲染——EGL 驱动层在
+> L4 已验可用,缺口在 Minecraft/GLFW 窗口层,需上游 mixin/GLFW 特性,估数天级且收益存疑
+> (Xorg 路径已通),依赖 fabric mixin + LWJGL/GLFW EGL 支持。
 > 以下原文保留作论证与验收判据。
 
 以下 1/2/3 三条各自独立地让 `log π(a)` 算错;不修则任何实验结果都不可解释。

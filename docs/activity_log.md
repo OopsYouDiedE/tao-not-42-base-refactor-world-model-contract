@@ -656,3 +656,19 @@ import 链与文档引用),主线执行:
   status_built_not_wired、next_session §7、设计文档 §7/§8/§12、install.md。
 - 验收:删除后残留 import 全库 grep 零命中;全 unit 36/36。
   net/fovea_twotower/__init__ 清成 ego_map 说明页。
+
+## 2026-07-10 ZEROCOPY GPU 渲染路径落地(L4 机,四臂渲染基准)
+
+> 会话目标:补上 6-27 遗留的 ZEROCOPY 测试(当时因无免密 sudo 起不了无头 Xorg 搁置;本机 root,阻塞消失)。
+> 全程与同卡 BC 训练(`bc_vpt_warmstart`,5258MiB)并行,基准前后 nvidia-smi 确认未干扰。
+
+- 环境:apt 装 openjdk-21-jdk/xserver-xorg-core/libglew-dev 等;pip craftground 2.6.15;
+  首次 gradle 构建 + Minecraft 1.21 下载日志存 `runs/zerocopy_bench/setup.log`。
+- 系统层适配(Colab 布局):`/usr/lib64-nvidia` 入 ldconfig;补 NVIDIA EGL vendor json;
+  Xorg 配置按本机改 BusID `PCI:0:3:0`、L4 不支持 `UseDisplayDevice None` 改
+  `AllowEmptyInitialConfiguration`(生成件 `runs/zerocopy_bench/xorg.conf.l4`)。
+- 基准脚本 `tests/bench_render_craftground.py`(argparse 四臂,可复跑;含 craftground 2.6.15
+  两处上游 bug 的运行时 shim `patch_craftground_native()`,不改 site-packages)。
+- 结果(单环境 640×360×500 step,同一动作序列):Xvfb-RAW 13.1 sps / Xorg-RAW 37.3 sps /
+  **Xorg-ZEROCOPY 25.3 sps(obs 直落 cuda:0,跑通)** / EGL 无 X:驱动层可用、CraftGround 栈不支持。
+  数据与判读回填 `knowledge/conclusion_craftground_run.md §3`(旧"ZEROCOPY 未启用"表述就地更新)。

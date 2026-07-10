@@ -16,7 +16,9 @@
     数据集的**格式常量**(schema 知识,非注入物理先验;光流自标定在人类录像上被
     静态覆盖层污染,见 lessons_do_not_retry"感知先验与表征"节)。
   键位:VPT_KEYS → V2_KEYS 逐名置换(w→forward / s→back / a→left / d→right,余同序)。
-  口径:T=1 + 帧堆叠 S=4、goal=零向量(无慢塔指导;hindsight relabel 是后续工作)、
+  口径:T=1 + 帧堆叠 S=4、goal=hindsight relabel 真标签(train/minecraft/
+    hindsight_relabel.py 事件倒推;无标签 tick 全零,有标签 tick 以 --goal-drop
+    概率置零保留无指导能力;词表缺失时退化为全零旧口径)、
     prev=上一 tick 的 [bin中心, keys](与 grpo_pixel.rollout:423 同构造);
     prev 以 --prev-drop 概率整体置零,防 copy-prev 捷径(v17 配方先例,悬置项)。
 
@@ -42,7 +44,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
 from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG, CAM_MU,  # noqa: E402
                                                V2_KEYS, stack_frames)
-from train.minecraft.vpt_dataset import VPT_KEYS, VPTStreamDataset, _pair_list  # noqa: E402
+from train.minecraft.vpt_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
+                                         _pair_list, assemble_goal)
 
 IMG_HW = (90, 160)                      # 与 grpo_pixel.IMG_HW 一致
 DEG_PER_MOUSE_PX = 0.15                 # VPT 数据集格式常量(见文件头)
@@ -94,15 +97,19 @@ def encode_targets(act: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch
     return bins, keys, prev
 
 
-def _window_batch(img_u8: torch.Tensor, act: torch.Tensor, s: int, device,
-                  prev_drop: float, train: bool, rng: torch.Generator | None):
+def _window_batch(img_u8: torch.Tensor, act: torch.Tensor, goal_seq, s: int, device,
+                  prev_drop: float, goal_drop: float, train: bool,
+                  rng: torch.Generator | None):
     """窗口批 → 展平的 tick 批(T=1 口径)。
 
-    img_u8 [B,T,3,H,W] uint8;act [B,T-1,22](act[t] = 帧 t 的动作,frame_skip=1)。
+    img_u8 [B,T,3,H,W] uint8;act [B,T-1,22](act[t] = 帧 t 的动作,frame_skip=1);
+    goal_seq [B,T,386] hindsight goal(帧 t 的标签;无标签帧全零)或 None(全零口径)。
     监督 tick 范围 t∈[s-1, T-2]:帧堆叠取窗口内真实历史(不做首帧填充——窗口在
     episode 中段,真实历史存在;与 stack_frames 的 episode 开局填充仅在 rollout
     首 s-1 tick 不同,占比可忽略),prev 取 act[t-1](t≥1 恒成立)。
-    返回 img [N,1,3s,H,W] float、goal [N,386] 零、prev [N,1,22]、bins [N,2]、keys [N,20]。
+    goal_drop:训练时有标签 tick 也按概率整行置零——塔既学"听 goal"也保留无指导
+    能力(与 prev_drop 同理;零 goal 恰是无标签/无慢塔时的部署输入)。
+    返回 img [N,1,3s,H,W] float、goal [N,386]、prev [N,1,22]、bins [N,2]、keys [N,20]。
     """
     b, t_n = img_u8.shape[:2]
     ts = torch.arange(s - 1, t_n - 1)                            # 监督 tick
@@ -119,14 +126,27 @@ def _window_batch(img_u8: torch.Tensor, act: torch.Tensor, s: int, device,
         keep = (torch.rand(prev.shape[0], 1, 1, device=device, generator=rng)
                 >= prev_drop).float()
         prev = prev * keep
-    goal = torch.zeros(img.shape[0], 384 + 2, device=device)
+    if goal_seq is None:
+        goal = torch.zeros(img.shape[0], 384 + 2, device=device)
+    else:
+        goal = goal_seq.to(device, non_blocking=True)[:, ts]
+        goal = goal.reshape(-1, goal.shape[-1]).float()
+        if train and goal_drop > 0:
+            keep = (torch.rand(goal.shape[0], 1, device=device, generator=rng)
+                    >= goal_drop).float()
+            goal = goal * keep
     return img, goal, prev, bins, keys
 
 
-def load_holdout(holdout_dir: str, s: int) -> list[dict]:
-    """holdout clips 一次性解码+帧堆叠,常驻内存供反复评估(uint8,2 clips ≈ 2.5GB)。"""
+def load_holdout(holdout_dir: str, s: int, goal_vocab: str = "") -> list[dict]:
+    """holdout clips 一次性解码+帧堆叠,常驻内存供反复评估(uint8,2 clips ≈ 2.5GB)。
+
+    goal_vocab 提供时每 clip 附 goal [n,386](hindsight 契约,无标签帧全零)与
+    labeled [n] bool;缺省全零 + 全 False(旧口径)。
+    """
     ds = VPTStreamDataset(holdout_dir, seq_len=8, img_size=IMG_HW,
-                          camera_scale=CAMERA_SCALE, split=None)
+                          camera_scale=CAMERA_SCALE, split=None,
+                          goal_vocab=goal_vocab or None)
     clips = []
     for mp4, jsonl in ds.pairs:
         clip = ds._load_clip(mp4, jsonl)
@@ -139,23 +159,50 @@ def load_holdout(holdout_dir: str, s: int) -> list[dict]:
         gui = clip["gui"]
         ok = np.ones(clip["n"], bool) if gui is None else (gui.numpy() < 0.5)
         ok[:s - 1] = False                                       # 开局填充帧不计分
+        if ds.goal_idx is not None and "sg" in clip:
+            goal = assemble_goal(clip["sg"], clip["aim1000"], ds.goal_mat)
+            labeled = (clip["sg"] >= 0).numpy()
+        else:
+            goal = torch.zeros(clip["n"], 386)
+            labeled = np.zeros(clip["n"], bool)
         clips.append(dict(stacked=stacked, bins=bins, keys=keys, prev=prev,
-                          ok=ok, n=clip["n"]))
+                          ok=ok, n=clip["n"], goal=goal, labeled=labeled))
     if not clips:
         raise RuntimeError(f"{holdout_dir} 无可解码 holdout clip")
     return clips
 
 
 @torch.no_grad()
-def evaluate(tower, clips: list[dict], device, chunk: int = 512) -> dict:
-    """holdout 全 tick 评估(GUI tick 剔除——GUI 动作是标签噪声,与训练口径一致)。"""
+def evaluate(tower, clips: list[dict], device, chunk: int = 512,
+             goal_mode: str = "zero", labeled_only: bool = False,
+             perm_seed: int = 0, per_tick: bool = False) -> dict:
+    """holdout 全 tick 评估(GUI tick 剔除——GUI 动作是标签噪声,与训练口径一致)。
+
+    goal_mode:zero=全零(canonical 口径)/ true=真 hindsight goal /
+    perm=组内打乱(clip 内有标签 tick 之间 permute goal——边缘分布不变、对齐被破坏,
+    真 goal 显著优于 perm 才说明 FiLM 通道在用 goal 的**内容**而非其存在性)。
+    labeled_only:只计有标签 tick(真 vs 乱对照臂口径)。
+    per_tick:附带逐 tick 的 ce+bce 向量(配对显著性检验用,tick 顺序跨 mode 稳定)。
+    """
     tower.eval()
     n_cam = n_cam_hit = n_nz = n_nz_hit = n_base = 0
     tp = np.zeros(len(V2_KEYS)); fp = np.zeros(len(V2_KEYS)); fn = np.zeros(len(V2_KEYS))
     pos = np.zeros(len(V2_KEYS)); ce_sum = bce_sum = n_tick = 0.0
-    for clip in clips:
-        stacked, bins, keys, prev, ok = (clip["stacked"], clip["bins"], clip["keys"],
-                                         clip["prev"], clip["ok"])
+    ticks: list[np.ndarray] = []
+    for ci, clip in enumerate(clips):
+        stacked, bins, keys, prev = (clip["stacked"], clip["bins"], clip["keys"],
+                                     clip["prev"])
+        ok = clip["ok"] & clip["labeled"] if labeled_only else clip["ok"]
+        goal_all = clip["goal"]
+        if goal_mode == "zero":
+            goal_all = torch.zeros_like(goal_all)
+        elif goal_mode == "perm":
+            g = torch.Generator(); g.manual_seed(perm_seed * 1000 + ci)
+            lab = torch.from_numpy(clip["labeled"]).nonzero().flatten()
+            goal_all = goal_all.clone()
+            goal_all[lab] = goal_all[lab[torch.randperm(len(lab), generator=g)]]
+        elif goal_mode != "true":
+            raise ValueError(goal_mode)
         for i0 in range(0, clip["n"], chunk):
             sl = slice(i0, min(i0 + chunk, clip["n"]))
             m = ok[sl]
@@ -164,7 +211,7 @@ def evaluate(tower, clips: list[dict], device, chunk: int = 512) -> dict:
             img = torch.from_numpy(stacked[sl][m]).float().div_(255.0)
             img = img.unsqueeze(1).to(device)
             pv = prev[sl][m].unsqueeze(1).to(device)
-            goal = torch.zeros(img.shape[0], 386, device=device)
+            goal = goal_all[sl][m].to(device)
             cam_l, key_l = tower(img, goal, pv)
             cam_l = cam_l[:, 0, 0].float()                       # [n,2,11]
             key_l = key_l[:, 0, 0].float()                       # [n,20]
@@ -174,6 +221,12 @@ def evaluate(tower, clips: list[dict], device, chunk: int = 512) -> dict:
                                             tb.reshape(-1), reduction="sum")) / 2
             bce_sum += float(F.binary_cross_entropy_with_logits(
                 key_l, tk, reduction="sum")) / key_l.shape[1]
+            if per_tick:
+                ce_t = F.cross_entropy(cam_l.reshape(-1, CAM_BINS), tb.reshape(-1),
+                                       reduction="none").reshape(-1, 2).mean(1)
+                bce_t = F.binary_cross_entropy_with_logits(
+                    key_l, tk, reduction="none").mean(1)
+                ticks.append((ce_t + bce_t).cpu().numpy())
             n_tick += img.shape[0]
             pred = cam_l.argmax(-1)
             n_cam += tb.numel(); n_cam_hit += int((pred == tb).sum())
@@ -193,13 +246,16 @@ def evaluate(tower, clips: list[dict], device, chunk: int = 512) -> dict:
     per_key = {k: dict(p=round(float(prec[i]), 3), r=round(float(rec[i]), 3),
                        f1=round(float(f1[i]), 3), pos_rate=round(float(pos[i] / max(n_tick, 1)), 4))
                for i, k in enumerate(V2_KEYS)}
-    return dict(cam_acc=round(n_cam_hit / max(n_cam, 1), 4),
-                cam_acc_nonzero=round(n_nz_hit / max(n_nz, 1), 4),
-                cam_base_zero=round(n_base / max(n_cam, 1), 4),
-                nonzero_rate=round(n_nz / max(n_cam, 1), 4),
-                key_f1_mean=round(float(f1[sup].mean()) if sup.any() else 0.0, 4),
-                ce=round(ce_sum / max(n_tick, 1), 4), bce=round(bce_sum / max(n_tick, 1), 4),
-                n_tick=int(n_tick), per_key=per_key)
+    out = dict(cam_acc=round(n_cam_hit / max(n_cam, 1), 4),
+               cam_acc_nonzero=round(n_nz_hit / max(n_nz, 1), 4),
+               cam_base_zero=round(n_base / max(n_cam, 1), 4),
+               nonzero_rate=round(n_nz / max(n_cam, 1), 4),
+               key_f1_mean=round(float(f1[sup].mean()) if sup.any() else 0.0, 4),
+               ce=round(ce_sum / max(n_tick, 1), 4), bce=round(bce_sum / max(n_tick, 1), 4),
+               n_tick=int(n_tick), per_key=per_key)
+    if per_tick:
+        out["per_tick"] = np.concatenate(ticks) if ticks else np.zeros(0)
+    return out
 
 
 def main() -> None:
@@ -213,6 +269,11 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--warmup", type=int, default=300)
     ap.add_argument("--prev-drop", type=float, default=0.5)
+    ap.add_argument("--goal-vocab", default="auto",
+                    help="hindsight goal 词表 json;auto=<data>_goal_vocab.json(缺文件即"
+                         "退化为零 goal 旧口径),空串强制关闭")
+    ap.add_argument("--goal-drop", type=float, default=0.25,
+                    help="有标签 tick 的 goal 置零概率(保留无指导能力;0=不丢)")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--eval-every", type=int, default=400)
     ap.add_argument("--seed", type=int, default=0)
@@ -248,21 +309,30 @@ def main() -> None:
     sched = torch.optim.lr_scheduler.LambdaLR(opt, _lr)
     rng = torch.Generator(device=device); rng.manual_seed(args.seed)
 
+    vocab_path = (str(Path(args.data.rstrip("/") + "_goal_vocab.json"))
+                  if args.goal_vocab == "auto" else args.goal_vocab)
+    if vocab_path and not Path(vocab_path).exists():
+        print(f"⚠ goal 词表 {vocab_path} 不存在——退化为零 goal 旧口径", flush=True)
+        vocab_path = ""
     ds = VPTStreamDataset(args.data, seq_len=args.seq, img_size=IMG_HW,
                           camera_scale=CAMERA_SCALE, frame_skip=1, split=None,
-                          clip_cache=3, clip_refresh=192, seed=args.seed)
+                          clip_cache=3, clip_refresh=192, seed=args.seed,
+                          goal_vocab=vocab_path or None)
     dl = DataLoader(ds, batch_size=args.batch, num_workers=args.workers,
                     pin_memory=True, persistent_workers=args.workers > 0,
                     prefetch_factor=4 if args.workers else None)
     it = iter(dl)
 
     s = cfg.frame_stack
-    hold_clips = load_holdout(args.holdout, s)
+    hold_clips = load_holdout(args.holdout, s, goal_vocab=vocab_path)
+    n_lab_hold = int(sum((c["ok"] & c["labeled"]).sum() for c in hold_clips))
+    print(f"holdout 有标签 tick(GUI 剔除后)= {n_lab_hold}", flush=True)
     best = float("inf"); t0 = time.time(); tick_count = 0
     for step in range(1, args.steps + 1):
         batch = next(it)
         img, goal, prev, bins, keys = _window_batch(
-            batch["img"], batch["act_agg"], s, device, args.prev_drop, True, rng)
+            batch["img"], batch["act_agg"], batch.get("goal"), s, device,
+            args.prev_drop, args.goal_drop, True, rng)
         tower.train()
         with torch.autocast("cuda", dtype=torch.bfloat16):
             cam_l, key_l = tower(img, goal, prev)
@@ -282,16 +352,30 @@ def main() -> None:
                   f"bce={float(bce):.4f} ticks/s={tick_count/(time.time()-t0):.0f}",
                   flush=True)
         if step % args.eval_every == 0 or step == args.steps:
-            m = evaluate(tower, hold_clips, device)
+            # 四口径:zero(canonical 对照)/ true(与训练分布同口径,主指标之一)/
+            # 有标签 tick 上 true vs perm(通道修通的对照臂,§2-3 验收)
+            m = evaluate(tower, hold_clips, device, goal_mode="true")
+            m0 = evaluate(tower, hold_clips, device, goal_mode="zero")
+            score_t, score_0 = m["ce"] + m["bce"], m0["ce"] + m0["bce"]
+            m.update(zero_ce=m0["ce"], zero_bce=m0["bce"],
+                     zero_cam_acc=m0["cam_acc"], zero_key_f1=m0["key_f1_mean"])
+            if n_lab_hold:
+                lt = evaluate(tower, hold_clips, device, goal_mode="true",
+                              labeled_only=True)
+                lp = evaluate(tower, hold_clips, device, goal_mode="perm",
+                              labeled_only=True)
+                m.update(lab_true=round(lt["ce"] + lt["bce"], 4),
+                         lab_perm=round(lp["ce"] + lp["bce"], 4),
+                         lab_n=lt["n_tick"])
             m.update(step=step, train_loss=round(float(loss), 4),
                      lr=opt.param_groups[0]["lr"],
                      wall_min=round((time.time() - t0) / 60, 1))
             with (out / "metrics.jsonl").open("a") as f:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
-            hold = m["ce"] + m["bce"]
+            hold = 0.5 * (score_t + score_0)     # 双口径都不许烂:选 best 用均值
             print(f"[eval@{step}] cam_acc={m['cam_acc']} nz={m['cam_acc_nonzero']} "
-                  f"base={m['cam_base_zero']} keyF1={m['key_f1_mean']} "
-                  f"ce+bce={hold:.4f}", flush=True)
+                  f"keyF1={m['key_f1_mean']} true={score_t:.4f} zero={score_0:.4f} "
+                  f"lab true/perm={m.get('lab_true')}/{m.get('lab_perm')}", flush=True)
             ckpt = dict(tower=tower.state_dict(), cfg=vars(cfg), step=step, metrics=m)
             torch.save(ckpt, out / "last.pt")
             if hold < best:

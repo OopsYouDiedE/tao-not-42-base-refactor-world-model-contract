@@ -26,6 +26,7 @@ import random
 import numpy as np
 import requests
 
+from train.minecraft import hindsight_relabel as hr
 from train.minecraft.vpt_action import _KEYMAP
 
 SNAPSHOT_URL = "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/{}.json"
@@ -124,14 +125,20 @@ def roll_pool(args):
 
 
 def convert_jsonl(raw_path, out_path, task):
-    """原始承包商 jsonl → 契约 jsonl。返回该 clip 的 (|dx| 列表, |dy| 列表, 帧数)。"""
-    adx, ady, n = [], [], 0
-    with open(raw_path, "r", encoding="utf-8") as fin, \
-            open(out_path, "w", encoding="utf-8") as fout:
-        for line in fin:
-            line = line.strip()
+    """原始承包商 jsonl → 契约 jsonl。返回该 clip 的 (|dx| 列表, |dy| 列表, 帧数)。
+
+    2026-07-10 起额外保留事实字段并写 hindsight 标签(加字段不删字段,老消费方忽略):
+    events/cursor(事实,免二次回源)与 subgoal/aim(hindsight_relabel 单一定义)。
+    """
+    adx, ady = [], []
+    with open(raw_path, "r", encoding="utf-8") as fin:
+        raw_lines = fin.read().splitlines()
+    facts = hr.frame_facts(raw_lines)
+    labels = hr.label_frames(facts)
+    with open(out_path, "w", encoding="utf-8") as fout:
+        for n, (line, fact, lab) in enumerate(zip(raw_lines, facts, labels)):
             try:
-                d = json.loads(line) if line else None
+                d = json.loads(line) if line.strip() else None
             except ValueError:
                 d = None
             if not isinstance(d, dict):        # null/坏行 → no-op 帧(保持与视频帧对齐)
@@ -153,11 +160,21 @@ def convert_jsonl(raw_path, out_path, task):
                    "gui": bool(d.get("isGuiOpen"))}
             if n == 0:
                 rec["task"] = task
-            fout.write(json.dumps(rec) + "\n")
+                rec["relabel_v"], rec["window"] = 1, hr.WINDOW
+            if fact["events"]:
+                ev = {}
+                for cat, obj in fact["events"]:
+                    key = f"{cat}:{obj}"
+                    ev[key] = ev.get(key, 0) + 1
+                rec["events"] = ev
+            if fact["cursor"] is not None:
+                rec["cursor"] = list(fact["cursor"])
+            if lab is not None:
+                rec["subgoal"], rec["aim"] = lab[0], list(lab[1])
+            fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
             adx.append(abs(dx))
             ady.append(abs(dy))
-            n += 1
-    return adx, ady, n
+    return adx, ady, len(raw_lines)
 
 
 def fetch(url, path, chunk=1 << 20):

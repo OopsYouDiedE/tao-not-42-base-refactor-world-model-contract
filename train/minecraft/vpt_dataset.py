@@ -35,6 +35,31 @@ def _action_vec(act_dict, camera_scale=CAMERA_SCALE):
                         dtype=torch.float32)
 
 
+def assemble_goal(ids, aim1000, goal_mat):
+    """逐帧 (词表 id, aim) → goal 向量批(hindsight relabel 契约,单测锚定)。
+
+    ids [T] long(-1=无标签)、aim1000 [T,2] float(0..1000)、goal_mat [V,384]
+    (MiniLM L2 归一句向量,词表文件由 hindsight_relabel CLI 落盘)。
+    返回 goal [T,386] = 文本向量 ⊕ aim/1000(与 grpo_pixel.SlowTower 同式);
+    无标签帧全零(与既有零 goal BC 行为兼容)。
+    """
+    g = torch.zeros(ids.shape[0], goal_mat.shape[1] + 2)
+    m = ids >= 0
+    if m.any():
+        g[m, :goal_mat.shape[1]] = goal_mat[ids[m]]
+        g[m, goal_mat.shape[1]:] = aim1000[m] / 1000.0
+    return g
+
+
+def load_goal_vocab(path):
+    """goal 词表 json {text: [384]} → (text→行号 dict, [V,384] 矩阵)。"""
+    with open(path, "r", encoding="utf-8") as f:
+        d = json.load(f)
+    texts = sorted(d)
+    mat = torch.tensor([d[t] for t in texts], dtype=torch.float32)
+    return {t: i for i, t in enumerate(texts)}, mat
+
+
 def _pair_list(data_dir):
     """目录里所有成对的 (mp4, jsonl)。"""
     pairs = []
@@ -180,8 +205,15 @@ class VPTStreamDataset(IterableDataset):
     def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
                  split=None, holdout_n=1, buffer_size=0, buffer_reuse=1,
-                 clip_cache=4, clip_refresh=256, motion_sample=1, clip_max_frames=0):
+                 clip_cache=4, clip_refresh=256, motion_sample=1, clip_max_frames=0,
+                 goal_vocab=None):
         super().__init__()
+        # goal_vocab:hindsight relabel 词表 json 路径(hindsight_relabel CLI 落盘)。
+        # 提供则样本多出 "goal" [T,386] 与 "goal_on" [T] bool;词表外文本(下载器
+        # 新段引入的新 item)按零 goal 处理并计数——重跑 relabel --vocab-only 可补齐。
+        self.goal_idx, self.goal_mat, self.goal_unknown = None, None, 0
+        if goal_vocab:
+            self.goal_idx, self.goal_mat = load_goal_vocab(goal_vocab)
         # motion_sample:运动量锦标赛采样——每窗口抽 k 个候选,取采样帧差能量最大者
         # (k=1 关闭,保持均匀采样)。动机:均匀采样下静止转移占多数,persistence 基线
         # 恰赢在这些样本上;向高运动转移倾斜可把梯度集中到"动作产生效果"的地方。
@@ -230,6 +262,7 @@ class VPTStreamDataset(IterableDataset):
         文件不存在/半写坏(滚动下载器随时增删)→ 返回 None,调用方换一段重试。
         """
         actions, gflags, task = [], [], ""
+        sg_ids, aims = [], []                # hindsight relabel:词表 id(-1 无标签)+ aim
         # 可选反事实 GT(download_sample_data --counterfactual 写入;真 VPT 缺这些字段)
         gt = {"has_item": [], "airborne": [], "branch": [], "reach_state_id": []}
         have_gt = False
@@ -241,6 +274,13 @@ class VPTStreamDataset(IterableDataset):
                         task = a["task"]
                     actions.append(_action_vec(a, self.camera_scale))
                     gflags.append(1.0 if a.get("gui") else 0.0)
+                    if self.goal_idx is not None:
+                        sg = a.get("subgoal")
+                        i = self.goal_idx.get(sg, -1) if sg else -1
+                        if sg and i < 0:
+                            self.goal_unknown += 1
+                        sg_ids.append(i)
+                        aims.append(a.get("aim") or [0, 0])
                     for key in gt:
                         if key in a:
                             have_gt = True
@@ -268,6 +308,7 @@ class VPTStreamDataset(IterableDataset):
         cap.release()
         if start:
             actions, gflags = actions[start:], gflags[start:]
+            sg_ids, aims = sg_ids[start:], aims[start:]
             gt = {k: v[start:] for k, v in gt.items()}
         n = min(len(frames), len(actions))
         if n == 0:
@@ -278,6 +319,9 @@ class VPTStreamDataset(IterableDataset):
         gui = torch.tensor(gflags[:n]) if any(gflags[:n]) else None
         out = {"img": img, "action": torch.stack(actions[:n]), "task": task,
                "gui": gui, "n": n}
+        if self.goal_idx is not None:
+            out["sg"] = torch.tensor(sg_ids[:n], dtype=torch.long)
+            out["aim1000"] = torch.tensor(aims[:n], dtype=torch.float32)
         if have_gt:
             out["gt"] = {k: torch.tensor(v[:n], dtype=torch.float32) for k, v in gt.items()}
         return out
@@ -424,6 +468,15 @@ class VPTStreamDataset(IterableDataset):
                 "task_text": m["task"],
                 "t_vec": tv,               # [T]
             }
+            if self.goal_idx is not None:  # hindsight goal(无标签帧全零,契约见 assemble_goal)
+                ids = m.get("sg")
+                if ids is None:            # 未标注段(下载器新段):全零 goal
+                    sample["goal"] = torch.zeros(len(fidx), self.goal_mat.shape[1] + 2)
+                    sample["goal_on"] = torch.zeros(len(fidx), dtype=torch.bool)
+                else:
+                    sample["goal"] = assemble_goal(ids[fidx], m["aim1000"][fidx],
+                                                   self.goal_mat)
+                    sample["goal_on"] = ids[fidx] >= 0
             # 反事实 GT 透传(存在才加):按采样帧索引 fidx 切片 → [T];真 VPT 无此键
             if "gt" in m:
                 for key, vec in m["gt"].items():

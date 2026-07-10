@@ -37,6 +37,11 @@ MAPPING = [
     ("runs/checkpoints/bc_vpt3/best.pt", "vpt-bc-pixeltower-v1-run5"),  # 滚动池持续学习 lr5e-5(在训)
     ("runs/checkpoints/bc_vpt3/last.pt", "vpt-bc-pixeltower-v1-run5"),
     ("runs/checkpoints/bc_vpt3/metrics.jsonl", "vpt-bc-pixeltower-v1-run5"),
+    # hindsight relabel BC(goal 通道首次真监督;训练集含事件倒推语言标签)
+    ("runs/checkpoints/bc_vpt4/best.pt", "vpt-bc-hindsight-pixeltower-v1-run1"),
+    ("runs/checkpoints/bc_vpt4/last.pt", "vpt-bc-hindsight-pixeltower-v1-run1"),
+    ("runs/checkpoints/bc_vpt4/metrics.jsonl", "vpt-bc-hindsight-pixeltower-v1-run1"),
+    ("runs/data/vpt_early_goal_vocab.json", "vpt-bc-hindsight-pixeltower-v1-run1"),
     ("runs/grpo_pixel/tower.pt", "craftground-grpo-pixeltower-v1-run1"),  # Qwen 慢塔真跑
     ("runs/grpo_pixel/metrics.jsonl", "craftground-grpo-pixeltower-v1-run1"),
 ]

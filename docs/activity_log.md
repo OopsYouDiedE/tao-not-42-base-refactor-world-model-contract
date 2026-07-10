@@ -807,3 +807,10 @@ import 链与文档引用),主线执行:
   判决完全一致,无锚点对上互相矛盾(g1 [0,1])。结论:Haiku 过度自信是系统性偏置,
   REINFORCE 下带偏梯度比零梯度更有害。Haiku 判的重启 run 无完成组,干净弃组;
   11:06 以 `--judge-model sonnet --judge-effort low` 重启 8×4×2000(033fe7b)。
+- **Hindsight relabel 管线落地(SubAgent,CPU 阶段)**:`train/minecraft/hindsight_relabel.py`
+  事件倒推标注器 + `vpt_dataset.py`/`bc_vpt_warmstart.py` 接真 goal(goal-drop 保 zero-goal
+  兼容)+ 验收脚本 `tests/eval_hindsight_acceptance.py`;单测 7/7 PASS。回填池在跑
+  (`runs/relabel_pool.log`),GPU 重训严格等 GRPO 收官。
+- **Sonnet-low 主 run 巡检(13:0x)**:g0–g2 入档,fallback/judge_call_fail/slow_fail 全 0;
+  g0 死亡 2/4(截断生效)、g1 无死亡 tie 4/6、g2 tie 3/6;里程碑仍全 0;g3 筛有树 seed 中
+  (无树率约五成,按设计)。磁盘 46%,下载池正常(266 段)。

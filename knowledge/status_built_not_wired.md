@@ -25,6 +25,18 @@ metadata:
 **即运行时只有四个本仓文件:grpo_pixel.py + pixel_tower.py + blocks/attention.py +
 grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
 
+## 2026-07-10 新建(按重设计定稿造,**建成未接线**,接线条件注明)
+
+| 部件 | 位置 | 单测 | 接线条件 |
+|---|---|---|---|
+| ipm_ground / MapWriter / MapReader / AimPin | `net/map_io.py` | `tests/unit/test_map_io.py` 5/5(IPM 精确几何/写读闭环/W_c 梯度/北锚定运动账本/钉点生命周期) | 随 TokenPolicyTower 接线;yaw/pitch 符号与 CraftGround 的常量标定属训练侧,首次接线时用 env pose 标定 |
+| TokenPolicyTower(goal-as-query cross-attn + UTF-8 字节语言 token) | `net/token_tower.py` | `tests/unit/test_token_tower.py` 4/4(形状/各组梯度/反义 token 可分/空组容错) | §8 探针裁决视觉前端(DINO vs YOLOE)后接线;A1 语言通道 grounding 需 hindsight relabel BC 数据 |
+| DINO vs YOLOE 裁决探针 | `tests/probe_dino_vs_yoloe_aim.py`(ridge 对偶式已合成数据验证) | — | 需活环境采 (帧, 准星角偏移, 地形) 清单 `runs/probe_aim/manifest.jsonl`;标签 raycast 只进训练侧 |
+
+慢塔设计 2 契约(prev_done/decision/subgoal/aim/done_when + 状态行)**已接线**进
+`grpo_pixel.py`(解析/状态行有 `tests/unit/test_slow_contract.py` 4/4;真实 Omni
+格式合规率属大模型验证,未跑)。
+
 ## 地图模块(EgoMap / MapQuery)
 
 | 部件 | 位置 | 谁 import | 运行时? | 现状 |

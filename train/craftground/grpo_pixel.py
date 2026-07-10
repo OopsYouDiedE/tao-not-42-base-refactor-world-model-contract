@@ -74,18 +74,69 @@ V2_KEYS = ["forward", "back", "left", "right", "jump", "sneak", "sprint", "attac
 CAM_BINS = 11
 CAM_MAX_DEG = 18.0                     # 每 tick 相机增量上限(与 StudentPolicy 同口径)
 
+# 设计 2 会话契约(2026-07-10,设计文档 §9):无状态重提示 + 状态全外置。
+# 每次调用 = 固定 system(prefix cache 可命中)+ 状态行 + 当前帧;
+# prev_done/decision 闭合"快塔→慢塔上行 + 终止语义"两条断边;done_when 是判官免费证据。
 SLOW_SYSTEM = """\
-You are the slow-system planner for a Minecraft agent. You see one game frame.
+You are the slow-system planner for a Minecraft agent. Each call you get a STATE line
+(tick, inventory, displacement, your recent subgoals) and the current game frame.
 Long-horizon goal: get wood, then a wooden pickaxe, then stone, then iron.
 
 Answer with ONE line of JSON and nothing else:
-{"subgoal": "<short imperative, <=6 words>", "aim": [X, Y]}
+{"prev_done": true|false, "decision": "continue|switch|replan",
+ "subgoal": "<short imperative, <=6 words>", "aim": [X, Y],
+ "done_when": "<machine-checkable condition, <=8 words>"}
 
-"aim" is the point the agent should put its crosshair on, in normalised image coordinates
-0..1000, where (0,0) is top-left and (1000,1000) is bottom-right. Centre is (500,500).
-It must land ON the block the agent should break or walk to next. Do not aim at the sky.
-Do not copy any coordinates from these instructions; read them off the image.
+- "prev_done": whether YOUR previous subgoal (shown in STATE) is now achieved.
+- "decision": continue = keep previous subgoal; switch = new target; replan = stuck, change approach.
+- "aim" is the pixel the agent should put its crosshair on, normalised 0..1000,
+  (0,0) top-left, (1000,1000) bottom-right, centre (500,500). It must land ON the block
+  to break or walk to next. Do not aim at the sky.
+  Do not copy any coordinates from these instructions; read them off the image.
 """
+
+DECISIONS = ("continue", "switch", "replan")   # 微决策词表(留出决策 acc 0.937 的同族)
+
+
+def parse_slow_reply(txt: str) -> dict:
+    """慢塔单行 JSON 的容错解析(无 LLM 可单测)。失灵字段逐个降级,不整体作废。"""
+    d = {}
+    try:
+        d = json.loads(re.search(r"\{.*\}", txt, re.S).group())
+    except Exception:  # noqa: BLE001
+        pass
+    subgoal = str(d.get("subgoal", ""))[:40]
+    try:
+        aim = [float(np.clip(float(v), 0, 1000)) for v in list(d.get("aim", []))[:2]]
+        assert len(aim) == 2
+    except Exception:  # noqa: BLE001
+        aim = [500.0, 500.0]
+    dec = str(d.get("decision", "switch")).strip().lower()
+    return dict(subgoal=subgoal, aim=aim,
+                prev_done=bool(d.get("prev_done", False)),
+                decision=dec if dec in DECISIONS else "switch",
+                done_when=str(d.get("done_when", ""))[:60],
+                parsed=bool(d))
+
+
+def state_line(t: int, inv_steps: dict, pose_hist: list, goal_hist: list) -> str:
+    """外置状态行:模型的记忆活在这里,不占潜向量一个比特(设计 2)。
+
+    goal_hist 元素 = goal_log 条目 (t, subgoal, aim, done_when, decision, prev_done)。
+    """
+    inv = "、".join(f"{k}@{v}" for k, v in sorted(inv_steps.items(),
+                                                 key=lambda x: x[1])[-6:]) or "empty"
+    disp = 0.0
+    if len(pose_hist) > 1:
+        p = np.asarray(pose_hist, np.float32)
+        disp = float(np.abs(np.diff(p[:, [0, 2]], axis=0)).sum())
+    lines = []
+    for e in goal_hist[-3:]:
+        mark = "done" if len(e) > 5 and e[5] else "open"
+        lines.append(f"t{e[0]}'{e[1]}'({mark})")
+    hist = " -> ".join(lines) or "none"
+    return (f"STATE t={t} inventory:{inv} displacement:{disp:.0f}blocks "
+            f"recent_subgoals:{hist}")
 
 # 判官 rubric:只描述**任务目标**(哪条更接近拿到木头→镐→铁),不描述"该怎么操作"。
 RUBRIC = """任务背景:智能体在 Minecraft 生存模式里的长程任务是独立获得铁。当前锚点:先拿到木头(原木)。
@@ -116,33 +167,35 @@ class SlowTower:
         Image.fromarray(rgb).save(b, format="JPEG", quality=80)
         return "data:image/jpeg;base64," + base64.b64encode(b.getvalue()).decode()
 
-    def __call__(self, rgb: np.ndarray) -> tuple[torch.Tensor, str, list[float]]:
+    def __call__(self, rgb: np.ndarray, state: str = "") -> tuple[torch.Tensor, dict]:
+        """设计 2:每次全新短会话,状态经 state 行外置注入。返回 (goal_vec, 解析字段 dict)。"""
         t0 = time.perf_counter()
         try:
             r = self.client.chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "system", "content": SLOW_SYSTEM},
                           {"role": "user", "content": [
+                              {"type": "text", "text": state or "STATE t=0 (fresh start)"},
                               {"type": "image_url", "image_url": {"url": self._b64(rgb)}},
-                              {"type": "text", "text": "Next subgoal and aim point."}]}],
-                max_tokens=48, temperature=0.2, top_p=0.95,
+                              {"type": "text", "text": "Next subgoal."}]}],
+                max_tokens=96, temperature=0.2, top_p=0.95,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_k": 1},
             )
-            txt = (r.choices[0].message.content or "").strip()
-            d = json.loads(re.search(r"\{.*\}", txt, re.S).group())
-            subgoal = str(d["subgoal"])[:40]
-            aim = [float(np.clip(v, 0, 1000)) for v in d["aim"][:2]]
+            rep = parse_slow_reply((r.choices[0].message.content or "").strip())
+            if not rep["parsed"]:
+                self.fails += 1
         except Exception:  # noqa: BLE001  慢塔失灵 ⇒ 降级到零指导,不阻塞快环
             self.fails += 1
-            subgoal, aim = "", [500.0, 500.0]
+            rep = parse_slow_reply("")
         self.latencies.append(time.perf_counter() - t0)
 
+        subgoal, aim = rep["subgoal"], rep["aim"]
         if subgoal not in self.cache:
             v = self.encode_text([subgoal or "explore"])[0]
             self.cache[subgoal] = torch.as_tensor(v, dtype=torch.float32)
         goal = torch.cat([self.cache[subgoal],
                           torch.tensor([aim[0] / 1000.0, aim[1] / 1000.0])])
-        return goal.to(self.device), subgoal, aim
+        return goal.to(self.device), rep
 
 
 # ────────────────────────────────────────────────────── 判官
@@ -165,7 +218,8 @@ def evidence_text(r: dict) -> str:
     disp = float(np.abs(np.diff(pose[:, [0, 2]], axis=0)).sum()) if len(pose) > 1 else 0.0
     fwd = float(keys[:, V2_KEYS.index("forward")].mean())
     atk = float(keys[:, V2_KEYS.index("attack")].mean())
-    goals = "→".join(f"第{s}步『{g}』" for s, g, _aim in r["goal_log"][:6]) or "无"
+    goals = "→".join(f"第{e[0]}步『{e[1]}』" + ("✓" if e[5] else "")
+                     for e in r["goal_log"][:6]) or "无"
     return (f"里程碑:{ms};总步数 {len(keys)};水平位移 {disp:.0f} 格;"
             f"前进键占比 {fwd:.2f};攻击键占比 {atk:.2f};"
             f"相机总转动 {float(np.abs(r['cam_deg']).sum()):.0f} 度;"
@@ -235,7 +289,6 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) 
     cfg = tower.cfg
     tower.eval()                                          # 修复②:采样在确定性网络上
     goal = torch.zeros(cfg.goal_dim, device=device)
-    subgoal, aim = "", [500.0, 500.0]
     imgs, prevs, goals, cam_b, key_b, frames, pose, cam_deg = [], [], [], [], [], [], [], []
     goal_log, inv_events, inv_steps = [], set(), {}
     prev = np.zeros(cfg.n_mouse + cfg.n_keys, np.float32)
@@ -244,8 +297,12 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) 
     for t in range(ticks):
         rgb = np.asarray(obs["rgb"], dtype=np.uint8)
         if t % SLOW_EVERY == 0:                            # 慢塔按自身节拍刷新
-            goal, subgoal, aim = slow(rgb)
-            goal_log.append((t, subgoal, aim))             # 修复④配套:aim 一并落盘
+            st = state_line(t, inv_steps, pose, goal_log)
+            goal, rep = slow(rgb, st)
+            if rep["prev_done"] and goal_log:              # prev_done 指上一条:回填标记
+                goal_log[-1][5] = True
+            goal_log.append([t, rep["subgoal"], rep["aim"], rep["done_when"],
+                             rep["decision"], False])      # 修复④配套:aim/done_when 落盘
         if t % max(1, ticks // 24) == 0:
             frames.append(np.asarray(Image.fromarray(rgb).resize((160, 90))))
 

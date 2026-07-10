@@ -748,3 +748,21 @@ import 链与文档引用),主线执行:
 - 滚动池 83 段,磁盘 35%,下载器正常;HF 同步 run5/grpo-run1 完成。
 - Qwen GRPO run1 四组全部完成(判官 4/4 真排序,slow_fail=0,里程碑全 0——
   400tick episode 过短,属机制验证而非学习证据),agent 正在做终结入档。
+
+## 2026-07-10 Qwen 慢塔在 L4 全带塔验证(主会话;用户裁决:慢塔按可替换件对待)
+
+- **部署**:Qwen3-VL-8B-Instruct-FP8 + vLLM 0.24.0,独立 venv(/content/vllm-env,
+  主环境 torch 2.11+cu128 未动),gpu_util 0.68,显存 13.3–13.6GB,与渲染/训练共卡无冲突。
+  坑:flashinfer 采样器缺 ninja JIT 失败 → VLLM_USE_FLASHINFER_SAMPLER=0 回退 torch 采样。
+- **合规率探针(§12-4 未验项,PASS)**:32 真实帧四项全 100%(单行 JSON 解析/单行/
+  aim 落图内/decision 词表),p50 1.94s(160×90);真跑 640×360 时 p50 3.9–4.2s。
+- **带慢塔 --smoke(PASS)**:slow_fail=0(上次无慢塔为 24/24),判官真排序,
+  goal_log 有真实 subgoal/aim。
+- **判官退化对照臂(next_session §6 纪律,已补)**:同轨迹 4 种退化渲染 + 相同证据
+  文本,3/3 轮仍给严格全序(应并列),幻觉率 100%,排序按图像清晰度而非推进。
+- **真跑 4×4×400(BC 暖启动 + 真慢塔 + 判官首次完整闭环)**:判官 4/4 真排序
+  fallback=false;慢塔 320 调用 0 失败;里程碑全 0。判读:机制全通;学习信号未证实
+  ——400 tick 过短是主因,加长 episode 是先决条件。逐组表与判决入
+  design_bitter_lesson_map_integration.md §10.1(覆盖写,未新建文件)。
+- **代码**:grpo_pixel.py 加 --slow-model(8 行,SlowTower 透传,默认仍 Omni);
+  单测 9/9 过。换回 Omni 的差异清单在 §10.1 判决段。

@@ -82,11 +82,15 @@ def convert_jsonl(raw_path, out_path, task):
 
 
 def fetch(url, path, chunk=1 << 20):
+    """先写 .part 再原子 rename:滚动目录消费方(VPTStreamDataset)按 .mp4 后缀配对,
+    半截文件不再以最终名可见(读端撞半截 mp4 只会打 ffmpeg 警告并换段,但白耗一次解码)。"""
+    tmp = path + ".part"
     with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
-        with open(path, "wb") as f:
+        with open(tmp, "wb") as f:
             for c in r.iter_content(chunk_size=chunk):
                 f.write(c)
+    os.replace(tmp, path)
 
 
 def main():
@@ -121,7 +125,7 @@ def main():
                 raise RuntimeError("mp4 太小,疑似坏段")
         except Exception as ex:                 # 坏段/网络失败:清理残留,换下一个
             print(f"   ⤫ 跳过 {stem}: {ex}")
-            for pth in (mp4_path, jsonl_path):
+            for pth in (mp4_path, mp4_path + ".part", jsonl_path):
                 if os.path.exists(pth):
                     os.remove(pth)
             continue

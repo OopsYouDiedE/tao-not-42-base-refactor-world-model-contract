@@ -82,8 +82,21 @@
    cmd→env 增益 g_yaw=0.975、g_pitch=0.99（约 1:1,符号正）；env_yaw =
    atan2(east,north)+180°（sign=+1,offset≈±180°,resid 1.7–4.7°）;
    env_pitch = down 角（sign=+1,offset≈-3°）。部署侧符号(光流增益符号)与此一致。
-3. **BC 数据扩容 + hindsight relabel**：数据量是当前纯规模杠杆（§1 末节）；
-   hindsight relabel 语言标注（A1 语言通道 grounding 的数据来源）未做。
+3. **BC 数据扩容 + hindsight relabel**：数据量是当前纯规模杠杆（§1 末节）。
+   ▶ **hindsight relabel 已完成并验收 PASS（2026-07-10 后半，run6=bc_vpt4）**：
+   原始承包商 jsonl 的 `stats` 累计计数器差分 = 精确事件源（mine/collect/craft/kill/
+   use/drop + GUI 开合，词表 840 条机械生成，池覆盖率 40.8%，WINDOW=40 帧唯一窗口
+   参数）；goal 386 维与 SlowTower 逐字节同契约。标注器
+   `train/minecraft/hindsight_relabel.py`（单测 7 项 + `tests/eval_hindsight_acceptance.py`
+   可复跑验收）；`convert_jsonl` 已升级保留事实字段（老段幂等回填）。
+   双对照：**真 vs 乱 goal 配对差 -0.0096，CI95 [-0.0130,-0.0062] PASS**；
+   **zero-goal 0.5924 vs canonical 0.6148（-3.64%）PASS**。产物
+   `runs/checkpoints/bc_vpt4/best.pt`（best@10000，HF
+   `unjustify/vpt-bc-hindsight-pixeltower-v1-run1`）——**§2-4 GRPO 上量的
+   `--init-from` 从此指 bc_vpt4**（goal 通道可听的前置已满足）。遗留：滚动下载器
+   旧进程内存里是旧转换代码，新段无标签（零 goal 兜底）——下次重启下载器即自带标签，
+   或重跑 `python -m train.minecraft.hindsight_relabel --pool runs/data/vpt_early`；
+   holdout 域窄（制图桌域），伐木/采石域分离度未单测。
    ▶ 2026-07-10 已启动扩池实测：下载器循环 8xx/9xx/10xx 索引（目标 +360 段），
    `bc_vpt2` fresh 训练 60k 步与 Qwen 慢塔共卡，产物 `runs/checkpoints/bc_vpt2/`。
    **gaming500 用户裁决（2026-07-10）**：多样化数据定位为第二阶段预训练语料

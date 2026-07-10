@@ -125,13 +125,67 @@ jump **0.904**@4.2%、back 0.71、right 0.68;**attack 0.08/0.86/0.15**@0.4%、
 后的训练只是在记忆当前池。**继续吃数据规模红利需要更大的起始池或更高下载带宽,
 拉长步数无效。**
 
-局限:① goal 全程零向量,FiLM 通道未训练,hindsight relabel(§12-5 后半)未做;
-② 离线 acc ≠ 闭环有效(上文 D 曲线教训)——闭环必须过 CraftGround `--init-from`
-GRPO 实测;③ holdout 仅 2 clips(6xx 风格),跨承包商泛化未测;④ 相机非零 acc
-受人类微动在近零 bins 间混淆主导,是否够用由闭环判。
+局限:① ~~goal 全程零向量,FiLM 通道未训练~~(已由下节 hindsight relabel 修通,
+2026-07-10 后半);② 离线 acc ≠ 闭环有效(上文 D 曲线教训)——闭环必须过 CraftGround
+`--init-from` GRPO 实测;③ holdout 仅 2 clips(6xx 风格),跨承包商泛化未测;④ 相机
+非零 acc 受人类微动在近零 bins 间混淆主导,是否够用由闭环判。
 checkpoint:`runs/checkpoints/bc_vpt/best.pt`(canonical;2026-07-10 起=run5 best 的拷贝,
 HF 归档 `unjustify/vpt-bc-pixeltower-v1-run5`;gitignored,产物不入库);
 用法:`grpo_pixel.py --init-from runs/checkpoints/bc_vpt/best.pt`。
+
+### hindsight relabel:goal 通道第一次真监督(2026-07-10 后半,run6=bc_vpt4)
+
+病灶(GRPO 8×4×2000 实证):BC 期 goal 恒零 ⇒ FiLM(γ/β)从未学过"goal 变化↔行为
+变化",慢塔指令正确但快塔听不见。修法:给 VPT 人类录像**事件倒推**语言目标,重训 BC。
+
+**字段实况**(重下 3 段 6xx 原始承包商 jsonl 实测,逐帧 13 键):`stats` **累计计数器**
+(mine_block/pickup/craft_item/kill_entity/use_item/drop:item,差分即精确事件)、
+`inventory` 36 槽、`isGuiOpen`、`mouse.x/y`(GUI 光标,坐标系 1280×720——开 GUI 瞬间
+恒 (640,360)=屏心,实测事实)、yaw/pitch/xyz。标签全部由事实机械生成
+(`train/minecraft/hindsight_relabel.py`,单测 7 项):
+
+- subgoal = "<动词> <item>"(动词=stats 类别机械映射 mine/collect/craft/kill/use/drop),
+  GUI 开合沿 → "open/close <容器>"(容器名取开沿 [0,+1] 帧的 interact_with_* 计数器,
+  无则 inventory);零手写场景描述。
+- 帧 f 标签 = f 后 **WINDOW=40 帧(2s)** 内最近事件(唯一窗口启发参数;同帧多事件按
+  固定优先级 craft>mine>kill>gui>pickup>drop>use);无事件窗口无标签(goal=0)。
+- aim = **事件帧**准星/光标(非 GUI=画面中心 (500,500) 渲染事实;GUI=光标/1280×720
+  ×1000)。局限如实声明:collect(掉落物飞入)与窗口内未对准帧,aim 只是"完成时位置"
+  代理,非逐帧目标像素。
+- goal[386] = MiniLM(subgoal, L2 归一)⊕ aim/1000,与 `grpo_pixel.SlowTower` 逐字节
+  同契约(单测锚定;GRPO 换血时 goal 空间不换)。
+- "攻击持续段→break the block ahead"候选**弃用**:mine_block 差分给出带宾语的、
+  结果落地的同类事件;无结果的攻击段没有事实性完成语义,标了反而注入意图先验。
+
+**覆盖率**(池 291 段 169 万帧,`runs/data/vpt_early_relabel_stats.json`):40.8%
+(非 GUI 39.7%),词表 840 短语、top1(mine stone)6.4%、熵 7.17 bits(不退化);
+holdout 16.0%(非 GUI 10.2%,1090 tick)。转换契约升级:`download_vpt_data.convert_jsonl`
+今后保留 events/cursor 事实字段并直接写标签(加字段不删字段,老段由
+`python -m train.minecraft.hindsight_relabel --pool …` 幂等回填,原始 jsonl 转完即删)。
+
+**训练**(bc_vpt4,滚动池持续学习口径照 run5:fresh、lr 5e-5、batch 32、
+prev-drop 0.5,新增 `--goal-drop 0.25`——有标签 tick 也按概率置零,保留无指导能力):
+311 clips 池,~7k ticks/s(与 vLLM 共卡),best@10000,其后 43 次 eval 无一超越
+(@31.5k 恶化到 0.72),止损——run5 的"最优点随池增大后移"规律延续(119→291 clips,
+3000→10000 步)。
+
+**双对照验收**(`tests/eval_hindsight_acceptance.py`,holdout 同码重测,不信档案数):
+
+| 门 | 口径 | 数字 | 判定 |
+|---|---|---|---|
+| 1 通道修通 | holdout 有标签 tick(GUI 剔除,n=1090):真 goal vs 组内 permute(5 seed) | ce+bce **0.6362 vs 0.6458**,配对差 **-0.0096,CI95 [-0.0130,-0.0062]**(<0) | **PASS** |
+| 2 不伤无指导 | zero-goal 全 tick vs canonical(bc_vpt/best.pt 同 holdout 重测) | **0.5924 vs 0.6148(-3.64%)**;cam_acc 0.8344、keyF1 0.7578(canonical 0.6751) | **PASS** |
+
+注意读数:门 1 表观差距被两处机械稀释——holdout 两段是**制图桌/箱子域**(词表仅 16,
+与训练池主域不同),且组内 permute 有 0.16/0.26 概率换到同短语;显著性由配对
+bootstrap 判,不看肉眼。zero-goal 反而更好主要是扩池(119→291)的规模红利。
+
+checkpoint:`runs/checkpoints/bc_vpt4/best.pt`(HF `unjustify/vpt-bc-hindsight-pixeltower-v1-run1`,
+含 goal 词表 `vpt_early_goal_vocab.json`);canonical `bc_vpt/best.pt` 暂不动,GRPO 换血
+用 `--init-from runs/checkpoints/bc_vpt4/best.pt`。遗留:① 滚动下载器旧进程仍在跑
+内存里的旧转换代码,其新段无标签(零 goal 兜底,不炸)——下载器重启后自带标签,或重跑
+relabel CLI 回填;② holdout 域窄(制图桌),伐木/采石域的 goal 分离度未单测;③ 闭环
+听话性(慢塔指令→行为改变)仍归 GRPO 实测,离线分离≠闭环有效(D 曲线教训)。
 
 ## 下一步(按终审优先级)
 1. **GRPO 把快塔从 BC 的 0.3–0.7 往教师 0.8–1.0 推**——暖启动 checkpoint 已由 VPT BC

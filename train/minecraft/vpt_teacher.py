@@ -289,7 +289,9 @@ def main() -> None:
 
     for k in range(n_dec):
         _th.Thread(target=_producer, args=(k,), daemon=True).start()
-    use_ac = args.device.startswith("cuda")
+    # bf16 autocast 与上游 xf.py 的 dtype 断言冲突(transformer 记忆状态 fp32,
+    # Q/K dtype 不齐);教师前向保持 fp32(上游部署口径,不动 vendored 代码)
+    use_ac = False
     i, ended = -1, 0
     while ended < n_dec:
         item = pre.get()

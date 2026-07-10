@@ -24,7 +24,8 @@
 - **chunk_k=1 裁决**（R-B）：离线首步 cam_acc 随 k 单调降（k1 0.275 / k4 0.270 / k8 0.256，k8 破 5% 门）、
   闭环 switch 随 k 崩（k1 0.125 > k4 0.125 > k8 0.000）；块内均匀权重。已固化进 `PixelTowerConfig.chunk_k=1`。
 - **慢塔 LoRA 配方**（R-C 1.5B + R-D VL）：r16 / q,k,v,o / lr1e-4（reason_delta 配方，新 adapter，防复核回退）；
-  VL 视觉塔冻结。
+  VL 视觉塔冻结。**注意：训练器代码（heartbeat_sft/reason_delta_sft）已于 prune3 物理删除，
+  执行 §2-4 需要慢塔微调时按本配方重建。**
 - **VL LoRA 冒烟配置模板**（R-D，PASS）：448×256，batch1×梯度累积8，grad-ckpt on，r16 qkvo；
   loss 降 66.6%，峰值显存 5.06GB，无 NaN。
 - **状态行 schema / 微决策词表 / 僵局阈值**（R-C）：
@@ -59,6 +60,7 @@
 1. **DINO 前端接线**：`net/token_tower.py` + `net/map_io.py` 已建成（单测通过），
    视觉前端已由用户拍板 DINO（2026-07-10，YOLOE 整线已删码）。接线时做 yaw/pitch 与
    CraftGround 的符号标定（训练侧）。接线状态明细见 `knowledge/status_built_not_wired.md`。
+   ▶ 2026-07-10 用户指示尽快接入，接线已启动（SubAgent 执行中）。
 2. **DINO 瞄准可学性探针**（`tests/probe_dino_aim.py`）：待活环境采集
    `runs/probe_aim/manifest.jsonl`（帧、准星角偏移、地形分层；raycast 标签只进训练侧）。
    判据：R² 显著>0 且地形分层不塌；FAIL 则跑 fovea 双尺度臂。
@@ -82,8 +84,7 @@
    估数天级且收益存疑（Xorg 路径已通）。
 6. **待用户复核的清理边界项**（prune3，清单 `runs/prune3_manifest.md`）：
    - Godot 线：`train/godot_meta_rl/vec_env.py` + `utils/godot_rl/*` 是 assets 禁触子系统的
-     唯一驱动桥，按"宁可少删边界项"保留。若用户确认 Godot 线彻底退役，下一批可连同
-     install_env.py `--godot`、pyproject `godot` 组、AGENTS.md §8 godot 例一并清理。
+     唯一驱动桥。**用户 2026-07-10 裁决：保留（未来可能启用），本复核项关闭。**
    - `train/craftground/action_contract.py:22` 指向已删 vpt_lib 的注释：该文件属硬禁触区未改，
      是无害历史注释（口径已内联），禁触解除后再处理。
 

@@ -1,5 +1,8 @@
 # CraftGround PPO+AD 首轮 run 结论（2026-06-27；§3 于 2026-07-10 在 L4 机回填 ZEROCOPY/EGL 实测）
 
+> **分区状态（2026-07-10 标注）**：仅 **§3（渲染选型）是现行定论**。
+> §1/§2/§4–§6 属已退役的 PPO+AD 线（2026-06-27 run）的历史结论，保留作档案，勿据其行动。
+
 ## 1. 训练结果
 - **配置**：4 环境 / n_steps=256 / ppo_batch_size=64 / RAW 编码 / GPU 渲染(DISPLAY=:0) / expandable_segments
 - **结果**：1M 步、**5.93 小时**、最终 **4/16 成就**（root + mine_wood + punch_tree + mine_stone）
@@ -13,6 +16,9 @@
 ## 3. GPU 渲染（2026-07-10 更新：ZEROCOPY 已在 L4 机跑通，本节数据整体回填）
 
 ### 3.1 渲染路径基准（L4 机,2026-07-10,`tests/bench_render_craftground.py`）
+
+> 本表是同卡争抢、只测 `env.step` 的口径；**选型判决已被 §3.1b 端到端口径取代**，单看本表会选错。
+
 单环境 640×360、同一 seed=0 动作序列、各 500 step。**同卡有 BC 训练全程并行**
 （`bc_vpt_warmstart`,5258MiB,GPU util 49–98%,8 个 CPU dataloader worker）——
 三臂受同等争抢,横向可比,绝对值偏低。

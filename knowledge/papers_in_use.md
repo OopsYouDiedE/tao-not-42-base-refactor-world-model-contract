@@ -3,6 +3,7 @@
 > 口径:只登记**当前 GRPO 快塔线**(Omni 慢塔 + 像素快塔[DINO 前端接线中] + Haiku 判官 + CraftGround)
 > 真正吃到的外部成果。已退役的世界模型 / 预训练 / BC 蒸馏线不在此列(见文末)。
 > 纪律:每条给 `文件:行号` 证据;arXiv 编号、权重 ID 一律从仓库原文抄录,查不到写 `待补`,不猜。
+> 2026-07-10:原 4 条 `待补`(DINOv3/VPT/IMPALA/GRPO)已按公开文献补录编号。
 
 ## 一、部件 × 成果 对照总表
 
@@ -14,10 +15,10 @@
 | 慢塔像素指点坐标约定 | Omni 自身被训练过的表示 | 1000×1000 归一化像素坐标 | `aim` 点用 0..1000 归一坐标(实测标定出的原生表示) | 角度/度数标定不归它(符号量级不可靠) | `knowledge/conclusion_omni_pixel_control.md:82`;`train/craftground/grpo_pixel.py:76-82` |
 | 句向量编码器 | Sentence-Transformers MiniLM | `sentence-transformers/all-MiniLM-L6-v2`(384d,冻结) | 把慢塔文本子目标编码成 goal 向量喂快塔 FiLM 条件 | 不微调、不做检索 | `train/craftground/grpo_pixel.py:326-331` |
 | 判官 | Anthropic Claude Haiku | `claude -p --model haiku`(CLI) | 组内并行 rollout 从好到差排名 → 名次取负 → 组内 z 归一当相对优势 | 不产生动作、不做感知;只给序 | `train/craftground/grpo_pixel.py:187`;判官幻觉体检结论见 `knowledge/lessons_do_not_retry.md`(探针 probe_judge_io_haiku 已于 prune3 删除) |
-| 快塔视觉前端(2026-07-10 用户拍板方向,接线中) | DINOv3(Meta,自监督 ViT) | HF repo 见 `net/backbone.py` `_HF_REPOS`(dinov3 ViT-S/16,gated;dinov2 开放降级);arXiv **待补** | 冻结 patch 网格(保空间结构)作快塔视觉 token + 地图稠密写入;fovea 双尺度裁剪备选 | 不用 CLS 单向量(旧 BC 用法已退役);不微调骨干 | `net/backbone.py:21-43`;`tests/probe_dino_aim.py`;`knowledge/design_bitter_lesson_map_integration.md §7/§8` |
-| 快塔相机动作头 | OpenAI VPT(部分在用) | 上游 GitHub `openai/Video-Pre-Training`(MIT);arXiv **待补** | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 软 KL 蒸馏 / 逆动力学(distill_vpt 退役);vendored `net/vpt_lib/` 网络本体已删(prune3,全库零 import;口径已内联进 `train/craftground/action_contract.py`/`train/minecraft/vpt_action.py`) | `train/minecraft/vpt_action.py:13,19-30`;`net/pixel_tower.py:18-20` |
-| 快塔卷积干 | IMPALA-CNN(风格引用) | arXiv **待补**;仓库注为"OpenAI VPT / snu-mllab Achievement-Distillation 的 IMPALA-CNN" | 从零手写"IMPALA 风格"小卷积干(不 import 现成实现,不载预训练) | 不用其残差深塔 / 预训练权重 | `net/pixel_tower.py:77`;`blocks/impala.py:8` |
-| 训练算法 | GRPO(组内相对优势策略梯度) | arXiv **待补**(仓库无论文引用) | 判官排序 → 组内 z 归一优势 → REINFORCE(`loss=adv·(CE+BCE)`) | 当前实现是 REINFORCE 变体,未加 importance-ratio/clip/KL(待补全成完整 GRPO) | `train/craftground/grpo_pixel.py:1-23,195-200,272-298`;`train/fovea_twotower/grpo_harness.py:52-55` |
+| 快塔视觉前端(2026-07-10 用户拍板方向,接线中) | DINOv3(Meta,自监督 ViT) | HF repo 见 `net/backbone.py` `_HF_REPOS`(dinov3 ViT-S/16,gated;dinov2 开放降级);arXiv:2508.10104 | 冻结 patch 网格(保空间结构)作快塔视觉 token + 地图稠密写入;fovea 双尺度裁剪备选 | 不用 CLS 单向量(旧 BC 用法已退役);不微调骨干 | `net/backbone.py:21-43`;`tests/probe_dino_aim.py`;`knowledge/design_bitter_lesson_map_integration.md §7/§8` |
+| 快塔相机动作头 | OpenAI VPT(部分在用) | 上游 GitHub `openai/Video-Pre-Training`(MIT);arXiv:2206.11795 | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 软 KL 蒸馏 / 逆动力学(distill_vpt 退役);vendored `net/vpt_lib/` 网络本体已删(prune3,全库零 import;口径已内联进 `train/craftground/action_contract.py`/`train/minecraft/vpt_action.py`) | `train/minecraft/vpt_action.py:13,19-30`;`net/pixel_tower.py:18-20` |
+| 快塔卷积干 | IMPALA-CNN(风格引用) | arXiv:1802.01561(Espeholt 等 2018);仓库注为"OpenAI VPT / snu-mllab Achievement-Distillation 的 IMPALA-CNN" | 从零手写"IMPALA 风格"小卷积干(不 import 现成实现,不载预训练) | 不用其残差深塔 / 预训练权重 | `net/pixel_tower.py:77`;`blocks/impala.py:8` |
+| 训练算法 | GRPO(组内相对优势策略梯度) | arXiv:2402.03300(DeepSeekMath,GRPO 出处) | 判官排序 → 组内 z 归一优势 → REINFORCE(`loss=adv·(CE+BCE)`) | 当前实现是 REINFORCE 变体,未加 importance-ratio/clip/KL(待补全成完整 GRPO) | `train/craftground/grpo_pixel.py:1-23,195-200,272-298`;`train/fovea_twotower/grpo_harness.py:52-55` |
 | 方法论立场 | Sutton《The Bitter Lesson》 | 仓库原文写 "Sutton 2019"(随笔,非 arXiv) | 不为单个游戏打人工感知补丁;裁决退役词表/凸包GT/手标分割头 | 反对的是人工领域先验,非大规模预训练通用表征 | `net/pixel_tower.py:3`;`train/craftground/grpo_pixel.py:6-9`;`knowledge/design_bitter_lesson_map_integration.md §2` |
 
 ## 二、"部分在用"两条的边界说明
@@ -38,7 +39,7 @@
 
 ## 三、疑似在用但无书面出处(待人工确认)
 
-- **IMPALA-CNN 架构本体**(Espeholt 等):`net/pixel_tower.py:77` 只写"IMPALA 风格",`blocks/impala.py:8` 只注"照搬 OpenAI VPT / snu-mllab Achievement-Distillation 的实现",**仓库无 arXiv 编号与原作者**。待人工确认是否登记原始论文。
+- **IMPALA-CNN 架构本体**(Espeholt 等):`net/pixel_tower.py:77` 只写"IMPALA 风格",`blocks/impala.py:8` 只注"照搬 OpenAI VPT / snu-mllab Achievement-Distillation 的实现",已确认登记:arXiv:1802.01561(Espeholt 等 2018),编号已补进上表。
 - **MobileCLIP 文本塔**:`docs/architectures/fovea-hypothesis-verification-2026-07-08.md:76` 提到 YOLOE 自带 MobileCLIP 文本塔(`mobileclip_blt.ts`),但路线 2 去掉了词表/文本点名,当前是否在用不明确,**无 arXiv**。待确认。
 - **REINFORCE / 策略梯度**(Williams;Sutton & Barto):作为 GRPO 更新的底层,反复出现于代码注释,但**无任何书面引用**。属基础方法,通常不单列。
 

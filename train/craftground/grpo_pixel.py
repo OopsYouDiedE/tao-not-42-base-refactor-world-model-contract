@@ -364,7 +364,7 @@ def judge_pairwise(items: list[tuple[str, str]], task: str, model: str = "haiku"
 
 
 def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK,
-          model: str = "haiku") -> tuple[np.ndarray, dict]:
+          model: str = "haiku", effort: str | None = None) -> tuple[np.ndarray, dict]:
     """成对判官 → Copeland 分 → 组内 z 归一化当优势。
 
     全并列(含胜负图有环)⇒ scores 全零 ⇒ group_advantage 全零(std_floor)⇒
@@ -378,7 +378,7 @@ def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK,
     (OUT / f"g{g}_items.json").write_text(
         json.dumps(items, ensure_ascii=False, indent=1))
 
-    scores, meta = judge_pairwise(items, task, model=model,
+    scores, meta = judge_pairwise(items, task, model=model, effort=effort,
                                   log_path=OUT / f"g{g}_judge_pairs.jsonl")
     if meta["judge_call_fail"] == meta["judge_calls"]:  # 判官全灭 ⇒ 回退里程碑机器分
         scores = [float(len(r["inv_events"])) for r in rolls]
@@ -623,6 +623,9 @@ def main() -> None:
     ap.add_argument("--no-calib", action="store_true", help="跳过开局自标定探针")
     ap.add_argument("--judge-model", default="haiku",
                     help="判官模型(claude CLI --model 值;对照臂可换 sonnet)")
+    ap.add_argument("--judge-effort", default="",
+                    help="判官推理档(claude CLI --effort:low/medium/high;"
+                         "Sonnet-low 为 2026-07-10 A/B 定案口径;空=不传)")
     ap.add_argument("--seed-tries", type=int, default=8,
                     help="world seed 先验筛选:出生点 heightmap 48×48 无树则换 seed 的"
                          "最大尝试数(特权信息只进训练侧,保证任务物理可能)")
@@ -717,7 +720,8 @@ def main() -> None:
                  for _ in range(args.per_group)]
         env.close()
 
-        adv, jmeta = judge(g, rolls, task=args.task, model=args.judge_model)
+        adv, jmeta = judge(g, rolls, task=args.task, model=args.judge_model,
+                           effort=args.judge_effort or None)
         loss = update(tower, opt, rolls, adv, args.chunk, args.temp, device)
         if args.tower == "v1":             # v1/v2 checkpoint 分文件,互不污染
             torch.save(dict(tower=tower.state_dict(), cfg=vars(cfg), group=g),

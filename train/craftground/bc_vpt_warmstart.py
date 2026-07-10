@@ -5,7 +5,13 @@
 对外接口:
     VPT_TO_V2 — VPT 键序 → V2 键序的置换索引
     encode_targets(act_agg) — 数据契约动作 → (cam bins, keys_v2, prev) 训练目标
+    distill_kl(...) — 反向 KL 蒸馏损失(--distill-dir 开启时并入;教师=vpt_teacher 打标)
     main() — CLI 训练入口(python -m train.craftground.bc_vpt_warmstart)
+
+蒸馏开关(--distill-dir <npz 目录> --distill-weight w,默认关闭、默认行为逐字节不变):
+损失 = ce + bce + w·(KL(学生相机‖教师相机) + KL(学生键‖教师键)),教师分布来自
+rl-from-foundation-2x 离线打标(train/minecraft/vpt_teacher.py,含契约翻译),
+无教师标签的 tick 掩码跳过;goal 机制(hindsight 标签 + --goal-drop)原样保留。
 
 依据(受控实证,conclusion_fasttower_skill_ceiling.md):GRPO 两次起效都从 BC 暖启动
 起跑(可见目标 0.50→0.81);从随机初始化直接 GRPO 的监督带宽差 4~5 个数量级
@@ -95,6 +101,53 @@ def encode_targets(act: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch
     keys = act[..., 2:][..., VPT_TO_V2].float()
     prev = torch.cat([bin_center_t(bins), keys], dim=-1)
     return bins, keys, prev
+
+
+def _teacher_batch(batch: dict, s: int, device) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """教师蒸馏标签 → 与 _window_batch 同序的展平 tick 批(--distill-dir 开启才调用)。
+
+    batch["tch_keys"] [B,T,20] f16、["tch_cam"] [B,T,2,11] f16(教师 bin,轴序 dx,dy)、
+    ["tch_on"] [B,T] bool。切片口径与 _window_batch 的监督 tick ts=[s-1, T-2] 逐字节同式。
+    返回 p_keys [N,20] fp32、cam_t [N,2,11] fp32、on [N] bool。
+    """
+    t_n = batch["tch_keys"].shape[1]
+    ts = torch.arange(s - 1, t_n - 1)
+    tk = batch["tch_keys"][:, ts].reshape(-1, batch["tch_keys"].shape[-1])
+    tc = batch["tch_cam"][:, ts].reshape(-1, *batch["tch_cam"].shape[-2:])
+    on = batch["tch_on"][:, ts].reshape(-1)
+    return (tk.to(device, non_blocking=True).float(),
+            tc.to(device, non_blocking=True).float(),
+            on.to(device, non_blocking=True))
+
+
+def distill_kl(cam_l: torch.Tensor, key_l: torch.Tensor, tch_keys: torch.Tensor,
+               tch_cam_ours: torch.Tensor, on: torch.Tensor,
+               eps: float = 1e-4) -> tuple[torch.Tensor, torch.Tensor]:
+    """蒸馏损失 KL(学生‖教师)(反向 KL:mode-seeking,不逼学生覆盖教师 T=2 的熵)。
+
+    Parameters
+    ----------
+    cam_l : [N,2,CAM_BINS] fp32 学生相机 logits;key_l : [N,20] fp32 学生键 logits
+    tch_keys : [N,20] fp32 教师按键边缘概率;tch_cam_ours : [N,2,CAM_BINS] fp32
+        教师相机分布(已 remap 到我们 bin);on : [N] bool 有教师标签掩码
+    eps : 教师概率下界(I1:教师零质量 bin 上反向 KL 无界,clamp 后重归一)
+
+    Returns
+    -------
+    (kl_cam, kl_key) 标量 fp32;on 全 False 时为 0(不产生梯度偏置)。
+    """
+    if not bool(on.any()):
+        z = cam_l.new_zeros(())
+        return z, z.clone()
+    q_cam = F.log_softmax(cam_l[on].float(), dim=-1)             # I4:fp32
+    p = tch_cam_ours[on].clamp(min=eps)
+    p = (p / p.sum(-1, keepdim=True).clamp(min=eps)).log()
+    kl_cam = (q_cam.exp() * (q_cam - p)).sum(-1).mean()
+    qk = torch.sigmoid(key_l[on].float()).clamp(eps, 1 - eps)
+    pk = tch_keys[on].clamp(eps, 1 - eps)
+    kl_key = (qk * (qk / pk).log()
+              + (1 - qk) * ((1 - qk) / (1 - pk)).log()).mean()
+    return kl_cam, kl_key
 
 
 def _window_batch(img_u8: torch.Tensor, act: torch.Tensor, goal_seq, s: int, device,
@@ -274,6 +327,11 @@ def main() -> None:
                          "退化为零 goal 旧口径),空串强制关闭")
     ap.add_argument("--goal-drop", type=float, default=0.25,
                     help="有标签 tick 的 goal 置零概率(保留无指导能力;0=不丢)")
+    ap.add_argument("--distill-dir", default="",
+                    help="VPT 教师打标 npz 目录(vpt_teacher CLI 落盘);空串=蒸馏关闭,"
+                         "默认训练行为逐字节不变")
+    ap.add_argument("--distill-weight", type=float, default=1.0,
+                    help="蒸馏 KL 权重 w(损失 = ce + bce + w·(kl_cam + kl_key))")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--eval-every", type=int, default=400)
     ap.add_argument("--seed", type=int, default=0)
@@ -314,10 +372,15 @@ def main() -> None:
     if vocab_path and not Path(vocab_path).exists():
         print(f"⚠ goal 词表 {vocab_path} 不存在——退化为零 goal 旧口径", flush=True)
         vocab_path = ""
+    remap_cam = None
+    if args.distill_dir:                 # 惰性 import:默认路径不引 net/vpt_lib(gym3)
+        from train.minecraft.vpt_teacher import remap_cam
+        print(f"蒸馏开启:labels={args.distill_dir} w={args.distill_weight}", flush=True)
     ds = VPTStreamDataset(args.data, seq_len=args.seq, img_size=IMG_HW,
                           camera_scale=CAMERA_SCALE, frame_skip=1, split=None,
                           clip_cache=3, clip_refresh=192, seed=args.seed,
-                          goal_vocab=vocab_path or None)
+                          goal_vocab=vocab_path or None,
+                          teacher_dir=args.distill_dir or None)
     dl = DataLoader(ds, batch_size=args.batch, num_workers=args.workers,
                     pin_memory=True, persistent_workers=args.workers > 0,
                     prefetch_factor=4 if args.workers else None)
@@ -341,6 +404,13 @@ def main() -> None:
         ce = F.cross_entropy(cam_l.reshape(-1, CAM_BINS), bins.reshape(-1))
         bce = F.binary_cross_entropy_with_logits(key_l, keys)
         loss = ce + bce                                          # 与 grpo_pixel.update 同权
+        kl_c = kl_k = cov = 0.0
+        if args.distill_dir:
+            tk, tc, on = _teacher_batch(batch, s, device)
+            kl_cam, kl_key = distill_kl(cam_l, key_l, tk, remap_cam(tc), on)
+            loss = loss + args.distill_weight * (kl_cam + kl_key)
+            kl_c, kl_k = float(kl_cam), float(kl_key)
+            cov = float(on.float().mean())
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(tower.parameters(), 1.0)
@@ -348,9 +418,11 @@ def main() -> None:
         tick_count += img.shape[0]
 
         if step % 50 == 0:
+            extra = (f" kl_cam={kl_c:.4f} kl_key={kl_k:.4f} tch_cov={cov:.2f}"
+                     if args.distill_dir else "")
             print(f"[{step}/{args.steps}] loss={float(loss):.4f} ce={float(ce):.4f} "
-                  f"bce={float(bce):.4f} ticks/s={tick_count/(time.time()-t0):.0f}",
-                  flush=True)
+                  f"bce={float(bce):.4f} ticks/s={tick_count/(time.time()-t0):.0f}"
+                  f"{extra}", flush=True)
         if step % args.eval_every == 0 or step == args.steps:
             # 四口径:zero(canonical 对照)/ true(与训练分布同口径,主指标之一)/
             # 有标签 tick 上 true vs perm(通道修通的对照臂,§2-3 验收)
@@ -370,6 +442,9 @@ def main() -> None:
             m.update(step=step, train_loss=round(float(loss), 4),
                      lr=opt.param_groups[0]["lr"],
                      wall_min=round((time.time() - t0) / 60, 1))
+            if args.distill_dir:
+                m.update(kl_cam=round(kl_c, 4), kl_key=round(kl_k, 4),
+                         tch_cov=round(cov, 3), distill_w=args.distill_weight)
             with (out / "metrics.jsonl").open("a") as f:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
             hold = 0.5 * (score_t + score_0)     # 双口径都不许烂:选 best 用均值

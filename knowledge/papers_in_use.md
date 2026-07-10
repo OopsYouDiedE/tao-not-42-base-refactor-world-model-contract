@@ -16,16 +16,18 @@
 | 句向量编码器 | Sentence-Transformers MiniLM | `sentence-transformers/all-MiniLM-L6-v2`(384d,冻结) | 把慢塔文本子目标编码成 goal 向量喂快塔 FiLM 条件 | 不微调、不做检索 | `train/craftground/grpo_pixel.py:326-331` |
 | 判官 | Anthropic Claude Haiku | `claude -p --model haiku`(CLI) | 组内并行 rollout 从好到差排名 → 名次取负 → 组内 z 归一当相对优势 | 不产生动作、不做感知;只给序 | `train/craftground/grpo_pixel.py:187`;判官幻觉体检结论见 `knowledge/lessons_do_not_retry.md`(探针 probe_judge_io_haiku 已于 prune3 删除) |
 | 快塔视觉前端(2026-07-10 用户拍板方向,接线中) | DINOv3(Meta,自监督 ViT) | HF repo 见 `net/backbone.py` `_HF_REPOS`(dinov3 ViT-S/16,gated;dinov2 开放降级);arXiv:2508.10104 | 冻结 patch 网格(保空间结构)作快塔视觉 token + 地图稠密写入;fovea 双尺度裁剪备选 | 不用 CLS 单向量(旧 BC 用法已退役);不微调骨干 | `net/backbone.py:21-43`;`tests/probe_dino_aim.py`;`knowledge/design_bitter_lesson_map_integration.md §7/§8` |
-| 快塔相机动作头 | OpenAI VPT(部分在用) | 上游 GitHub `openai/Video-Pre-Training`(MIT);arXiv:2206.11795 | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 软 KL 蒸馏 / 逆动力学(distill_vpt 退役);vendored `net/vpt_lib/` 网络本体已删(prune3,全库零 import;口径已内联进 `train/craftground/action_contract.py`/`train/minecraft/vpt_action.py`) | `train/minecraft/vpt_action.py:13,19-30`;`net/pixel_tower.py:18-20` |
+| 快塔相机动作头 | OpenAI VPT(部分在用) | 上游 GitHub `openai/Video-Pre-Training`(MIT);arXiv:2206.11795 | 相机 mu-law 11-bin 分箱口径(避开 MSE"恒预测 0"平凡解);20 键契约 | 不用它的 BC 预训练 / 逆动力学(distill_vpt 退役);IDM 反标已撤销 | `train/minecraft/vpt_action.py:13,19-30`;`net/pixel_tower.py:18-20` |
+| 快塔运动技能教师(离线蒸馏,2026-07-10 起) | OpenAI VPT RL 微调策略 | 权重 `rl-from-foundation-2x.weights` + 架构 `2x.model`(openaipublic blob `minecraft-rl/models/`,MIT;248M,pi_head T=2.0);vendored `net/vpt_lib/`(2026-07-10 重拉,prune3 曾删) | 教师逐帧动作分布 → 精确边缘化翻译到 V2 契约(20 键同名双射 + 相机 121 联合→两轴 11-bin 下推)→ 离线打标 + 反向 KL 进 BC(`--distill-kl`) | 不用其 MineRL 环境接口 / IDM / 在线 RL;GUI 帧动作不翻译(掩码丢弃,归慢塔) | `train/minecraft/vpt_teacher.py`;`net/vpt_lib/__init__.py`;`tests/unit/test_vpt_teacher.py` |
 | 快塔卷积干 | IMPALA-CNN(风格引用) | arXiv:1802.01561(Espeholt 等 2018);仓库注为"OpenAI VPT / snu-mllab Achievement-Distillation 的 IMPALA-CNN" | 从零手写"IMPALA 风格"小卷积干(不 import 现成实现,不载预训练) | 不用其残差深塔 / 预训练权重 | `net/pixel_tower.py:77`;`blocks/impala.py:8` |
 | 训练算法 | GRPO(组内相对优势策略梯度) | arXiv:2402.03300(DeepSeekMath,GRPO 出处) | 判官排序 → 组内 z 归一优势 → REINFORCE(`loss=adv·(CE+BCE)`) | 当前实现是 REINFORCE 变体,未加 importance-ratio/clip/KL(待补全成完整 GRPO) | `train/craftground/grpo_pixel.py:1-23,195-200,272-298`;`train/fovea_twotower/grpo_harness.py:52-55` |
 | 方法论立场 | Sutton《The Bitter Lesson》 | 仓库原文写 "Sutton 2019"(随笔,非 arXiv) | 不为单个游戏打人工感知补丁;裁决退役词表/凸包GT/手标分割头 | 反对的是人工领域先验,非大规模预训练通用表征 | `net/pixel_tower.py:3`;`train/craftground/grpo_pixel.py:6-9`;`knowledge/design_bitter_lesson_map_integration.md §2` |
 
 ## 二、"部分在用"两条的边界说明
 
-### VPT —— 动作表示在用,BC 路线退役
-- **在用**:相机 mu-law 离散分箱头的口径(`CAMERA_BINS=11` / `CAMERA_MU`),理由是 MSE 回归下"恒预测 0"是平凡解,mu-law 分箱把 0 变成众多类之一;VPT 原版同样用 mu-law 离散相机。20 个二值键的动作契约同源。见 `train/minecraft/vpt_action.py:10-13,29-30`。
-- **已删**:`net/vpt_lib/`(OpenAI VPT 策略网络的原样 vendored 副本)其用途(teacher 软 KL 蒸馏)属退役的 BC 预训练路线,全库零 import,已于 prune3 物理删除;需要时重拉上游 `openai/Video-Pre-Training`。mu-law 口径不依赖它,已内联进 `action_contract.py`/`vpt_action.py`。
+### VPT —— 动作表示在用;教师蒸馏 2026-07-10 重启(此前退役)
+- **在用(动作表示)**:相机 mu-law 离散分箱头的口径(`CAMERA_BINS=11` / `CAMERA_MU`),理由是 MSE 回归下"恒预测 0"是平凡解,mu-law 分箱把 0 变成众多类之一;VPT 原版同样用 mu-law 离散相机。20 个二值键的动作契约同源。见 `train/minecraft/vpt_action.py:10-13,29-30`。
+- **在用(教师,2026-07-10 重启)**:`net/vpt_lib/` 从上游重拉(MIT,LICENSE 在目录内;改动仅 import 路径 + minerl 惰性化,见 `net/vpt_lib/__init__.py`)。教师权重 `rl-from-foundation-2x`(wood→…→diamond pickaxe 全链 RL 微调,openaipublic blob 下载,本地 `runs/data/models/vpt_teacher/`)。动机:bc_vpt4+GRPO 的 oak_log 仍 0,REINFORCE 无法强化从未出现的行为;蒸馏让"持续攻击砍树"先发生。与被退役的 distill_vpt(BC 预训练路线)不同:这次教师翻译层是精确边缘化(无手写规则),损失是反向 KL 且默认关闭(`--distill-dir`),goal 机制原样保留。
+- **历史**:prune3 曾删 vendored 副本(当时全库零 import);IDM 反标网络视频已撤销不再列为选项。
 
 ### YOLOE —— 整线废弃(2026-07-10 用户拍板)
 - 2026-07-09 曾裁决路线 2(类别无关提案 token);**2026-07-10 用户按苦涩的教训再推一步

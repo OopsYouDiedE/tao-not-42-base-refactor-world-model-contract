@@ -206,8 +206,12 @@ class VPTStreamDataset(IterableDataset):
                  seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
                  split=None, holdout_n=1, buffer_size=0, buffer_reuse=1,
                  clip_cache=4, clip_refresh=256, motion_sample=1, clip_max_frames=0,
-                 goal_vocab=None):
+                 goal_vocab=None, teacher_dir=None):
         super().__init__()
+        # teacher_dir:VPT 教师打标 npz 目录(train/minecraft/vpt_teacher.py 落盘)。
+        # 提供则样本多出 "tch_keys" [T,20]、"tch_cam" [T,2,11](均 fp16,教师 bin,
+        # 轴序 dx,dy)与 "tch_on" [T] bool;未打标段全零 + 全 False(蒸馏损失自动跳过)。
+        self.teacher_dir = teacher_dir
         # goal_vocab:hindsight relabel 词表 json 路径(hindsight_relabel CLI 落盘)。
         # 提供则样本多出 "goal" [T,386] 与 "goal_on" [T] bool;词表外文本(下载器
         # 新段引入的新 item)按零 goal 处理并计数——重跑 relabel --vocab-only 可补齐。
@@ -319,6 +323,22 @@ class VPTStreamDataset(IterableDataset):
         gui = torch.tensor(gflags[:n]) if any(gflags[:n]) else None
         out = {"img": img, "action": torch.stack(actions[:n]), "task": task,
                "gui": gui, "n": n}
+        if self.teacher_dir:
+            tp = os.path.join(self.teacher_dir,
+                              os.path.basename(mp4)[:-len(".mp4")] + ".npz")
+            try:
+                z = np.load(tp)
+                tk = torch.from_numpy(z["keys"][start:start + n])   # [≤n,20] f16
+                tc = torch.from_numpy(z["cam"][start:start + n])    # [≤n,2,11] f16
+                v = min(len(tk), n)
+                if v > 0:
+                    out["tch_keys"] = torch.zeros(n, tk.shape[1], dtype=tk.dtype)
+                    out["tch_cam"] = torch.zeros(n, *tc.shape[1:], dtype=tc.dtype)
+                    out["tch_keys"][:v], out["tch_cam"][:v] = tk[:v], tc[:v]
+                    out["tch_on"] = torch.zeros(n, dtype=torch.bool)
+                    out["tch_on"][:v] = True
+            except (OSError, ValueError, KeyError):
+                pass                             # 未打标/半写 npz:该段按无教师标签处理
         if self.goal_idx is not None:
             out["sg"] = torch.tensor(sg_ids[:n], dtype=torch.long)
             out["aim1000"] = torch.tensor(aims[:n], dtype=torch.float32)
@@ -477,6 +497,17 @@ class VPTStreamDataset(IterableDataset):
                     sample["goal"] = assemble_goal(ids[fidx], m["aim1000"][fidx],
                                                    self.goal_mat)
                     sample["goal_on"] = ids[fidx] >= 0
+            if self.teacher_dir:       # 教师蒸馏标签(契约见 __init__ 注释)
+                if "tch_keys" in m:
+                    sample["tch_keys"] = m["tch_keys"][fidx]
+                    sample["tch_cam"] = m["tch_cam"][fidx]
+                    sample["tch_on"] = m["tch_on"][fidx]
+                else:
+                    sample["tch_keys"] = torch.zeros(len(fidx), len(VPT_KEYS),
+                                                     dtype=torch.float16)
+                    sample["tch_cam"] = torch.zeros(len(fidx), 2, 11,
+                                                    dtype=torch.float16)
+                    sample["tch_on"] = torch.zeros(len(fidx), dtype=torch.bool)
             # 反事实 GT 透传(存在才加):按采样帧索引 fidx 切片 → [T];真 VPT 无此键
             if "gt" in m:
                 for key, vec in m["gt"].items():

@@ -216,6 +216,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--eval-every", type=int, default=400)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--init-from", default="", help="从既有 BC checkpoint 续训(数据池增长后的第二阶段)")
     ap.add_argument("--smoke", action="store_true", help="300 step 数值冒烟")
     args = ap.parse_args()
     if args.smoke:
@@ -229,11 +230,22 @@ def main() -> None:
                            camera_bins=CAM_BINS)                 # 与 grpo_pixel:515 一致
     assert cfg.n_keys == len(V2_KEYS) and cfg.camera_bins == CAM_BINS
     tower = build_pixel_tower(cfg).to(device)
+    if args.init_from:
+        ck = torch.load(args.init_from, map_location=device, weights_only=True)
+        tower.load_state_dict(ck["tower"])
+        print(f"init from {args.init_from} (step={ck.get('step')})", flush=True)
     print(f"PixelTower params = {sum(p.numel() for p in tower.parameters())/1e6:.2f} M",
           flush=True)
     opt = torch.optim.AdamW(tower.parameters(), lr=args.lr)
-    sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda i: min(1.0, (i + 1) / max(args.warmup, 1)))
+
+    def _lr(i: int) -> float:
+        """线性 warmup → cosine 衰减到 5%(恒定 lr 实测 600 步后 holdout 单调恶化)。"""
+        if i < args.warmup:
+            return (i + 1) / max(args.warmup, 1)
+        p = (i - args.warmup) / max(args.steps - args.warmup, 1)
+        return 0.05 + 0.95 * 0.5 * (1 + math.cos(math.pi * min(p, 1.0)))
+
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, _lr)
     rng = torch.Generator(device=device); rng.manual_seed(args.seed)
 
     ds = VPTStreamDataset(args.data, seq_len=args.seq, img_size=IMG_HW,

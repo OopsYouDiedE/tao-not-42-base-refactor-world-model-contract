@@ -729,3 +729,12 @@ import 链与文档引用),主线执行:
 - 三臂无争抢实测:Xvfb 35.5 / Xorg+RAW 76.2 / **ZEROCOPY 107.2 sps**,判决反转——
   3.1 口径的"ZEROCOPY 慢 32%"是争抢+口径双重偏差;选型规则与预算表回填
   conclusion_craftground_run.md §3.1b(覆盖写)。
+
+## 2026-07-10 CraftGround --smoke 全链路通过(§12-6,L4,主会话执行)
+
+- 命令:DISPLAY=:1 grpo_pixel --smoke --init-from runs/checkpoints/bc_vpt/best.pt。
+- 结果:判官真排序(claude CLI 可用,fallback=false,adv_var=1.0);自标定首次在真实
+  环境实测(cam_gain 1.09px/deg / fov_y 79° / latency 1tick / speed 0.174blk/tick),
+  "真实环境光流质量未验"一项解除;BC checkpoint 严格加载;慢塔按设计降级
+  (L4 无 NVFP4,slow_fail=24,零指导);1 组 4×120tick,update loss 0.0186,121s。
+- 含义:放大规模前的链路验证完成。剩余前置=有慢塔的机器(5090/Blackwell)或换塔。

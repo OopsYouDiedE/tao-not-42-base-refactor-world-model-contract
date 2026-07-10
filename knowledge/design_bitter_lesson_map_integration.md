@@ -372,4 +372,6 @@ system 提示词零领域知识;每次调用的 user 内容 = 四行结构化输
 5. ◐ VPT BC 暖启动已训第一批(2026-07-10:bc_vpt_warmstart,holdout ce+bce 0.6350 /
    keyF1 0.651,ckpt `runs/checkpoints/bc_vpt/best.pt`,`--init-from` 就绪;数据 58 clips
    滚动池,过拟合点恒在 600–1200 步 ⇒ 加数据是纯规模杠杆);hindsight relabel 语言标注未做;
-6. GRPO 精修中的判官退化对照臂(其余项已随 1 落地);首次真跑前:CraftGround `--smoke`。
+6. GRPO 精修中的判官退化对照臂(其余项已随 1 落地);✅ CraftGround `--smoke` 已过
+   (2026-07-10 L4:判官真排序 / 自标定实测 cam_gain 1.09px/deg / --init-from 实载;
+   慢塔降级——真精修需带慢塔的机器)。

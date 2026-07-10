@@ -860,3 +860,33 @@ import 链与文档引用),主线执行:
   显著(g0 0.17/g1 0.12/g4 0.14 vs 基线同位 0.09/0.08/0.06),g2 未复现如实记录;
   g3 同图 3 条 wheat_seeds(基线 0 条)、并列率 3/6(基线 6/6)。oak_log 仍 0。
   轨迹对照页已扩至 g0-g3 全 16 条(同 seed 逐条对照)。磁盘 50%,池 344 段。
+
+## 2026-07-10 14:42–17:17 GRPO-Pixel 8×4×2000 bc_vpt4 A/B 行为对照 run(goal 通道行为级验证)
+
+- 配置与上轮(canonical 基线)逐项相同(Sonnet-low pairwise/死亡截断/seed 筛选/lr temp 默认),
+  唯一变量 `--init-from runs/checkpoints/bc_vpt4/best.pt`(hindsight 真 goal,step 10000);
+  rng 确定性使 8 组 world seed 与基线完全一致 ⇒ 同世界 A/B。墙钟 2h34m。
+- 机制:fallback 全 false、judge 96 调用 0 解析失败 0 环、slow_fail=0、tie 34/48(基线 38/48)、
+  全并列组仅 g6(基线 3 个)、死亡 2(t=1349/604,基线 5)、锚点里程碑仍全 0(无 oak_log)。
+- **行为级 A/B(32 vs 32 条,证据文本统计,同世界)**:
+  | 指标 | canonical | bc_vpt4 | 判读 |
+  |---|---|---|---|
+  | attack 占比 | 0.090 | 0.110(Welch t=2.22) | 弱上升 |
+  | 前进占比 | 0.440 | 0.211 | 减半 |
+  | 相机转动(度/步) | 2.02(p50 1.26) | 13.44(p50 14.85,t=13.4) | ×6.7 |
+  | 水平位移(格) | 84.5 | 81.4 | 持平 |
+  | 子目标切换(前 6 条口径) | 0.34 | 1.09 | ×3.2 |
+  | 死亡 | 5/32 | 2/32 | 下降 |
+- 判读:①goal 通道行为级活了——同世界同配置下行为大幅重塑,唯一变量是真 goal BC;
+  但方向不是预registered 的「钉住」(相机沉降),而是高相机活动+低前进;判官证词高频
+  出现「反复打开合成/物品栏菜单」「洞穴探索」「树干特写」,高转动的可观成分疑为
+  GUI 内光标移动(GUI 态 camera=光标,I_gui 可离线分账,未做)。②子目标切换率 ×3.2
+  (仅前 120 tick 口径,goal_log 前 6 条)是切换-行为耦合的间接证据;逐 tick 对齐
+  验证未 instrument,留待下轮(rollout 侧需落盘 per-tick goal/action 对)。
+  ③锚点里程碑仍全 0:真 goal 换血未解锁第一块木头,attack 持续性瓶颈结论不变。
+  ④g0 单组早读(相机 ↓)与全 run 相反,g0 是基线里的高转动异常组——单组抽查不可判读,如实更正。
+- 归档:证据快照 `runs/grpo_pixel/{baseline_canonical_sonnetlow,run_bcvpt4_sonnetlow}/`
+  (含 behavior_stats.json);checkpoint+metrics+行为统计 →
+  HF `craftground-grpo-pixeltower-v1-run2`;push_checkpoints 的 run1 tower.pt 映射冻结
+  (防活文件覆盖历史归档),metrics.jsonl 未标注 init 来源是 schema 缺口,已在此注明
+  (第 12–19 行=canonical run,20–27 行=bc_vpt4 run)。

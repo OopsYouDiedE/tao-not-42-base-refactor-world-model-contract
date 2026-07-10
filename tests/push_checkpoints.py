@@ -42,8 +42,13 @@ MAPPING = [
     ("runs/checkpoints/bc_vpt4/last.pt", "vpt-bc-hindsight-pixeltower-v1-run1"),
     ("runs/checkpoints/bc_vpt4/metrics.jsonl", "vpt-bc-hindsight-pixeltower-v1-run1"),
     ("runs/data/vpt_early_goal_vocab.json", "vpt-bc-hindsight-pixeltower-v1-run1"),
-    ("runs/grpo_pixel/tower.pt", "craftground-grpo-pixeltower-v1-run1"),  # Qwen 慢塔真跑
+    # grpo run1(canonical 暖启动,Sonnet-low pairwise)已冻结在 HF run1 仓;
+    # runs/grpo_pixel/tower.pt 是"最近一次 GRPO run"的活文件,不再映射 run1(防覆盖)。
     ("runs/grpo_pixel/metrics.jsonl", "craftground-grpo-pixeltower-v1-run1"),
+    # grpo run2 = bc_vpt4(hindsight 真 goal)暖启动的 A/B 行为对照 run(2026-07-10)
+    ("runs/grpo_pixel/run_bcvpt4_sonnetlow/tower.pt", "craftground-grpo-pixeltower-v1-run2"),
+    ("runs/grpo_pixel/run_bcvpt4_sonnetlow/metrics_bcvpt4.jsonl", "craftground-grpo-pixeltower-v1-run2"),
+    ("runs/grpo_pixel/run_bcvpt4_sonnetlow/behavior_stats.json", "craftground-grpo-pixeltower-v1-run2"),
 ]
 
 

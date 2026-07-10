@@ -841,3 +841,11 @@ import 链与文档引用),主线执行:
   已令 relabel agent 优先核查接线(goal 向量是否真非零入 FiLM)与标签谱系分布
   (短语是否单一化),训练暂不杀。另 key_f1_mean 0.75 与 canonical 0.6148 口径
   待确认是否可比。磁盘 50%,池 336 段。
+- **警报撤销+goal 通道首个存活证据(15:0x,step-10k checkpoint 验收)**:上条"无分离"
+  是巡检误读——lab_true/lab_perm 与 zero/canonical 均为损失(ce+bce,越低越好),非 F1。
+  实际:门1 真 goal 损失 0.6362 显著低于 permute 0.6458(配对 bootstrap CI95
+  [-0.0130,-0.0062] 全负)→ **goal 通道有条件化信号**;门2 zero-goal 损失 0.5924 比
+  canonical 0.6148 还好 3.64% → 零 goal 兼容不劣反优。接线核查同 PASS(goal 向量非零、
+  逐样本不同、goal_on 率与 drop 配置吻合);词表 840 条熵 7.17 bits 无单一化。
+  保留意见:效应量小(~1.5%),holdout 仅 2 clip/1090 有标 tick 且短语偏 GUI 类,
+  permute 同短语碰撞 16-26% 稀释对照——行为级验证仍以 GRPO rollout 为准。训练继续。

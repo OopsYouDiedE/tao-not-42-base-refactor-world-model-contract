@@ -721,3 +721,11 @@ import 链与文档引用),主线执行:
 - **未验/开放**:闭环(--init-from GRPO)未跑——本机 L4(sm_89)不能跑 Omni NVFP4
   慢塔,CraftGround 冒烟只能在有慢塔或降级(零指导+判官)口径下做;hindsight relabel
   语言标注未做;goal 零向量训练的 FiLM 分布外问题登记在案。
+
+## 2026-07-10 渲染端到端补测(主会话收尾;两 SubAgent 被误触 Ctrl+C 后不可复活)
+
+- bench_render_craftground.py 的 --e2e 模式(被停 agent 的半成品)补完入库:口径统一到
+  「[3,90,160] float32 @cuda:0」,分桶 p50/p95 + CPU%/GPU%/显存增量。
+- 三臂无争抢实测:Xvfb 35.5 / Xorg+RAW 76.2 / **ZEROCOPY 107.2 sps**,判决反转——
+  3.1 口径的"ZEROCOPY 慢 32%"是争抢+口径双重偏差;选型规则与预算表回填
+  conclusion_craftground_run.md §3.1b(覆盖写)。

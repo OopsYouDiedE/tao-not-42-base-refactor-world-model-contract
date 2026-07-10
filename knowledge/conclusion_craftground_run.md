@@ -28,13 +28,32 @@
 
 - **GPU 渲染收益复现**:a→b 提速 2.8×(13.1→37.3),与旧 3090 机的 4×(51→207 sps)同向;
   倍数与绝对值低于旧机,归因于本机 CPU 更弱且 BC 训练争抢 CPU/GPU。
-- **ZEROCOPY 跑通但本基准下比 RAW 慢 32%**(25.3 vs 37.3)。机制:上游实现每帧做
-  `cudaGraphicsGLRegisterImage`/unregister(`MinecraftEnv/src/main/cpp/framebuffer_capturer_cuda.cpp:93` 起)
-  加 python 侧每帧 `clone()[:, :, :3].flip(0)`,interop 固定开销吃掉零拷贝节省。注意口径:RAW 的 sps
-  **不含** H2D 上传(训练时还要 `.to(cuda)`,640×360×3≈0.7MB/帧),ZEROCOPY 的 obs 已在 GPU;
-  端到端训练差距会小于 32%,但按本数据 **GRPO rollout 首选 Xorg+RAW**,ZEROCOPY 不是吞吐解药。
-- **对 GRPO rollout 预算**(一组 4 rollout × 400 ticks = 1600 tick):Xvfb 122s / Xorg+RAW 43s /
-  ZEROCOPY 63s。GPU 渲染相对 Xvfb 省约 65% 采集墙钟。
+
+### 3.1b 端到端口径(`--e2e`,2026-07-10 补测,GPU 无争抢——BC 训练已结束)
+
+上表口径只测 `env.step`,对 RAW 少算了策略侧必付的 CPU 下采样 + H2D。端到端统一测到
+「[3,90,160] float32 已在 cuda:0(grpo_pixel 的策略输入)」为止,单环境 300 step:
+
+| 臂 | steps/s | env.step p50/p95 | 变换 p50/p95 | 上传 p50 | python CPU% | 显存增量 |
+|---|---|---|---|---|---|---|
+| a Xvfb+RAW | 35.5 | 18.4/28.2 ms | 6.6/11.2 ms(CPU PIL) | 0.35 ms | 35 | 174 MiB |
+| b Xorg+RAW | 76.2 | 4.2/7.1 ms | 6.6/10.2 ms(CPU PIL) | 0.34 ms | 70 | 218 MiB |
+| c Xorg+**ZEROCOPY** | **107.2** | 8.5/13.7 ms | **0.22/0.31 ms**(GPU) | 0 | **8.9** | 512 MiB |
+
+**判决更新(取代 3.1 的"首选 Xorg+RAW")**:端到端、无争抢口径下 **ZEROCOPY 最快
+(+41% vs Xorg+RAW)且 python 侧 CPU 占用低 8×**。机制:interop 固定开销确实使
+env.step 变慢(8.5 vs 4.2 ms,上游每帧 register/unregister,病灶见 3.2),但 RAW 的
+CPU PIL 下采样(6.6 ms/帧,策略侧必付)比它更贵;ZEROCOPY 在 GPU 上 interpolate
+只要 0.22 ms。3.1 表中 ZEROCOPY 反而更慢是**双重偏差**:与 BC 训练同卡争抢
+(interop/GPU 变换排在训练 kernel 后)+ 口径漏算 RAW 的变换与上传。
+
+- **选型规则**:采集独占 GPU(或训练在别卡)→ **ZEROCOPY**;采集与训练同卡并行
+  → Xorg+RAW(争抢下 3.1 实测 37.3 vs 25.3);多环境并行时 ZEROCOPY 的低 CPU
+  占用(8.9% vs 70%)额外放大优势(RAW 的 PIL 变换会先撞 CPU 墙)。
+- **对 GRPO rollout 预算**(一组 4 rollout × 400 ticks = 1600 tick,端到端):
+  Xvfb 45s / Xorg+RAW 21s / ZEROCOPY **15s**。
+- 上游若修掉每帧 register/unregister(注册一次、每帧只 map/unmap),env.step 的
+  4.3 ms 差距还会缩小——已记 next_session 候选项。
 
 ### 3.2 ZEROCOPY 病灶清单（全部已定位,复现路径见基准脚本）
 1. **旧病灶(kwin 改窗口尺寸触发 `assert(width==textureWidth)`,capturer_cuda.cpp:132)**:

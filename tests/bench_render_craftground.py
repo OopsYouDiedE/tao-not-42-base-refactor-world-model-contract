@@ -8,6 +8,9 @@
     python tests/bench_render_craftground.py --arm xorg-raw      --display :1
     python tests/bench_render_craftground.py --arm xorg-zerocopy --display :1
     python tests/bench_render_craftground.py --arm egl-probe
+加 --e2e 后口径改为"端到端到策略可用张量":每步统一测到 [3,90,160] float32 已在
+cuda:0(RAW=env.step+CPU 下采样+H2D;ZEROCOPY=env.step+GPU 侧变换,不落 CPU),
+并输出分桶 p50/p95 ms、进程 CPU%、GPU util%、显存增量。
 结果追加写 runs/zerocopy_bench/results.jsonl。
 """
 from __future__ import annotations
@@ -22,7 +25,9 @@ from pathlib import Path
 
 import numpy as np
 import psutil
-import torch  # noqa: F401  # craftground 原生库要求先 import torch 防段错误
+import torch  # craftground 原生库要求先 import torch 防段错误
+import torch.nn.functional as F
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -193,11 +198,58 @@ def _gpu_mem_mb() -> dict:
     return res
 
 
+class _GpuSampler:
+    """后台线程按 interval 秒采样 nvidia-smi,收集 GPU util% 与全卡显存 MiB。"""
+
+    def __init__(self, interval: float = 1.0):
+        import threading
+        self.interval, self.utils, self.mems = interval, [], []
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._loop, daemon=True)
+
+    def _loop(self):
+        while not self._stop.is_set():
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True).stdout.strip()
+            if out:
+                u, m = out.split(",")
+                self.utils.append(int(u))
+                self.mems.append(int(m))
+            self._stop.wait(self.interval)
+
+    def __enter__(self):
+        self._t.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._t.join()
+
+
+def _pctile(xs: list, q: float) -> float:
+    """列表分位数(ms 口径,保留 2 位)。"""
+    return round(float(np.percentile(np.array(xs) * 1e3, q)), 2)
+
+
 def run_bench(args) -> dict:
     """跑一臂基准并返回指标 dict(steps/s、reset 秒、RSS/显存 MiB)。
 
     obs["rgb"]:RAW 为 np.uint8 [H,W,3];ZEROCOPY 为 torch.uint8 cuda [H,W,3]。
+
+    --e2e 口径(端到端到策略可用张量,终点统一为 [3,90,160] float32 @cuda:0):
+      RAW      step 桶 = env.step;conv 桶 = PIL 下采样 + float32(CPU,同 grpo_pixel
+               `small()`);upload 桶 = torch.from_numpy → H2D → permute + synchronize。
+      ZEROCOPY step 桶 = env.step(含 converter 在 GPU 上 clone+flip,系该模式固有);
+               conv 桶 = permute+float+F.interpolate 到 90×160(全程 GPU)+ synchronize;
+               upload 桶 = 0(帧不落 CPU)。
+    分桶各报 p50/p95 ms;另报进程 CPU%(python 与 java 树,区间均值)、
+    GPU util%/显存(后台 1s 采样均值)与相对基线的显存增量。
     """
+    gpu_mem_base = int(subprocess.run(
+        ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+        capture_output=True, text=True).stdout.strip())
     os.environ["DISPLAY"] = args.display
     patch_craftground_native()
 
@@ -231,26 +283,75 @@ def run_bench(args) -> dict:
 
     rng = np.random.default_rng(0)
     dev = str(getattr(obs["rgb"], "device", "cpu"))
-    t1 = time.time()
-    for i in range(args.steps):
-        obs = env.step(_action(no_op_v2, rng, i))[0]
-        rgb = obs["rgb"]
-        if mode == ScreenEncodingMode.ZEROCOPY:
-            assert rgb.is_cuda, f"ZEROCOPY 帧不在 GPU: {rgb.device}"
-        else:
-            assert rgb.shape == (args.height, args.width, 3), rgb.shape
-    dt = time.time() - t1
-
-    gpu = _gpu_mem_mb()
     java_pid = env.process.pid if env.process else -1
+    zerocopy = mode == ScreenEncodingMode.ZEROCOPY
+
+    py_proc = psutil.Process(os.getpid())
+    java_procs = []
+    try:
+        jp = psutil.Process(java_pid)
+        java_procs = [jp] + jp.children(recursive=True)
+    except psutil.NoSuchProcess:
+        pass
+    for p in [py_proc] + java_procs:
+        p.cpu_percent(None)                    # prime:之后读到的是区间均值
+
+    t_step, t_conv, t_up = [], [], []
+    with _GpuSampler() as smp:
+        t1 = time.time()
+        for i in range(args.steps):
+            s0 = time.perf_counter()
+            obs = env.step(_action(no_op_v2, rng, i))[0]
+            rgb = obs["rgb"]
+            s1 = time.perf_counter()
+            if not args.e2e:                   # 旧口径:只验 obs 落点
+                if zerocopy:
+                    assert rgb.is_cuda, f"ZEROCOPY 帧不在 GPU: {rgb.device}"
+                else:
+                    assert rgb.shape == (args.height, args.width, 3), rgb.shape
+                t_step.append(s1 - s0)
+                continue
+            if zerocopy:                       # GPU 侧变换,帧不落 CPU
+                assert rgb.is_cuda
+                x = rgb.permute(2, 0, 1).unsqueeze(0).float()
+                x = F.interpolate(x, size=(90, 160), mode="bilinear",
+                                  align_corners=False)[0]
+                torch.cuda.synchronize()
+                s2 = time.perf_counter()
+                s3 = s2                        # upload 桶 = 0
+            else:                              # CPU 下采样(同 grpo_pixel small())+ H2D
+                small = np.asarray(Image.fromarray(np.asarray(rgb, np.uint8))
+                                   .resize((160, 90)), np.float32)
+                s2 = time.perf_counter()
+                x = torch.from_numpy(small).to("cuda:0").permute(2, 0, 1)
+                torch.cuda.synchronize()
+                s3 = time.perf_counter()
+            assert x.shape == (3, 90, 160) and x.is_cuda and x.dtype == torch.float32
+            t_step.append(s1 - s0)
+            t_conv.append(s2 - s1)
+            t_up.append(s3 - s2)
+        dt = time.time() - t1
+    cpu_py = py_proc.cpu_percent(None)
+    cpu_java = sum(p.cpu_percent(None) for p in java_procs
+                   if p.is_running())
+
     res = dict(
-        arm=args.arm, display=args.display, steps=args.steps,
+        arm=args.arm, e2e=bool(args.e2e), display=args.display, steps=args.steps,
         wh=[args.width, args.height],
         sps=round(args.steps / dt, 1), reset_s=round(t_reset, 1),
         rgb_device=dev, rgb_dtype=str(obs["rgb"].dtype),
         rss_mb=round(_proc_tree_rss_mb(os.getpid(), java_pid), 0),
-        gpu_mem_mb_by_pid=gpu,
+        gpu_mem_mb_by_pid=_gpu_mem_mb(),
+        step_ms_p50=_pctile(t_step, 50), step_ms_p95=_pctile(t_step, 95),
+        cpu_pct_python=round(cpu_py, 1), cpu_pct_java=round(cpu_java, 1),
+        gpu_util_pct=round(float(np.mean(smp.utils)), 1) if smp.utils else None,
+        gpu_mem_mb_mean=round(float(np.mean(smp.mems)), 0) if smp.mems else None,
+        gpu_mem_mb_delta=round(float(np.mean(smp.mems)) - gpu_mem_base, 0)
+        if smp.mems else None,
         ts=time.strftime("%Y-%m-%d %H:%M:%S"))
+    if args.e2e:
+        res.update(conv_ms_p50=_pctile(t_conv, 50), conv_ms_p95=_pctile(t_conv, 95),
+                   upload_ms_p50=_pctile(t_up, 50), upload_ms_p95=_pctile(t_up, 95))
     env.close()
     return res
 
@@ -264,6 +365,8 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=360)
     ap.add_argument("--port", type=int, default=8023)
+    ap.add_argument("--e2e", action="store_true",
+                    help="端到端口径:测到 [3,90,160] float32 @cuda:0 为止,含分桶延时")
     ap.add_argument("--verbose-gradle", action="store_true")
     args = ap.parse_args()
 

@@ -135,6 +135,12 @@
    ▶ **world seed 先验筛选已上线**：reset 后读 heightmap（48×48 列顶层 block_name,
    特权,只进训练侧）,无 leaves/log 换 seed（≤8 次,`--seed-tries`）,保证「拿木头」
    物理可能;与受控对照固定 SCENE 同一性质,方法同 probe_dino_aim 树候选筛查。
+   ▶ **8×4×2000 正式 run 已跑完（2026-07-10,Sonnet-low pairwise 判官,墙钟 2h32m）**：
+   机制层全通（fallback 全 false、slow_fail=0、死亡截断 5 次、全并列组零梯度跳过）;
+   信号层——锚点里程碑 32 条仍全 0,「episode 过短是主因」被证伪一半,瓶颈指向
+   BC 暖启动的 attack 持续性与慢塔指导落地率,不是时长。判决入
+   design_bitter_lesson §10.1 末段与 conclusion_fasttower_skill_ceiling「下一步」注记。
+   下一步候选:BC 侧 attack 持续性强化 / 近树率诊断,优先于继续堆时长。
 5. **候选项（不阻塞）**：craftground 上游若修掉 ZEROCOPY 每帧 register/unregister，
    env.step 的 4.3 ms 差距还会缩小；CraftGround 全无 X 渲染需上游 mixin/GLFW 特性，
    估数天级且收益存疑（Xorg 路径已通）。

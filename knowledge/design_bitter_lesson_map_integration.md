@@ -354,6 +354,18 @@ qwen3_vl_8b_fp8`:slow_fail=0(Omni 缺席的上一次 smoke 为 24/24 全失败),
 慢塔子目标也常整段停在同一条(episode 内没有可核对的完成事件)。
 加长 episode(≥2000 tick)是下一步的先决条件,不是调参项。
 
+**8×4×2000 正式 run(2026-07-10 后半,判官协议 pairwise_v2 + Sonnet-low + 死亡截断 +
+有树 seed 筛选;判官定罪与协议重建过程见 activity_log 当日)对上段判决的更新**:
+episode 加长 5 倍后,锚点里程碑 32 条 rollout 仍全 0(非锚点仅打草所得
+wheat_seeds/dandelion)——「400 tick 过短是主因」被证伪一半:时长不再是首要瓶颈,
+证据指向策略本身(BC 暖启动的 attack 稀疏、无持续按压,与
+conclusion_fasttower_skill_ceiling 稀疏键结论同族)与慢塔指导落地率。机制层全通:
+判官 96 调用 0 解析失败、fallback 全程 false、慢塔约 800 调用 0 失败、死亡截断
+5 次真实触发且进证据文本、3 个全并列组 adv 全零按设计跳过更新。判官纪律:
+38/48 对 tie(79%),5/8 组有据胜负(引用死亡步/场景推进/GUI 等客观线索),0 环。
+下一步优先级:BC 侧强化 attack 持续性 / 慢塔 aim 引导下的近树率诊断,
+而非继续堆 episode 长度。
+
 **判决**。慢塔可替换性已实证:换塔只改 `--slow-model` 与起服命令,SLOW_SYSTEM、
 五字段 JSON、TASK/STATE/PHYSICS 行、判官管线零改动。本节上文"换塔代价:指点标定、
 NVFP4 部署、判官管线适配全部重做"的表述过重,实测只有部署要重做;

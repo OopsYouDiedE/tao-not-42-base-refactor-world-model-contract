@@ -136,5 +136,10 @@ HF 归档 `unjustify/vpt-bc-pixeltower-v1-run5`;gitignored,产物不入库);
 ## 下一步(按终审优先级)
 1. **GRPO 把快塔从 BC 的 0.3–0.7 往教师 0.8–1.0 推**——暖启动 checkpoint 已由 VPT BC
    供给(`--init-from`,本页上节);fovea 教师 BC 路线已退役。
+   ▶ 实测注记(2026-07-10,GRPO-Pixel 8×4×2000,pairwise_v2 判官):BC 暖启动策略
+   32 条 rollout(各 2000 tick)无一获得木头,仅打草得 wheat_seeds——本页「稀疏键
+   (attack 持续按压)视觉平均 BC 学不到」的结论在开放世界闭环复现;GRPO 判官信号
+   已守纪律(全并列组零梯度),但没有第一个里程碑就没有可锚定的推进差,链条卡在
+   BC 侧 attack 持续性,不在判官带宽。判决细节见 design_bitter_lesson §10.1 末段。
 2. 加**合成/盖屋**技能,探 aim+attack 之外的动作模态天花板(很可能才是真上限)。
 3. stone 低分验证感知假设:换有对比的后墙重测,若跳升则坐实"视觉可分辨度=瓶颈"。

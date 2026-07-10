@@ -818,3 +818,20 @@ import 链与文档引用),主线执行:
   slow_fail 全 0)。g3、g6 全并列⇒零梯度跳过更新;g5 关键样本:r2/r3 死亡截断(1935/1597)
   但 r2 凭死前推进并列第 1、r3 垫底——死亡不再机械决定名次。里程碑八组全 0。
   g7 rollout 中(GPU 86%),磁盘 47%,下载池 301 段。
+
+## 2026-07-10 11:06–13:38 GRPO-Pixel 8×4×2000 正式 run 完成(Sonnet-low pairwise 判官)
+
+- 配置:v1 塔 + `--init-from bc_vpt/best.pt`(run5 best)+ Qwen 慢塔 + pairwise_v2 判官
+  (`--judge-model sonnet --judge-effort low`)+ 死亡截断 + 有树 seed 筛选;lr/temp 默认
+  (1e-4/1.3);代码 033fe7b。墙钟 2h31m54s(组内合计 9093s + 13 次 seed 启动)。
+- 逐组:tie 5/4/3/6/4/4/6/6(合计 38/48 对,79%),0 环,判官 96 调用 0 解析失败,
+  fallback 全程 false;slow_fail=0(约 800 调用,p50 1.96–1.99s);死亡截断 5 次
+  (t=1498/1081/1935/1597/1610),死亡标注被判官实际引用;seed 筛选换 5 次
+  (g0 试 2、g1 试 3、g3 试 3);g3/g6/g7 全并列 ⇒ adv 全零 ⇒ 按设计跳过更新;
+  有梯度组 |loss|≤0.0993。checkpoint `runs/grpo_pixel/tower.pt`@group7。
+- 里程碑(仅汇报锚点):9 项锚点 32 条 rollout 全 0;非锚点仅 wheat_seeds/dandelion
+  (打草所得)。与 4×4×400 上轮对比判读:episode 加长 5 倍后锚点仍全 0——
+  「400 tick 过短是主因」证伪一半,瓶颈指向 BC 暖启动的 attack 持续性(稀疏键结论
+  闭环复现)与慢塔指导落地率;判官侧本 run 已守纪律(有据才有梯度),没有第一个
+  里程碑就没有可锚定的推进差,信号层依旧未证实但责任链已从判官移到策略侧。
+  判决入 design_bitter_lesson §10.1 末段 + conclusion_fasttower_skill_ceiling 注记。

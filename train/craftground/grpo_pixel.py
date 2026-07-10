@@ -69,7 +69,7 @@ from train.fovea_twotower.grpo_harness import group_advantage    # noqa: E402
 OUT = Path("runs/grpo_pixel")          # 必须在工作区内:判官(claude CLI)要 Read 联络表图
 SLOW_EVERY = 20                        # 慢塔刷新周期(tick);20 tick = 1s = 1Hz
 IMG_HW = (90, 160)
-MODEL = "nemotron_3_nano_omni"
+MODEL = "nemotron_3_nano_omni"         # 默认慢塔;--slow-model 可换(慢塔是可替换件,设计文档 §10)
 
 # 设计 2 会话契约(2026-07-10,设计文档 §9/§11):无状态重提示 + 状态全外置。
 # 每次调用 = 固定 system(prefix cache 可命中)+ TASK/STATE/PHYSICS 行 + 当前帧。
@@ -157,8 +157,10 @@ RUBRIC_TMPL = """任务:{task}
 class SlowTower:
     """Omni(NVFP4,本地 vLLM)。读一帧 → 文本子目标 + 目标像素。"""
 
-    def __init__(self, base_url: str, encode_text, device: str, task: str = DEFAULT_TASK):
+    def __init__(self, base_url: str, encode_text, device: str, task: str = DEFAULT_TASK,
+                 model: str = MODEL):
         self.client = OpenAI(base_url=base_url, api_key="EMPTY")
+        self.model = model
         self.encode_text = encode_text
         self.device = device
         self.task = task                                  # 领域知识只活在这一行
@@ -176,7 +178,7 @@ class SlowTower:
         t0 = time.perf_counter()
         try:
             r = self.client.chat.completions.create(
-                model=MODEL,
+                model=self.model,
                 messages=[{"role": "system", "content": SLOW_SYSTEM},
                           {"role": "user", "content": [
                               {"type": "text", "text": f"TASK: {self.task}\n"
@@ -458,6 +460,8 @@ def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> floa
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
+    ap.add_argument("--slow-model", default=MODEL,
+                    help="慢塔 served-model-name(Omni/Qwen-VL 可互换,契约不变)")
     ap.add_argument("--groups", type=int, default=8)
     ap.add_argument("--per-group", type=int, default=4)
     ap.add_argument("--rollout-ticks", type=int, default=400)
@@ -503,7 +507,8 @@ def main() -> None:
     print(f"PixelTower params = {sum(p.numel() for p in tower.parameters()) / 1e6:.2f} M",
           flush=True)
 
-    slow = SlowTower(args.base_url, encode_text, device, task=args.task)
+    slow = SlowTower(args.base_url, encode_text, device, task=args.task,
+                     model=args.slow_model)
     rng = np.random.default_rng(0)
 
     for g in range(args.groups):

@@ -738,3 +738,13 @@ import 链与文档引用),主线执行:
   "真实环境光流质量未验"一项解除;BC checkpoint 严格加载;慢塔按设计降级
   (L4 无 NVFP4,slow_fail=24,零指导);1 组 4×120tick,update loss 0.0186,121s。
 - 含义:放大规模前的链路验证完成。剩余前置=有慢塔的机器(5090/Blackwell)或换塔。
+
+## 2026-07-10 巡检 07:1x(滚动池 run5 首小时)
+
+- run5(bc_vpt3,lr 5e-5 持续学习):step 3000 holdout ce+bce **0.6148,超越 run3
+  canonical 0.6350**,曲线仍在降;GPU 93%,9.7k ticks/s。run4(lr 2e-4)确认过拟合
+  止损存档(最优 0.6505@1000,20k 步恶化到 1.7)。消耗/流入 200:1 的结论不变,
+  低 lr 是当前带宽下的正确配置。
+- 滚动池 83 段,磁盘 35%,下载器正常;HF 同步 run5/grpo-run1 完成。
+- Qwen GRPO run1 四组全部完成(判官 4/4 真排序,slow_fail=0,里程碑全 0——
+  400tick episode 过短,属机制验证而非学习证据),agent 正在做终结入档。

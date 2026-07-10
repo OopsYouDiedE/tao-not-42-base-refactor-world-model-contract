@@ -11,7 +11,8 @@ metadata:
 > Minecraft 1 tick = 50ms ⇒ **1 动作 = 1 tick**,数字严丝合缝。
 > 参照 **Lumine**(arXiv:2511.08892,Qwen2-VL-7B 底座玩原神)的配方逐条移植。
 > 环境:CraftGround(真 Minecraft Java 版)+ Xvfb,超平坦/生存/和平/固定光照。
-> 复现:`tests/probe_omni_minecraft_lumine.py`;原始数据 `docs/results/omni_mc_control/`。
+> 复现:`tests/probe_omni_minecraft_lumine.py`;原始数据 `docs/results/omni_mc_control/`
+> (2026-07-10 精简:只留 oracle 臂 + 最优臂 pixel_v2 的 summary 与终帧,其余臂在 git 历史)。
 > 模型侧能力见 [conclusion_omni_nvfp4_5090.md](conclusion_omni_nvfp4_5090.md)。
 
 ## 1. 验收口径(客观,不靠看图)

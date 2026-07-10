@@ -1,0 +1,38 @@
+---
+name: fovea-twotower-campaign-archive
+description: 双塔战役(2026-07-04〜07-06)九文档压缩档案:设计/step1-5/两交接/就绪清单的假设、核心数字与裁决。原文九件已删,完整版在 git 历史(commit 1a29855 及之前)。
+metadata:
+  type: archive
+---
+
+# 双塔战役压缩档案(2026-07-04 〜 07-06,退役线)
+
+> 本文取代以下九个文件(2026-07-10 清理,原文见 git 历史 commit `1a29855` 及之前):
+> `fovea-twotower-design.md`、`-step1.md`、`-step1-handoff.md`、`-step2.md`、`-step3.md`、
+> `-step4.md`、`-step5.md`、`-handoff-2026-07-05.md`、`-scale-readiness.md`。
+> 只保留假设、核心数字、裁决与仍可复用的事实;执行手册/命令/预登记细节全在 git 历史。
+> 该线整体已退役;其 W4 证据链另有两处存活出处:`fovea-brain-division-scale-plan.md`
+> (谱测量段)与 `knowledge/lessons_do_not_retry.md`。
+
+## 核心命题与最终裁决
+
+**命题**:用常数大小的 Mamba 终态(冻结预训练塔)作快塔唯一历史通道,
+兼职视觉世界记忆。**裁决:机制成立、独特卖点未兑现、预训练塔兼职记忆三连败,线退役。**
+
+## 逐步裁决(含核心数字)
+
+| 步 | 假设 | 结果 | 裁决 |
+|---|---|---|---|
+| design | 冻结 Mamba Context 塔 + 状态播种 Action 塔 + 流匹配动作头,3090@10Hz;塔各 58.6M | §0 自带实证边界:"世界记忆增量真空",命题降级为 O(1) 历史摘要通道 | 设计成立但卖点降级 |
+| step1 (S3a) | 状态播种机制可用 | keys ΔAUC **+0.063** 显著;但世界记忆(attack)ΔAUC 置信区间含 0 = 真空 | 机制 PASS,记忆 FAIL |
+| step2 (S4/S5) | 慢通道带时记忆可补快通道盲区 | 一档纯 MSE 全 FAIL(不奖励保持稀疏事件);二档 W1b S4a PASS(age R² **+0.275**,须显式目标);S5c 可控性单次 PASS 未复现 | 部分 PASS:记忆可训出,但要显式记忆目标 |
+| step3 (S6) | 慢脑离散思考→**文本指令 token**→快脑执行 | 全 PASS;反事实服从率 **0.940**;对照:走状态通道=有害干扰 | PASS——"指令走文本 token 而非隐状态"的机制先例,与 2026-07-10 重设计 A1(subgoal 文本直入)同向 |
+| step4 (S7/W4) | 预训练 Nemotron-4B 的 SSM 状态兼职视觉记忆 | W4/W4b/W4c age 全 FAIL;关键解离:同 aux_msg 下**从零 58M age +0.275 PASS,冻结 4B −0.001 FAIL**;LoRA+解冻递归张量不救(W4c age R²=−0.0017,scale-readiness P2 预测同时 FAIL) | FAIL——退役世界模型线的核心证据;病灶=预训练把慢信道全职分配给语言 |
+| step5 (S8) | 轨迹价值判断→过程优势微调 | **从未执行**;已验事实:CraftGround 命令注入源码级可行,三套过程课程(C1/C2/C3)截图端到端验证 | 未跑;其 AWR/手工过程分设计已被 next_session §6 纪律禁止,勿复活 |
+
+## 仍可复用的事实(与退役无关)
+
+- 文本指令 token 优于状态通道传意图(S6,0.940),支持现行"语言 token 直入"接口。
+- 显式记忆目标才能训出记忆(S4 一档 vs 二档),支持"流式 SFT 须含 loss-on-query"的移交条件。
+- CraftGround 命令注入 + 过程课程构造(C1/C2/C3)已验证,可用于未来课程/评测搭建。
+- 探针纪律教训:探针必须探真实播种通道,接口伪影会造假阳性(step1)。

@@ -51,8 +51,11 @@ grpo_harness.py(仅 group_advantage)。** 以下全部不在其中。
 
 均不被 grpo_pixel / pixel_tower / grpo_harness import:
 
-- `net/dreamer4/`、`net/dreamerv3/`、`net/dreamer/`、`net/ppo_ad/`、`net/bc/`、
-  `net/guidance/`、`net/encoders/`、`net/dino_tokenizer.py`、`net/backbone.py` — 均未接入。
+- ~~`net/dreamer4/`、`net/dreamerv3/`、`net/dreamer/`、`net/ppo_ad/`、`net/bc/`、
+  `net/guidance/`~~ — **已删除(2026-07-10 清理,连同其 train/crafter、retired trainers
+  与 dreamer 系 tests;git 历史可查)**。
+- `net/encoders/`、`net/dino_tokenizer.py`、`net/backbone.py` — 未接入但保留
+  (DINO vs YOLOE 裁决探针与 C3-DINO 前端候选,见 design_bitter_lesson §8)。
 - `net/vpt_lib/` — **代码未 import**,但需与"口径被沿用"区分:mu-law 动作编解码这一**设计口径
   被间接沿用**(grpo_pixel.py:205-210 `bins_to_deg` 内联了 mu=8.0 的 mu-law,与
   `train/minecraft/vpt_action.py` 同源),vendored 的 vpt_lib 网络本体则未上线。

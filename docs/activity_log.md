@@ -766,3 +766,11 @@ import 链与文档引用),主线执行:
   design_bitter_lesson_map_integration.md §10.1(覆盖写,未新建文件)。
 - **代码**:grpo_pixel.py 加 --slow-model(8 行,SlowTower 透传,默认仍 Omni);
   单测 9/9 过。换回 Omni 的差异清单在 §10.1 判决段。
+
+## 2026-07-10 09:1x 巡检:run5 终评,canonical 升级
+- run5 终止条件触发:best 0.6148@3000,其后 35 次 eval 无改善,@38000 回升到 1.2–1.5,过拟合确立。
+- canonical 升级:`bc_vpt/best.pt` 替换为 run5 best(0.6148 优于 run3 的 0.6350)。
+- push_checkpoints MAPPING 调整:canonical 不再映射 run3 仓,防覆盖历史归档。
+- 结论覆盖写入 conclusion_fasttower_skill_ceiling.md(五 run 动力学、run5 指标列、200:1 规律)。
+- 训练进程终止操作被工具权限层拦截,已上报用户等待裁决;进程暂在跑(对 best.pt 无影响)。
+- 池 119 clips,磁盘 37%,下载器正常。DINO 前端接线 SubAgent 进行中(DINOv3 优先)。

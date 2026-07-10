@@ -27,7 +27,8 @@ MAPPING = [
     ("runs/checkpoints/bc_vpt/metrics_run1.jsonl", "vpt-bc-pixeltower-v1-run1"),
     ("runs/checkpoints/bc_vpt/best_run2_step1200.pt", "vpt-bc-pixeltower-v1-run2"),
     ("runs/checkpoints/bc_vpt/metrics_run2.jsonl", "vpt-bc-pixeltower-v1-run2"),
-    ("runs/checkpoints/bc_vpt/best.pt", "vpt-bc-pixeltower-v1-run3"),   # canonical
+    # bc_vpt/best.pt 是 canonical 别名:2026-07-10 起=run5 best 的拷贝,归档在 run5 仓,
+    # 不再映射到 run3 仓(避免覆盖 run3 的历史 best.pt)。
     ("runs/checkpoints/bc_vpt/last.pt", "vpt-bc-pixeltower-v1-run3"),
     ("runs/checkpoints/bc_vpt/metrics.jsonl", "vpt-bc-pixeltower-v1-run3"),
     ("runs/checkpoints/bc_vpt2/best.pt", "vpt-bc-pixeltower-v1-run4"),  # 滚动池 lr2e-4(过拟合止于 20k,存档)

@@ -135,6 +135,36 @@ def fit_response_curve(cmds: np.ndarray, flows: np.ndarray) -> dict:
     return best
 
 
+def wrap_deg(a):
+    """角度包络到 (-180, 180]。标量或 ndarray。"""
+    return -((180.0 - np.asarray(a, np.float64)) % 360.0 - 180.0)
+
+
+def fit_angle_map(env_deg: np.ndarray, geom_deg: np.ndarray) -> tuple[int, float, float]:
+    """拟合环境角与几何角的映射 env ≈ sign·geom + offset(圆周量,符号±1 + 常量偏置)。
+
+    用途:环境上报的 yaw/pitch 零点与旋向是环境参数,不写死——用成对样本
+    (env 上报角, 由特权几何算出的角) 实测。返回 (sign, offset_deg, resid_deg);
+    resid = 拟合后残差绝对值均值(度),调用侧据此决定采信与否。
+
+    Parameters
+    ----------
+    env_deg  : [N] float,环境上报角(度)
+    geom_deg : [N] float,几何参考角(度,同一时刻)
+    """
+    env = np.asarray(env_deg, np.float64)
+    geo = np.asarray(geom_deg, np.float64)
+    best = None
+    for s in (1, -1):
+        r = wrap_deg(env - s * geo)                   # 应为常量 offset
+        c = np.radians(r)
+        off = float(np.degrees(np.arctan2(np.sin(c).mean(), np.cos(c).mean())))
+        resid = float(np.abs(wrap_deg(r - off)).mean())
+        if best is None or resid < best[2]:
+            best = (s, off, resid)
+    return best
+
+
 def control_mode(mag_during: float, mag_after: float,
                  ratio: float = 0.3) -> str | None:
     """脉冲探针判别:命令停发后流仍持续 ⇒ 速度控制(摇杆);骤停 ⇒ 位置增量(鼠标)。"""
@@ -218,10 +248,24 @@ class SelfCalib:
 
     # ── 派生量 ─────────────────────────────────────────────
     @property
+    def yaw_sign(self) -> int | None:
+        """cmd 正 yaw 是否顺时针右转(北锚定地图的正 yaw 口径)。几何普适:右转 ⇒
+        场景左移 ⇒ 实测增益为正。纯观测导出;未标定返回 None(调用侧显式降级)。"""
+        g = self.px_per_deg_yaw
+        return None if g is None else (1 if g > 0 else -1)
+
+    @property
+    def pitch_sign(self) -> int | None:
+        """cmd 正 pitch 是否向下(IPM/地图的正 pitch 口径)。向下看 ⇒ 场景上移 ⇒
+        实测增益为正。纯观测导出;未标定返回 None。"""
+        g = self.px_per_deg_pitch
+        return None if g is None else (1 if g > 0 else -1)
+
+    @property
     def fov_y_deg(self) -> float | None:
         """小角近似:竖直 FOV ≈ H / (px/deg)。像素流是切线关系,小角段近似线性。"""
         p = self.px_per_deg_pitch or self.px_per_deg_yaw
-        return self.img_h / p if p else None
+        return self.img_h / abs(p) if p else None            # 符号归 yaw_sign/pitch_sign
 
     def physics_vector(self) -> np.ndarray:
         """喂 token 塔的物理 token(缺测项置 0,带 1/0 有效位)。[10] float32。"""

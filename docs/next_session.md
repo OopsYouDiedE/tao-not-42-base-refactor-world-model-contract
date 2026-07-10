@@ -57,13 +57,31 @@
 
 ## 2. 待办（顺序即优先级）
 
-1. **DINO 前端接线**：`net/token_tower.py` + `net/map_io.py` 已建成（单测通过），
-   视觉前端已由用户拍板 DINO（2026-07-10，YOLOE 整线已删码）。接线时做 yaw/pitch 与
-   CraftGround 的符号标定（训练侧）。接线状态明细见 `knowledge/status_built_not_wired.md`。
-   ▶ 2026-07-10 用户指示尽快接入，接线已启动（SubAgent 执行中）。
-2. **DINO 瞄准可学性探针**（`tests/probe_dino_aim.py`）：待活环境采集
-   `runs/probe_aim/manifest.jsonl`（帧、准星角偏移、地形分层；raycast 标签只进训练侧）。
-   判据：R² 显著>0 且地形分层不塌；FAIL 则跑 fovea 双尺度臂。
+1. **DINO 前端接线——已完成（2026-07-10 后半）**：`grpo_pixel --tower v2` 接入
+   TokenPolicyTower（DINOv3 patch 60 token/帧×S=2 + EgoMapClip 地图 48 token +
+   subgoal UTF-8 字节语言 token，goal-as-query），装配模块
+   `train/craftground/tower_v2.py`；默认仍 v1，checkpoint 分文件，bc_vpt 兼容有单测
+   （`tests/unit/test_tower_v2.py` 7 项）。yaw/pitch 符号标定已做：部署侧取光流增益
+   符号（`SelfCalib.yaw_sign/pitch_sign`，几何普适），训练侧 env-pose 角映射由探针
+   采集器 `fit_angle_map` 实测（数值 `runs/probe_aim/pose_calib.json`，§2-2）。
+   **v2 `--smoke` 链路验收 PASS**（2026-07-10，L4，真慢塔 Qwen3-VL-8B-FP8 +
+   Haiku 判官）：判官真排序 fallback=false、slow_fail=0、自标定全实测
+   （cam_gain 1.08px/deg / fov_y 79° / latency 1tick / speed 0.174blk/tick）、
+   更新执行、checkpoint 落 `runs/grpo_pixel/tower_v2.pt`（v1 的 tower.pt 不受影响）。
+   遗留：v2 的 BC 暖启动未接（GRPO 更新回放记录 token，MapWriter.w_c 梯度需 BC 侧
+   同图重放）；relocalize 周期修正与慢塔 MAP 行未接。明细
+   `knowledge/status_built_not_wired.md`。
+2. **DINO 瞄准可学性探针——已跑，判决 PASS（2026-07-10 后半）**：活环境采集
+   104 样本（24 episodes、5 个产样 seed、树干目标 raycast 标签，只进训练侧），
+   DINOv3 冻结 patch + ridge 5 折：**R²_all=0.899，hole 0.885 / slope 0.881，
+   地形分层不塌 ⇒ 按预登记判据 PASS**，fovea 双尺度臂不触发。
+   两条如实限制：(a) 留 seed 折 R²=0.241（仅 5 场景，跨场景功效低，仍>0）——
+   场景级泛化结论需更多 seed；(b) flat 层空缺（heightmap 地形分类把树冠高度算进
+   起伏，林地样本全落 hole/slope，分类器工件非地形事实）。
+   位姿符号标定实测（`runs/probe_aim/pose_calib.json`，fit_angle_map）：
+   cmd→env 增益 g_yaw=0.975、g_pitch=0.99（约 1:1,符号正）；env_yaw =
+   atan2(east,north)+180°（sign=+1,offset≈±180°,resid 1.7–4.7°）;
+   env_pitch = down 角（sign=+1,offset≈-3°）。部署侧符号(光流增益符号)与此一致。
 3. **BC 数据扩容 + hindsight relabel**：数据量是当前纯规模杠杆（§1 末节）；
    hindsight relabel 语言标注（A1 语言通道 grounding 的数据来源）未做。
    ▶ 2026-07-10 已启动扩池实测：下载器循环 8xx/9xx/10xx 索引（目标 +360 段），

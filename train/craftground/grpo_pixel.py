@@ -32,6 +32,11 @@
     旧: g = torch.zeros(1,1)      新: goal_vec 真的接进 FiLM 条件
     旧: prev[1:,0] = 0.0          新: prev_action 逐步真实回填
 
+快塔双实现(--tower,默认 v1,checkpoint 分文件互不污染):
+    v1 = PixelTower(像素 conv stem + FiLM;结构与 bc_vpt checkpoint 契约冻结);
+    v2 = TokenPolicyTower(DINO patch+地图+语言 token,goal-as-query;装配在
+         train/craftground/tower_v2.py,符号标定/降级口径见该文件头)。
+
 用法:
     bash tests/serve_omni_nvfp4.sh                       # 慢塔(GPU_UTIL=0.85)
     Xvfb :99 -screen 0 1280x720x24 &
@@ -64,6 +69,8 @@ from net.calibration import (SelfCalib, control_mode, fit_latency,  # noqa: E402
 from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
 from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG,  # noqa: E402
                                                V2_KEYS, bins_to_deg, stack_frames)
+from train.craftground.tower_v2 import (DinoFrontend, V2Config, V2Policy,  # noqa: E402
+                                        V2Runtime, v2_replay)
 from train.fovea_twotower.grpo_harness import group_advantage    # noqa: E402
 
 OUT = Path("runs/grpo_pixel")          # 必须在工作区内:判官(claude CLI)要 Read 联络表图
@@ -273,18 +280,22 @@ def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK) -> tuple[np.ndarr
 
 # ────────────────────────────────────────────────────── rollout & update
 
-def calibrate(env, no_op, obs) -> tuple[SelfCalib, object]:
+def calibrate(env, no_op, obs) -> tuple[SelfCalib, object, np.ndarray]:
     """开局自标定(加固版):先压低视线(看地面纹理,天空低纹理测不出流),
     多幅度对称探针 → 延迟扫描 → 按延迟错位配对测增益/曲线 → 模式脉冲 →
-    步速(pose,特权只进训练侧)。约 40 tick。产出 SelfCalib 随 episode 携带。
+    步速(pose,特权只进训练侧)。约 40 tick。产出 SelfCalib 随 episode 携带,
+    以及标定期已发相机命令净和 net_cmd [2](yaw,pitch,度;v2 里程计的积分起点)。
     """
     calib = SelfCalib(img_w=IMG_HW[1], img_h=IMG_HW[0])
+    net_cmd = np.zeros(2, np.float64)
 
     def small(o):
         return np.asarray(Image.fromarray(np.asarray(o["rgb"], np.uint8))
                           .resize((IMG_HW[1], IMG_HW[0])), np.float32)
 
     def cam_step(yaw, pitch):
+        net_cmd[0] += yaw
+        net_cmd[1] += pitch
         a = no_op()
         a["camera_yaw"], a["camera_pitch"] = float(yaw), float(pitch)
         return env.step(a)[0]
@@ -331,22 +342,26 @@ def calibrate(env, no_op, obs) -> tuple[SelfCalib, object]:
         obs = env.step(a)[0]
     p1 = obs["full"]
     calib.update_locomotion(float(np.hypot(p1.x - p0.x, p1.z - p0.z)), 6)
-    return calib, obs
+    return calib, obs, net_cmd
 
 
 def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float,
-            do_calib: bool = True) -> dict:
+            do_calib: bool = True, v2rt: V2Runtime | None = None) -> dict:
+    """采一条轨迹。tower = PixelTower(v1)或 V2Policy(v2,配 v2rt 状态机)。"""
     from craftground.environment.action_space import no_op_v2  # noqa: F401
     obs, _ = env.reset()
     for _ in range(60):                                   # 等 "Loading terrain..."
         obs = env.step(no_op())[0]
     calib = SelfCalib(img_w=IMG_HW[1], img_h=IMG_HW[0])
+    net_cmd = np.zeros(2)
     if do_calib:                                          # 自标定:物理参数测出来,不写死
-        calib, obs = calibrate(env, no_op, obs)
+        calib, obs, net_cmd = calibrate(env, no_op, obs)
 
-    cfg = tower.cfg
+    cfg = tower.tcfg if v2rt is not None else tower.cfg
     tower.eval()                                          # 修复②:采样在确定性网络上
-    goal = torch.zeros(cfg.goal_dim, device=device)
+    if v2rt is not None:                                  # v2:地图/钉点/里程计状态机就位
+        v2rt.begin(calib, (float(net_cmd[0]), float(net_cmd[1])))
+    goal = torch.zeros(getattr(cfg, "goal_dim", 384 + 2), device=device)
     imgs, prevs, goals, cam_b, key_b, frames, pose, cam_deg = [], [], [], [], [], [], [], []
     goal_log, inv_events, inv_steps = [], set(), {}
     prev = np.zeros(cfg.n_mouse + cfg.n_keys, np.float32)
@@ -361,22 +376,29 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float,
                 goal_log[-1][5] = True
             goal_log.append([t, rep["subgoal"], rep["aim"], rep["done_when"],
                              rep["decision"], False])      # 修复④配套:aim/done_when 落盘
+            if v2rt is not None:                           # v2:语言 token 换血 + aim 钉图
+                v2rt.on_slow(rep)
         if t % max(1, ticks // 24) == 0:
             frames.append(np.asarray(Image.fromarray(rgb).resize((160, 90))))
 
         small = np.asarray(Image.fromarray(rgb).resize((IMG_HW[1], IMG_HW[0])),
                            dtype=np.float32) / 255.0
-        fstack.append(small)
-        if len(fstack) < cfg.frame_stack:                  # 开局首帧填充
-            fstack = [small] * (cfg.frame_stack - len(fstack)) + fstack
-        fstack = fstack[-cfg.frame_stack:]
-        stacked = np.concatenate(fstack, axis=2)           # [H,W,3S] 旧→新
-        img = torch.from_numpy(stacked).permute(2, 0, 1)[None, None].to(device)
-        pv = torch.from_numpy(prev)[None, None].to(device)
-        with torch.no_grad():
-            cam_l, key_l = tower(img, goal[None], pv)
-        cam_l = cam_l[0, -1, 0] / temp                     # [n_mouse, bins]
-        key_l = key_l[0, -1, 0] / temp                     # [n_keys]
+        if v2rt is not None:                               # v2:token 塔路径
+            cam_l, key_l = v2rt.tick(small, prev)
+            cam_l = cam_l / temp                           # [n_mouse, bins]
+            key_l = key_l / temp                           # [n_keys]
+        else:                                              # v1:像素塔路径(不动)
+            fstack.append(small)
+            if len(fstack) < cfg.frame_stack:              # 开局首帧填充
+                fstack = [small] * (cfg.frame_stack - len(fstack)) + fstack
+            fstack = fstack[-cfg.frame_stack:]
+            stacked = np.concatenate(fstack, axis=2)       # [H,W,3S] 旧→新
+            img = torch.from_numpy(stacked).permute(2, 0, 1)[None, None].to(device)
+            pv = torch.from_numpy(prev)[None, None].to(device)
+            with torch.no_grad():
+                cam_l, key_l = tower(img, goal[None], pv)
+            cam_l = cam_l[0, -1, 0] / temp                 # [n_mouse, bins]
+            key_l = key_l[0, -1, 0] / temp                 # [n_keys]
         cb = torch.distributions.Categorical(logits=cam_l).sample().cpu().numpy()
         kp = torch.bernoulli(torch.sigmoid(key_l)).cpu().numpy().astype(np.int8)
 
@@ -405,7 +427,8 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float,
                 cam=np.stack(cam_b), keys=np.stack(key_b), cam_deg=np.stack(cam_deg),
                 pose=np.asarray(pose, np.float32), frames=frames,
                 goal_log=goal_log, inv_events=inv_events, inv_steps=inv_steps,
-                calib=calib)
+                calib=calib,
+                **(v2rt.export() if v2rt is not None else {}))
 
 
 def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> float:
@@ -430,19 +453,25 @@ def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> floa
     denom = float(sum(len(r["cam"]) for r, _ in active))
     if denom == 0:
         return 0.0
-    s = tower.cfg.frame_stack
+    v2 = isinstance(tower, V2Policy)
+    s = None if v2 else tower.cfg.frame_stack
     tot = 0.0
     for r, a_w in active:
         t_n = len(r["cam"])
-        stacked = stack_frames(r["imgs"], s)               # [T,3S,H,W] 与采样端同序
+        if not v2:
+            stacked = stack_frames(r["imgs"], s)           # [T,3S,H,W] 与采样端同序
         for i0 in range(0, t_n, chunk):                    # 覆盖全部 tick,含尾段
             sl = slice(i0, min(i0 + chunk, t_n))
-            img = torch.from_numpy(stacked[sl]).unsqueeze(1).to(device)   # [B,1,3S,H,W]
-            pv = torch.from_numpy(r["prevs"][sl]).unsqueeze(1).to(device)  # [B,1,·]
-            goal = torch.from_numpy(r["goals"][sl]).to(device)             # [B,386] 逐tick
-            cam_l, key_l = tower(img, goal, pv)            # goal/prev 真的进梯度
-            cam_l = cam_l[:, 0, 0] / temp                  # [B,n_mouse,bins] 与采样同温度
-            key_l = key_l[:, 0, 0] / temp                  # [B,n_keys]
+            if v2:                                         # v2:按记录 token 回放
+                cam_l, key_l = v2_replay(tower, r, sl, device)
+            else:
+                img = torch.from_numpy(stacked[sl]).unsqueeze(1).to(device)  # [B,1,3S,H,W]
+                pv = torch.from_numpy(r["prevs"][sl]).unsqueeze(1).to(device)  # [B,1,·]
+                goal = torch.from_numpy(r["goals"][sl]).to(device)           # [B,386] 逐tick
+                cam_l, key_l = tower(img, goal, pv)        # goal/prev 真的进梯度
+                cam_l, key_l = cam_l[:, 0, 0], key_l[:, 0, 0]
+            cam_l = cam_l / temp                           # [B,n_mouse,bins] 与采样同温度
+            key_l = key_l / temp                           # [B,n_keys]
             cb = torch.from_numpy(r["cam"][sl]).long().to(device)
             kp = torch.from_numpy(r["keys"][sl].astype(np.float32)).to(device)
             ce = F.cross_entropy(cam_l.reshape(-1, CAM_BINS), cb.reshape(-1),
@@ -471,6 +500,10 @@ def main() -> None:
     ap.add_argument("--temp", type=float, default=1.3)
     ap.add_argument("--task", default=DEFAULT_TASK,
                     help="长程任务目标(领域知识只活在此行,换游戏换这里)")
+    ap.add_argument("--tower", choices=("v1", "v2"), default="v1",
+                    help="v1=像素塔(默认,契约冻结);v2=token 塔(DINO patch+地图+语言)")
+    ap.add_argument("--dino", choices=("dinov3", "dinov2"), default="dinov3",
+                    help="v2 视觉骨干(dinov3 gated 需 HF_TOKEN;dinov2 开放备选)")
     ap.add_argument("--no-calib", action="store_true", help="跳过开局自标定探针")
     ap.add_argument("--init-from", default="",
                     help="BC 暖启动 checkpoint(bc_vpt_warmstart 产出;GRPO 只做精修,"
@@ -496,16 +529,31 @@ def main() -> None:
     st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
     encode_text = lambda xs: st.encode(xs, normalize_embeddings=True)  # noqa: E731
 
-    cfg = PixelTowerConfig(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(V2_KEYS),
-                           camera_bins=CAM_BINS)
-    tower = build_pixel_tower(cfg).to(device)
-    if args.init_from:                     # BC 暖启动(结构 cfg 必须一致,load 严格校验)
-        ck = torch.load(args.init_from, map_location=device, weights_only=True)
-        tower.load_state_dict(ck["tower"])
-        print(f"init from {args.init_from} (bc_step={ck.get('step')})", flush=True)
+    v2rt = None
+    if args.tower == "v1":                 # v1 路径与 checkpoint 契约不动
+        cfg = PixelTowerConfig(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(V2_KEYS),
+                               camera_bins=CAM_BINS)
+        tower = build_pixel_tower(cfg).to(device)
+        if args.init_from:                 # BC 暖启动(结构 cfg 必须一致,load 严格校验)
+            ck = torch.load(args.init_from, map_location=device, weights_only=True)
+            tower.load_state_dict(ck["tower"])
+            print(f"init from {args.init_from} (bc_step={ck.get('step')})", flush=True)
+    else:                                  # v2:token 塔(DINO patch+地图+语言,goal-as-query)
+        vcfg = V2Config(dino=args.dino)
+        frontend = DinoFrontend(args.dino, device)
+        tower = V2Policy(vcfg, frontend.enc_dim).to(device)
+        cfg = tower.tcfg
+        if args.init_from:
+            ck = torch.load(args.init_from, map_location=device, weights_only=True)
+            if "policy" not in ck:
+                sys.exit("--init-from 给的是 v1 checkpoint,v2 塔不能加载"
+                         "(v2 的 BC 暖启动尚未接线,见 status_built_not_wired)")
+            tower.load_state_dict(ck["policy"])
+            print(f"init from {args.init_from} (v2)", flush=True)
+        v2rt = V2Runtime(tower, frontend, device)
     opt = torch.optim.AdamW(tower.parameters(), lr=args.lr)
-    print(f"PixelTower params = {sum(p.numel() for p in tower.parameters()) / 1e6:.2f} M",
-          flush=True)
+    print(f"{type(tower).__name__} params = "
+          f"{sum(p.numel() for p in tower.parameters()) / 1e6:.2f} M", flush=True)
 
     slow = SlowTower(args.base_url, encode_text, device, task=args.task,
                      model=args.slow_model)
@@ -525,16 +573,20 @@ def main() -> None:
                                      port=args.port + g, find_free_port=True, verbose=False)
         t0 = time.time()
         rolls = [rollout(env, tower, slow, no_op_v2, rng, args.rollout_ticks, device,
-                         args.temp, do_calib=not args.no_calib)
+                         args.temp, do_calib=not args.no_calib, v2rt=v2rt)
                  for _ in range(args.per_group)]
         env.close()
 
         adv, jmeta = judge(g, rolls, task=args.task)
         loss = update(tower, opt, rolls, adv, args.chunk, args.temp, device)
-        torch.save(dict(tower=tower.state_dict(), cfg=vars(cfg), group=g),
-                   OUT / "tower.pt")
+        if args.tower == "v1":             # v1/v2 checkpoint 分文件,互不污染
+            torch.save(dict(tower=tower.state_dict(), cfg=vars(cfg), group=g),
+                       OUT / "tower.pt")
+        else:
+            torch.save(dict(policy=tower.state_dict(), v2cfg=vars(vcfg),
+                            tower_version="v2", group=g), OUT / "tower_v2.pt")
 
-        m = dict(group=g, world_seed=wseed, n=len(rolls),
+        m = dict(group=g, tower=args.tower, world_seed=wseed, n=len(rolls),
                  adv=[round(float(a), 3) for a in adv], adv_var=round(float(np.var(adv)), 4),
                  **jmeta,
                  milestones={k: sum(1 for r in rolls if k in r["inv_events"])

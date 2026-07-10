@@ -38,6 +38,8 @@ class TokenTowerConfig:
     heads: int = 4
     n_q: int = 4              # 策略 query 数
     vis_dim: int = 384        # 视觉 token 维(DINOv3 ViT-S patch=384;YOLOE 提案=518)
+    n_frames: int = 1         # 视觉帧堆叠 S(D1:单帧速度不可观测)。vis 的 Nv 须整除
+                              # n_frames,各帧连续排布(旧→新),帧身份由 frame_emb 注入
     map_dim: int = 64         # 地图 token 维(MapReader.d_out)
     geo_dim: int = 16         # 数值 goal:aim_uv(2) ⊕ 钉点 xy/half+age(3) ⊕
                               # SelfCalib.physics_vector(10:增益/FOV/步速/延迟/模式,
@@ -68,6 +70,8 @@ class TokenPolicyTower(nn.Module):
         self.prev_in = nn.Linear(cfg.n_mouse + cfg.n_keys, d)
         self.group_emb = nn.Parameter(torch.zeros(4, d))     # vis/map/lang/prev
         nn.init.trunc_normal_(self.group_emb, std=0.02)
+        self.frame_emb = nn.Parameter(torch.zeros(cfg.n_frames, d))  # 帧身份(旧→新)
+        nn.init.trunc_normal_(self.frame_emb, std=0.02)
         self.queries = nn.Parameter(torch.zeros(cfg.n_q, d))
         nn.init.trunc_normal_(self.queries, std=0.02)
         self.geo_in = nn.Linear(cfg.geo_dim, d)
@@ -85,8 +89,13 @@ class TokenPolicyTower(nn.Module):
                 geo: torch.Tensor, prev: torch.Tensor):
         b = prev.shape[0]
         c = self.cfg
+        vis_e = self.vis_in(vis)
+        if c.n_frames > 1 and vis.shape[1]:                  # 帧身份:各帧连续排布,旧→新
+            assert vis.shape[1] % c.n_frames == 0
+            per = vis.shape[1] // c.n_frames
+            vis_e = vis_e + self.frame_emb.repeat_interleave(per, dim=0)[None]
         kv = torch.cat([
-            self.vis_in(vis) + self.group_emb[0],
+            vis_e + self.group_emb[0],
             self.map_in(map_t) + self.group_emb[1],
             self.lang_emb(lang) + self.group_emb[2],
             (self.prev_in(prev) + self.group_emb[3])[:, None],

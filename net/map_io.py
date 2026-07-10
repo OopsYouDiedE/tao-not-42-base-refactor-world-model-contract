@@ -85,14 +85,15 @@ class MapReader(nn.Module):
     def forward(self, m: EgoMapClip) -> torch.Tensor:
         toks = []
         n_lv = len(m.maps)
+        dev = m.maps[0].f.device                     # 地图状态所在设备(CPU/GPU 均可)
         for lv, mp in enumerate(m.maps):            # 细 → 粗
             g = self.grid
-            lin = torch.linspace(-0.9, 0.9, g) * mp.half
+            lin = torch.linspace(-0.9, 0.9, g, device=dev) * mp.half
             yy, xx = torch.meshgrid(lin, lin, indexing="ij")
             pts = torch.stack([xx.reshape(-1), yy.reshape(-1)], dim=-1)
             feat = mp.read(pts)                      # [g², c] 可微
             pos = pts / mp.half                      # [-0.9,0.9] 归一
-            lvc = torch.full((g * g, 1), lv / max(n_lv - 1, 1))
+            lvc = torch.full((g * g, 1), lv / max(n_lv - 1, 1), device=dev)
             toks.append(torch.cat([feat, pos, lvc], dim=-1))
         return self.proj(torch.cat(toks, dim=0))     # [grid²·levels, d_out]
 

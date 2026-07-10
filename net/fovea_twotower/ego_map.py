@@ -78,18 +78,21 @@ class EgoMapNaive:
 
 
 class EgoMapNorth:
-    """北锚定:整格 roll + 亚格偏移寄存器,旋转推迟到读出。世界位移坐标系。"""
+    """北锚定:整格 roll + 亚格偏移寄存器,旋转推迟到读出。世界位移坐标系。
 
-    def __init__(self, c=8, size=64, half=32.0):
+    device=None 默认 CPU;传 "cuda" 时状态张量驻 GPU(读写点须同设备,调用侧保证)。
+    """
+
+    def __init__(self, c=8, size=64, half=32.0, device=None):
         self.c, self.size, self.half = c, size, half
         self.res = size / (2 * half)
-        self.f = torch.zeros(c, size, size)
-        self.cnt = torch.zeros(1, size, size)
+        self.f = torch.zeros(c, size, size, device=device)
+        self.cnt = torch.zeros(1, size, size, device=device)
         self.off = np.zeros(2)                          # 亚格偏移(格单位)
 
     def _to_cell(self, xy):
         cell = (xy + self.half) * self.res
-        return cell + torch.as_tensor(self.off, dtype=torch.float32)
+        return cell + torch.as_tensor(self.off, dtype=torch.float32, device=xy.device)
 
     def step(self, dpos_world, dyaw_rad=0.0):
         """世界系位移;dyaw 只记账不动图(北锚定的全部意义)。"""
@@ -187,10 +190,10 @@ class EgoMapClip(EgoMapNorth):
 
     写入:进所有覆盖该点的级;读出:最细的覆盖级。近精远粗=空间中心凹。"""
 
-    def __init__(self, c=8, size=32, half=32.0, levels=3):
+    def __init__(self, c=8, size=32, half=32.0, levels=3, device=None):
         self.c, self.size, self.levels = c, size, levels
         self.halves = [half * 2 ** l / 2 ** (levels - 1) for l in range(levels)]
-        self.maps = [EgoMapNorth(c, size, h) for h in self.halves]
+        self.maps = [EgoMapNorth(c, size, h, device=device) for h in self.halves]
 
     def step(self, dpos_world, dyaw_rad=0.0):
         for m in self.maps:
@@ -204,8 +207,8 @@ class EgoMapClip(EgoMapNorth):
                 m.write(pts[ok], feats[ok])
 
     def read(self, pts):
-        out = torch.zeros(len(pts), self.c)
-        done = torch.zeros(len(pts), dtype=torch.bool)
+        out = torch.zeros(len(pts), self.c, device=pts.device)
+        done = torch.zeros(len(pts), dtype=torch.bool, device=pts.device)
         for m in self.maps:                             # 细→粗
             r = pts.abs().max(-1).values
             ok = (r < m.half * 0.98) & ~done

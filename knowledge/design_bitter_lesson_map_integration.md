@@ -423,10 +423,18 @@ system 提示词零领域知识;每次调用的 user 内容 = 四行结构化输
 > `conclusion_fasttower_skill_ceiling.md` 末节与 `conclusion_craftground_run.md §3`。
 
 1. ✅ 修五个 log π bug(+D1 帧堆叠+按键先验;验收 `tests/unit/test_grpo_pixel_fixes.py`);
-2. ✅(改道)视觉前端:用户直接拍板 DINO,YOLOE 整线删码;原双臂探针降级为
-   DINO 单臂可学性验证(`tests/probe_dino_aim.py`),仍待活环境采 manifest;
-3. ◐ 地图模块与目标结构:`net/map_io.py` + `net/token_tower.py` 已建成,
-   **前端已定 DINO,可直接接线**;yaw/pitch 与 CraftGround 的符号标定属训练侧,接线时做;
+2. ✅ 视觉前端:用户拍板 DINO(YOLOE 整线已删);单臂可学性探针已跑,
+   **判决 PASS**(2026-07-10 后半,104 样本/5 seed:随机 5 折 R²_all=0.899,
+   hole 0.885/slope 0.881 分层不塌;留 seed 折 0.241,场景数少是功效瓶颈,
+   数字入档 next_session §2-2 与 runs/probe_aim/report.json);fovea 双尺度臂不触发;
+3. ✅ 地图模块与目标结构已接线(2026-07-10 后半):`grpo_pixel --tower v2` 选择
+   TokenPolicyTower(DINOv3 patch 60 token/帧 ×S=2 ⊕ EgoMapClip 地图 48 token ⊕
+   subgoal UTF-8 字节语言 token ⊕ goal/physics/钉点 geo query),装配在
+   `train/craftground/tower_v2.py`;v1 结构与 checkpoint 契约不动,分文件保存。
+   yaw/pitch 符号标定:部署侧取光流增益符号(SelfCalib.yaw_sign/pitch_sign),
+   训练侧 env-pose 角映射由探针采集器 fit_angle_map 实测;测不出置 None、显式降级。
+   **限制(如实)**:GRPO 更新回放记录 token,W_c/MapReader.proj 不在梯度里;
+   v2 的 BC 暖启动(同图重放写读,W_c 才有梯度)未接,是 §5 的一部分;
 4. ✅ 慢塔设计 2 契约已接线进 grpo_pixel;真实慢塔格式合规率已测(Qwen3-VL-8B-FP8
    四项 100%,§10.1;Omni 本尊合规率待 5090 同口径补测);
 5. ◐ VPT BC 暖启动已训第一批,`--init-from` 就绪;加数据是纯规模杠杆;

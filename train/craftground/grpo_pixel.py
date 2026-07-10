@@ -59,6 +59,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from net.calibration import SelfCalib, probe_plan                # noqa: E402
 from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
 from train.fovea_twotower.grpo_harness import group_advantage    # noqa: E402
 
@@ -74,13 +75,16 @@ V2_KEYS = ["forward", "back", "left", "right", "jump", "sneak", "sprint", "attac
 CAM_BINS = 11
 CAM_MAX_DEG = 18.0                     # 每 tick 相机增量上限(与 StudentPolicy 同口径)
 
-# 设计 2 会话契约(2026-07-10,设计文档 §9):无状态重提示 + 状态全外置。
-# 每次调用 = 固定 system(prefix cache 可命中)+ 状态行 + 当前帧;
-# prev_done/decision 闭合"快塔→慢塔上行 + 终止语义"两条断边;done_when 是判官免费证据。
+# 设计 2 会话契约(2026-07-10,设计文档 §9/§11):无状态重提示 + 状态全外置。
+# 每次调用 = 固定 system(prefix cache 可命中)+ TASK/STATE/PHYSICS 行 + 当前帧。
+# system 是**游戏无关**的:任务目标走 TASK 行、物理参数走 PHYSICS 行(自标定测出),
+# 领域知识不焊死在提示词里——换游戏只换输入行,不换契约。
 SLOW_SYSTEM = """\
-You are the slow-system planner for a Minecraft agent. Each call you get a STATE line
-(tick, inventory, displacement, your recent subgoals) and the current game frame.
-Long-horizon goal: get wood, then a wooden pickaxe, then stone, then iron.
+You are the slow-system planner of a real-time game agent. Each call you get:
+a TASK line (the long-horizon objective), a STATE line (time, inventory/resources,
+displacement, your recent subgoals and whether they got done), an optional PHYSICS line
+(camera gain / field of view / move speed, measured by the agent itself), and the
+current game frame.
 
 Answer with ONE line of JSON and nothing else:
 {"prev_done": true|false, "decision": "continue|switch|replan",
@@ -89,11 +93,14 @@ Answer with ONE line of JSON and nothing else:
 
 - "prev_done": whether YOUR previous subgoal (shown in STATE) is now achieved.
 - "decision": continue = keep previous subgoal; switch = new target; replan = stuck, change approach.
-- "aim" is the pixel the agent should put its crosshair on, normalised 0..1000,
-  (0,0) top-left, (1000,1000) bottom-right, centre (500,500). It must land ON the block
-  to break or walk to next. Do not aim at the sky.
+- "aim" is the pixel the low-level controller should put its crosshair/cursor on,
+  normalised 0..1000, (0,0) top-left, (1000,1000) bottom-right, centre (500,500).
+  It must land ON the object to interact with or walk to next. Do not aim at the sky.
   Do not copy any coordinates from these instructions; read them off the image.
 """
+
+DEFAULT_TASK = ("Minecraft survival: obtain wood, then a wooden pickaxe, "
+                "then stone, then iron.")
 
 DECISIONS = ("continue", "switch", "replan")   # 微决策词表(留出决策 acc 0.937 的同族)
 
@@ -138,12 +145,12 @@ def state_line(t: int, inv_steps: dict, pose_hist: list, goal_hist: list) -> str
     return (f"STATE t={t} inventory:{inv} displacement:{disp:.0f}blocks "
             f"recent_subgoals:{hist}")
 
-# 判官 rubric:只描述**任务目标**(哪条更接近拿到木头→镐→铁),不描述"该怎么操作"。
-RUBRIC = """任务背景:智能体在 Minecraft 生存模式里的长程任务是独立获得铁。当前锚点:先拿到木头(原木)。
+# 判官 rubric v2(2026-07-10):只给**任务**,不给手写进度阶梯——阶梯是人写的价值函数,
+# 会经排序渗进训练信号(苦涩的教训);推进程度由判官从证据自行判断。游戏无关,任务走模板。
+RUBRIC_TMPL = """任务:{task}
 下面几条是同一世界、同一策略的并行尝试。每条证据 = 一张 8 帧时间均匀抽样的联络表图(先后从左到右、上到下) + 行为统计文本。
-把它们按"向 拿到木头→木镐→石头→铁 推进的真实进度与意图质量"从好到差排名。参考阶梯:
-瘫痪(不移动不按键) < 有动作但无方向(原地打转、乱跳、无目标游走) < 有目标性(持续朝树木接近、对树攻击、路线明确) < 拿到原木 < 木板 < 木镐/圆石/石镐 < 拿到铁
-防刷分警告:文本里的统计量可以靠原地乱转刷高,不可单独作为进度证据;必须结合图中场景与移动/攻击行为判断。图文矛盾时以图为准。
+把它们按"对完成上述任务的真实推进与意图质量"从好到差排名。不提供进度阶梯:请从图中场景变化与行为证据自行判断谁推进得更远、意图更明确。
+防刷分警告:文本统计量可以靠原地乱转刷高,不可单独作为进度证据;必须结合图中场景与行为判断。图文矛盾时以图为准。
 最好=名次1。真分不出高下的允许并列(同名次),不要为拉开差距而编造。
 先用 Read 工具逐张读取下面列出的联络表图,再逐条作答。
 输出格式严格为每行一条『第N条: 名次X』(N 从 0 起,X 为数字),不输出其他内容。"""
@@ -154,10 +161,11 @@ RUBRIC = """任务背景:智能体在 Minecraft 生存模式里的长程任务�
 class SlowTower:
     """Omni(NVFP4,本地 vLLM)。读一帧 → 文本子目标 + 目标像素。"""
 
-    def __init__(self, base_url: str, encode_text, device: str):
+    def __init__(self, base_url: str, encode_text, device: str, task: str = DEFAULT_TASK):
         self.client = OpenAI(base_url=base_url, api_key="EMPTY")
         self.encode_text = encode_text
         self.device = device
+        self.task = task                                  # 领域知识只活在这一行
         self.cache: dict[str, torch.Tensor] = {}
         self.latencies: list[float] = []
         self.fails = 0
@@ -175,7 +183,8 @@ class SlowTower:
                 model=MODEL,
                 messages=[{"role": "system", "content": SLOW_SYSTEM},
                           {"role": "user", "content": [
-                              {"type": "text", "text": state or "STATE t=0 (fresh start)"},
+                              {"type": "text", "text": f"TASK: {self.task}\n"
+                               + (state or "STATE t=0 (fresh start)")},
                               {"type": "image_url", "image_url": {"url": self._b64(rgb)}},
                               {"type": "text", "text": "Next subgoal."}]}],
                 max_tokens=96, temperature=0.2, top_p=0.95,
@@ -232,14 +241,18 @@ def _parse_ranks(out: str, k: int) -> dict | None:
     return got if len(got) == k and set(got) == set(range(k)) else None
 
 
-def judge(g: int, rolls: list[dict]) -> tuple[np.ndarray, dict]:
-    """Haiku 排序 → 名次取负当分数 → 组内 z 归一化当优势。"""
+def judge(g: int, rolls: list[dict], task: str = DEFAULT_TASK) -> tuple[np.ndarray, dict]:
+    """Haiku 排序 → 名次取负当分数 → 组内 z 归一化当优势。
+
+    全量落盘的 (证据, 排序) 对同时是未来本地 RM 的训练数据(设计文档 §11.4:
+    名次可离线展开成成对偏好,轨迹比较从"每组 1 次 API 排序"演进到"无限次本地打分")。
+    """
     lines = []
     for j, r in enumerate(rolls):
         img = (OUT / f"g{g}_r{j}.png").resolve()
         contact_sheet(r["frames"], img)
         lines.append(f"### 第{j}条\n联络表图:{img}\n{evidence_text(r)}")
-    prompt = RUBRIC + "\n\n" + "\n".join(lines)
+    prompt = RUBRIC_TMPL.format(task=task) + "\n\n" + "\n".join(lines)
     (OUT / f"g{g}_judge_prompt.txt").write_text(prompt)
 
     ranks = None
@@ -280,11 +293,43 @@ def stack_frames(imgs: np.ndarray, s: int) -> np.ndarray:
     return imgs[idx].transpose(0, 1, 4, 2, 3).reshape(t_n, s * 3, *imgs.shape[1:3])
 
 
-def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) -> dict:
+def calibrate(env, no_op, obs) -> tuple[SelfCalib, object]:
+    """开局自标定:发已知相机命令测光流增益(纯观测);步速用 pose(特权,只进训练侧)。
+
+    净漂移为零的对称探针序列(probe_plan),约 8+6 tick。产出的 SelfCalib 随 episode
+    携带:physics_line 进慢塔 prompt,physics_vector 备 token 塔,fov 备 IPM 接线。
+    """
+    calib = SelfCalib(img_w=IMG_HW[1], img_h=IMG_HW[0])
+
+    def small(o):
+        return np.asarray(Image.fromarray(np.asarray(o["rgb"], np.uint8))
+                          .resize((IMG_HW[1], IMG_HW[0])), np.float32)
+
+    for yaw, pitch in probe_plan(unit_deg=4.0):
+        f0 = small(obs)
+        a = no_op()
+        a["camera_yaw"], a["camera_pitch"] = float(yaw), float(pitch)
+        obs = env.step(a)[0]
+        calib.update_camera(f0, small(obs), yaw, pitch)
+    p0 = obs["full"]
+    for _ in range(6):                                    # 前进 6 tick 测步速(训练侧)
+        a = no_op()
+        a["forward"] = True
+        obs = env.step(a)[0]
+    p1 = obs["full"]
+    calib.update_locomotion(float(np.hypot(p1.x - p0.x, p1.z - p0.z)), 6)
+    return calib, obs
+
+
+def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float,
+            do_calib: bool = True) -> dict:
     from craftground.environment.action_space import no_op_v2  # noqa: F401
     obs, _ = env.reset()
     for _ in range(60):                                   # 等 "Loading terrain..."
         obs = env.step(no_op())[0]
+    calib = SelfCalib(img_w=IMG_HW[1], img_h=IMG_HW[0])
+    if do_calib:                                          # 自标定:物理参数测出来,不写死
+        calib, obs = calibrate(env, no_op, obs)
 
     cfg = tower.cfg
     tower.eval()                                          # 修复②:采样在确定性网络上
@@ -297,7 +342,7 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) 
     for t in range(ticks):
         rgb = np.asarray(obs["rgb"], dtype=np.uint8)
         if t % SLOW_EVERY == 0:                            # 慢塔按自身节拍刷新
-            st = state_line(t, inv_steps, pose, goal_log)
+            st = state_line(t, inv_steps, pose, goal_log) + "\n" + calib.physics_line()
             goal, rep = slow(rgb, st)
             if rep["prev_done"] and goal_log:              # prev_done 指上一条:回填标记
                 goal_log[-1][5] = True
@@ -346,7 +391,8 @@ def rollout(env, tower, slow, no_op, rng, ticks: int, device: str, temp: float) 
     return dict(imgs=np.stack(imgs), prevs=np.stack(prevs), goals=np.stack(goals),
                 cam=np.stack(cam_b), keys=np.stack(key_b), cam_deg=np.stack(cam_deg),
                 pose=np.asarray(pose, np.float32), frames=frames,
-                goal_log=goal_log, inv_events=inv_events, inv_steps=inv_steps)
+                goal_log=goal_log, inv_events=inv_events, inv_steps=inv_steps,
+                calib=calib)
 
 
 def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> float:
@@ -408,6 +454,9 @@ def main() -> None:
                     help="更新时的显存分块(tick 数);纯工程参数,不改数学")
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--temp", type=float, default=1.3)
+    ap.add_argument("--task", default=DEFAULT_TASK,
+                    help="长程任务目标(领域知识只活在此行,换游戏换这里)")
+    ap.add_argument("--no-calib", action="store_true", help="跳过开局自标定探针")
     ap.add_argument("--port", type=int, default=8700)
     ap.add_argument("--smoke", action="store_true", help="短 rollout,只验链路")
     args = ap.parse_args()
@@ -436,7 +485,7 @@ def main() -> None:
     print(f"PixelTower params = {sum(p.numel() for p in tower.parameters()) / 1e6:.2f} M",
           flush=True)
 
-    slow = SlowTower(args.base_url, encode_text, device)
+    slow = SlowTower(args.base_url, encode_text, device, task=args.task)
     rng = np.random.default_rng(0)
 
     for g in range(args.groups):
@@ -452,11 +501,12 @@ def main() -> None:
                                      action_space_version=ActionSpaceVersion.V2_MINERL_HUMAN,
                                      port=args.port + g, find_free_port=True, verbose=False)
         t0 = time.time()
-        rolls = [rollout(env, tower, slow, no_op_v2, rng, args.rollout_ticks, device, args.temp)
+        rolls = [rollout(env, tower, slow, no_op_v2, rng, args.rollout_ticks, device,
+                         args.temp, do_calib=not args.no_calib)
                  for _ in range(args.per_group)]
         env.close()
 
-        adv, jmeta = judge(g, rolls)
+        adv, jmeta = judge(g, rolls, task=args.task)
         loss = update(tower, opt, rolls, adv, args.chunk, args.temp, device)
         torch.save(dict(tower=tower.state_dict(), cfg=vars(cfg), group=g),
                    OUT / "tower.pt")
@@ -470,6 +520,7 @@ def main() -> None:
                                        "stone_pickaxe", "raw_iron"]},
                  slow_fail=slow.fails,
                  slow_lat_p50=round(float(np.percentile(slow.latencies, 50)), 3),
+                 calib=rolls[0]["calib"].physics_line(),
                  loss=round(loss, 4), wall_s=round(time.time() - t0, 0))
         with (OUT / "metrics.jsonl").open("a") as f:
             f.write(json.dumps(m, ensure_ascii=False, default=str) + "\n")

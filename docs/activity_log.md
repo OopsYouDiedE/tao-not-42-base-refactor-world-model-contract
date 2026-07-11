@@ -890,3 +890,31 @@ import 链与文档引用),主线执行:
   HF `craftground-grpo-pixeltower-v1-run2`;push_checkpoints 的 run1 tower.pt 映射冻结
   (防活文件覆盖历史归档),metrics.jsonl 未标注 init 来源是 schema 缺口,已在此注明
   (第 12–19 行=canonical run,20–27 行=bc_vpt4 run)。
+
+## 2026-07-11 02:45–03:2x 新机器(L4)接手:蒸馏线开跑(会话接力,前会话 01:20 UTC 后无存档)
+
+- **接力事实**:云机重置,上会话 git/HF 存档均止于 07-10 17:20 UTC;用户记忆跑到本地
+  凌晨三四点——**01:20 后约 2h 工作无档**(疑似 bc_vpt2 扩池 60k 训练与 344 段池,
+  均丢失;数据可重下,bc_vpt2 需重训)。本机 L4 23GB,盘 189G 可用。
+- **环境**:pip install -e . 全通;单测 54 passed/1 skipped;+gym3(numpy 降 1.26.4,
+  torch 2.11 兼容已验)后 test_vpt_teacher 7/7。
+- **HF 存档核验**:craftground-grpo-pixeltower-v1-run1/run2、
+  vpt-bc-hindsight-pixeltower-v1-run1(bc_vpt4)、vpt-bc-pixeltower-v1-run1~5 俱在。
+- **蒸馏线执行(next_session §2 与 papers_in_use「教师蒸馏重启」既定计划)**:
+  - 教师权重 2x.model + rl-from-foundation-2x.weights(994MB)下载完;
+    L4 打标实测 **651–666 fps**(6000 帧段 ≈9s,打标非瓶颈;旧 CPU 口径 18.7fps)。
+  - 滚动池重建:download_vpt_data --roll all_6xx/8xx/9xx/10xx_Jun_29,
+    max-pool-gb 55 / min-free-gb 40(用户裁决:全池下不下/存不下,滑动窗口);
+    新 holdout 3 段(all_7xx_Apr_6,seed 42,与训练池索引族分离)。
+    新段经新转换代码自带 hindsight 标签(实测 963/6000 tick、9 短语,词表 0 缺口)。
+  - goal 词表复用 HF bc_vpt4 同款(840 短语,谱系一致);
+    打标循环 scripts/label_loop.sh(每 300s 增量,manifest 幂等)。
+- **基线重锚定(旧 holdout 丢失,新 holdout 重测,不信档案数字)**:
+  eval_hindsight_acceptance @ bc_vpt4/best.pt(step10000):
+  门1 true 0.8161 < perm 0.8211,配对差 -0.0051 CI95 [-0.0066,-0.0036] **PASS**;
+  门2 zero-goal 0.6329 vs canonical(run5@3000,同 holdout 重测)0.6610,-4.25% **PASS**。
+  → goal 通道条件化在全新 holdout 复现;新 holdout 基线:zero 0.6329 / canonical 0.6610。
+- **bc_distill1_w05 开训**(03:2x):--distill-dir runs/data/vpt_labels --distill-weight 0.5,
+  steps 60000 / batch 96 / lr 5e-5 / goal-drop 0.25,池滚动增长中(开训时 6 clips),
+  GPU 81%。验收阶梯:①双门 → ②eval_distill_acceptance(教师一致率+attack F1+回归)
+  → ③grpo --smoke(本机无慢塔,降级口径)。

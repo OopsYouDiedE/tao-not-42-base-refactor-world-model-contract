@@ -934,3 +934,32 @@ import 链与文档引用),主线执行:
   **显存约束(本机口径)**:L4 23GB 上 BC 训练(9.2GB)与 Qwen 慢塔(15.7GB)不可共卡
   (0.55 配额 KV cache 不足实测 OOM),训练/慢塔只能串行。
 - grpo --smoke(bc_vpt4 暖启动 + Qwen 慢塔 + Sonnet-low 判官)进行中,结果待记。
+
+## 2026-07-11 05:4x–06:3x 新机器(5090 32GB)接手:环境重建+bc_distill2 开训+慢塔 A/B 启动
+
+- **接力事实**:又换机(RTX 5090 32GB / 盘仅 32G 无 volume / RAM 503G,shm 41G)。
+  L4 会话存档完整(git+HF 止于 04:3x),按 next_session 蒸馏配方与用户新增指令
+  (两个慢塔候选 5090 同口径比对)继续。
+- **环境**:torch 2.13.0+cu130(sm_120 原生),uv 装 -e . + gym3/attrs/openai;
+  单测 61 passed/1 skipped。一处容差失败非 bug:test_vpt_teacher 均匀分布边缘化
+  1.49e-5 超 1e-5 门——fp32 对 8641 项 GEMM 归约顺序随 torch 版本漂移(2.11 过,
+  2.13 超),容差放宽 5e-5 并注明,fp64 复算确认逻辑精确。
+- **小盘机纪律(本机口径)**:两 venv(main 5.4G + vllm 9.2G)+ 基础 8.6G 后仅剩
+  ~10G 给数据;下载器安全阀触发过一次(设计行为,自动停)。处置:模型权重与
+  VPT 池全放 /dev/shm(RAM 盘,41G;runs/data/vpt_early 为 symlink),池上限 6G
+  (慢塔比对结束删一个模型权重后可加大);nvcc/flashinfer JIT 中断残留 2.6G
+  tmpxft_* 垃圾在 /tmp,已清(杀 vLLM 服务时 JIT 编到一半所致,注意重启要重编)。
+- **渲染(本机口径)**:Xorg :1 GPU 起不来(无日志,待查),gpu_run 回退 Xvfb 软渲染
+  可用;GL/OptiX/Vulkan userspace 齐全(vast-capabilities render 全 true)。
+  EGL 无 X 渲染结论不变(craftground_run §3:驱动层可用,CraftGround 栈不支持)。
+- **bc_distill2 开训(next_session §2-3/蒸馏配方第二轮)**:
+  `--init-from bc_vpt4/best.pt + --distill-dir vpt_labels --distill-weight 0.5`,
+  steps 60000 / batch 96 / lr 5e-5 / goal-drop 0.25;教师打标循环共卡
+  (label_loop.sh,tch_cov=1.00),池 12 段滚动增长中,holdout 3 段
+  (all_7xx_Apr_6 seed42,有标 tick 5572)。GPU 仅 7%/6.7GB(数据管线瓶颈,
+  与历轮一致)⇒ 慢塔 A/B 比对与训练共卡并行。
+- **慢塔 A/B(用户指令,§10.1 缺口"Omni 本尊合规率待 5090 同口径补测")**:
+  探针脚本入库 tests/probe_slow_tower_ab.py(考题=真实循环采集的 32 组
+  (帧,STATE) 固化成文件,两塔逐字节同输入重放;四项合规+延迟 p50/p95+显存)。
+  Omni NVFP4 服务已验证可启(torch.compile 17.8s,权重加载 21.5GiB 复现),
+  为让位 BC 优先级中途停服;Qwen3-VL-8B-FP8 权重下载中。结果待记。

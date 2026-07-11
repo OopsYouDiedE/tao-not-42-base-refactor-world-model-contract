@@ -98,7 +98,9 @@ def test_translate_uniform_mass_conservation():
     p_keys, cam_t, p_on = teacher_to_v2({"buttons": lb, "camera": lc})
     freq = _MAPPING.BUTTON_IDX_TO_FACTORED.mean(0)     # [20] 教师键序
     for v2_i, t_i in enumerate(TEACHER_KEY_TO_V2):
-        assert abs(float(p_keys[0, v2_i]) - float(freq[t_i])) < 1e-5
+        # 容差下限受 fp32 对 8641 项做 GEMM 边缘化的归约顺序制约,
+        # torch 2.13 实测 1.49e-5(2.11 为 <1e-5),非逻辑误差
+        assert abs(float(p_keys[0, v2_i]) - float(freq[t_i])) < 5e-5
     assert torch.allclose(cam_t.sum(-1), torch.ones(3, 2), atol=1e-5)
     ours = remap_cam(cam_t)
     assert ours.shape == (3, 2, CAM_BINS)

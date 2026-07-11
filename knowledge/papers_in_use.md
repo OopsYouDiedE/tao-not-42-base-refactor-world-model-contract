@@ -27,6 +27,7 @@
 ### VPT —— 动作表示在用;教师蒸馏 2026-07-10 重启(此前退役)
 - **在用(动作表示)**:相机 mu-law 离散分箱头的口径(`CAMERA_BINS=11` / `CAMERA_MU`),理由是 MSE 回归下"恒预测 0"是平凡解,mu-law 分箱把 0 变成众多类之一;VPT 原版同样用 mu-law 离散相机。20 个二值键的动作契约同源。见 `train/minecraft/vpt_action.py:10-13,29-30`。
 - **在用(教师,2026-07-10 重启)**:`net/vpt_lib/` 从上游重拉(MIT,LICENSE 在目录内;改动仅 import 路径 + minerl 惰性化,见 `net/vpt_lib/__init__.py`)。教师权重 `rl-from-foundation-2x`(wood→…→diamond pickaxe 全链 RL 微调,openaipublic blob 下载,本地 `runs/data/models/vpt_teacher/`)。动机:bc_vpt4+GRPO 的 oak_log 仍 0,REINFORCE 无法强化从未出现的行为;蒸馏让"持续攻击砍树"先发生。与被退役的 distill_vpt(BC 预训练路线)不同:这次教师翻译层是精确边缘化(无手写规则),损失是反向 KL 且默认关闭(`--distill-dir`),goal 机制原样保留。
+- **首个受控结论(2026-07-11,L4,新机小池)**:同池(~26-31 段,远小于 bc_vpt4 的 344 段)同参(10k 步/lr5e-5/batch96)对照,唯一变量 KL w=0.5——教师 attack F1 蒸馏 0.249 vs w=0 对照 0.201(**方向正确,接线无 bug**),代价人类 holdout 0.785 vs 0.669。此前"bc_vpt4 教师 F1 0.675 反而最高"是**数据量混杂**(344 段人类 BC 顺带贴近教师,教师本就源于人类先验),不构成对蒸馏的定罪。判决:蒸馏配方成立但效应量小于数据量;下一步配方 = `--init-from bc_vpt4 + KL`(站 344 段先验加教师拉力),池扩大后重训。验收数字 `runs/checkpoints/bc_distill1_w05/acceptance.json` 与 activity_log 2026-07-11。
 - **历史**:prune3 曾删 vendored 副本(当时全库零 import);IDM 反标网络视频已撤销不再列为选项。
 
 ### YOLOE —— 整线废弃(2026-07-10 用户拍板)

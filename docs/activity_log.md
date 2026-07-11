@@ -918,3 +918,19 @@ import 链与文档引用),主线执行:
   steps 60000 / batch 96 / lr 5e-5 / goal-drop 0.25,池滚动增长中(开训时 6 clips),
   GPU 81%。验收阶梯:①双门 → ②eval_distill_acceptance(教师一致率+attack F1+回归)
   → ③grpo --smoke(本机无慢塔,降级口径)。
+
+## 2026-07-11 03:2x–04:3x bc_distill1_w05 训练+验收:蒸馏方向正确,数据量定罪;GRPO 环境就绪
+
+- **bc_distill1_w05**(w=0.5,10k 步实跑,池 6→26 段滚动增长):holdout 自 step3000 起
+  单调回升(0.7848→1.0634)判停;best@3000。验收:门1 PASS(CI95 [-0.0105,-0.0052]),
+  门2 FAIL(+18.7% vs canonical)——蒸馏把策略拉离人类动作属预期张力,真正病灶见下。
+- **反直觉现象与对照定罪**:蒸馏学生教师 attack F1 0.249 **低于** bc_vpt4 的 0.675。
+  按纪律跑 w=0 对照(同池同参唯一变量 KL):对照教师 F1 0.201 < 蒸馏 0.249,
+  人类 holdout 对照 0.669 < 蒸馏 0.785。**判决:蒸馏方向正确无接线 bug;
+  bc_vpt4 的高教师一致率是 344 段数据量混杂(教师源于人类先验)。**
+  下一步配方:`--init-from bc_vpt4/best.pt` + KL,池扩大后重训(bc_distill2)。
+- **GRPO 环境(本机)全就绪**:CraftGround 首次构建过(JDK21 完整版坑入 install.md);
+  vLLM 0.24.0 + Qwen3-VL-8B-FP8 起服(gpu_util 0.68,~15.7GB)。
+  **显存约束(本机口径)**:L4 23GB 上 BC 训练(9.2GB)与 Qwen 慢塔(15.7GB)不可共卡
+  (0.55 配额 KV cache 不足实测 OOM),训练/慢塔只能串行。
+- grpo --smoke(bc_vpt4 暖启动 + Qwen 慢塔 + Sonnet-low 判官)进行中,结果待记。

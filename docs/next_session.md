@@ -54,6 +54,18 @@
 - **CraftGround `--smoke` 全链路通过**（2026-07-10，L4）：判官真排序（fallback=false）、
   自标定首次真实环境实测（cam_gain 1.09px/deg / fov_y 79° / latency 1 tick / speed 0.174blk/tick）、
   BC checkpoint 严格加载；慢塔按设计降级（L4 无法跑 NVFP4）。链路验证完成。
+- **教师闭环定罪（2026-07-11，5090，决定性）**：VPT 教师经我们契约在 CraftGround 闭环
+  **joint 5/5、marginal 5/5 拿到原木**（170–458 tick；一局顺手 GUI 合成木板）⇒
+  动作契约/环境无罪，蒸馏目标（边缘 KL）天花板够高，"砍不到木头"责任全在快塔策略侧
+  （教师 attack 占空比 0.27–0.41 vs 学生 0.09–0.11）。复跑
+  `tests/eval_teacher_closedloop.py`；明细 `conclusion_fasttower_skill_ceiling.md` 末节。
+  **蒸馏验收标准就此升级：学生 checkpoint 闭环 got_log 率 >0 才算起效**（同款脚本改
+  学生策略即可），离线教师一致率/holdout loss 只作过程指标。
+- **慢塔 A/B 同口径（2026-07-11，5090，§10.1 缺口补测）**：32 组真实 (帧,STATE) 考题
+  逐字节同输入。Qwen3-VL-8B-FP8：四项合规全 100%，p50 1.48s / p95 1.60s（640×360）。
+  Omni NVFP4 结果见 `docs/results/slow_tower_ab_5090.json`（探针
+  `tests/probe_slow_tower_ab.py` 可复跑）。sm_120 坑：Qwen FP8 要
+  `VLLM_USE_DEEP_GEMM=0`（install.md §2-4）。
 
 ## 2. 待办（顺序即优先级）
 

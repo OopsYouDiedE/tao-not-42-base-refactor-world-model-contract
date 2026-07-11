@@ -227,6 +227,10 @@ relabel CLI 回填;② holdout 域窄(制图桌),伐木/采石域的 goal 分离
 4. 边界:5 seed 全部经有树筛选;Peaceful/冻结时相;episode 1200 tick;教师采样含
    pi_head 内置温度(T=2.0),确定性 argmax 未测(上游已知 argmax 退化,不采用)。
 
-**marginal 口径**(蒸馏目标上限,同 seed 序列):结果待补——通过 ⇒ bc_distill*
-配方(边缘 KL)天花板够高,堆数据/容量即可;失败 ⇒ 边缘化丢键间相关(如 attack+forward
-联合按压),蒸馏目标需改联合口径(top_combo CE 或动作 chunk)。
+**marginal 口径判决:5/5 episodes 拿到原木**(首跑 seed11 三局:birch@153+oak@1073 /
+oak@222 / oak@356;进程在 ep2 后被会话操作误杀,补跑 seed12 两局:birch@85 / oak@189;
+attack 占空比 0.31–0.41)。**⇒ 边缘化不丢伐木技能,蒸馏目标(边缘 KL)天花板够高;
+bc_distill* 配方成立,剩余问题纯属数据量/容量/优化,不必改联合口径。**
+两口径闭环均活跃 attack(教师 0.27–0.41 vs BC 学生 0.09–0.11),把学生蒸馏验收标准
+升级为闭环锚点:同款脚本跑学生 checkpoint,got_log 率 >0 才算蒸馏起效
+(离线教师一致率/holdout loss 不再作为最终验收,D 曲线教训)。

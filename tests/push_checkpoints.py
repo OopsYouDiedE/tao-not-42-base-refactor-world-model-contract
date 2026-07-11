@@ -42,6 +42,13 @@ MAPPING = [
     ("runs/checkpoints/bc_vpt4/last.pt", "vpt-bc-hindsight-pixeltower-v1-run1"),
     ("runs/checkpoints/bc_vpt4/metrics.jsonl", "vpt-bc-hindsight-pixeltower-v1-run1"),
     ("runs/data/vpt_early_goal_vocab.json", "vpt-bc-hindsight-pixeltower-v1-run1"),
+    # VPT 教师蒸馏第一轮(2026-07-11 L4 小池受控:方向正确,数据量主导;含 w=0 对照证据)
+    ("runs/checkpoints/bc_distill1_w05/best.pt", "vpt-bcdistill-pixeltower-v1-run1"),
+    ("runs/checkpoints/bc_distill1_w05/last.pt", "vpt-bcdistill-pixeltower-v1-run1"),
+    ("runs/checkpoints/bc_distill1_w05/metrics.jsonl", "vpt-bcdistill-pixeltower-v1-run1"),
+    ("runs/checkpoints/bc_distill1_w05/acceptance.json", "vpt-bcdistill-pixeltower-v1-run1"),
+    ("runs/checkpoints/bc_control_w0/best.pt", "vpt-bc-pixeltower-v1-run6"),  # w=0 对照(小池,定罪证据)
+    ("runs/checkpoints/bc_control_w0/metrics.jsonl", "vpt-bc-pixeltower-v1-run6"),
     # grpo run1(canonical 暖启动,Sonnet-low pairwise)已冻结在 HF run1 仓;
     # runs/grpo_pixel/tower.pt 是"最近一次 GRPO run"的活文件,不再映射 run1(防覆盖)。
     ("runs/grpo_pixel/metrics.jsonl", "craftground-grpo-pixeltower-v1-run1"),

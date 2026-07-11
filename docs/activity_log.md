@@ -994,3 +994,10 @@ import 链与文档引用),主线执行:
   淘汰 267 段(seen 机制不回灌,索引存量足够);后均死亡未被发现——pgrep 误把自身
   wrapper 计成下载器。已干净重启(cap 22)并挂增长/死亡监控。教训:验证后台进程
   用 ps aux | grep [x],别用裸 pgrep -f 计数。
+- **三臂归因更正(08:2x,如实更正)**:「真慢塔臂 0/5 duty~0.21」实为 **explore 固定
+  goal 臂**——该臂运行时 Qwen 重启已失败(bc_distill3 显存 7.4G 挤压下 util 0.42
+  只剩 0.28GiB KV,起服 ValueError),而等待脚本 grep 同时匹配成功/失败字样即放行;
+  SlowTower 失联降级不是零 goal 而是 `subgoal or "explore"`。修正后的梯度依然成立
+  且更干净:零 0.13 < explore 0.21 < 词表内 mine oak_log 0.55(首块学生木头)。
+  教训:起服后必须 curl 实测再放行评测;慢塔失联的 explore 语义要写进结论口径。
+  真慢塔臂(活服务,util 0.55/maxlen 8192)与投影臂重跑中。

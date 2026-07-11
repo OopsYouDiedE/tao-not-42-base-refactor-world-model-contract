@@ -178,10 +178,12 @@ PAIR_RUBRIC_TMPL = """任务:{task}
 class SlowTower:
     """Omni(NVFP4,本地 vLLM)。读一帧 → 文本子目标 + 目标像素。
 
-    vocab_snap:hindsight 词表 json 路径(空串关闭)。开启时把慢塔自由措辞的 subgoal
-    经 MiniLM 余弦最近邻投影回词表短语——goal 三臂对照(2026-07-11)实证:同一
-    checkpoint,词表内 goal 的 attack 占空比 ~0.55 vs 自由措辞 ~0.21 vs 零 goal ~0.13,
-    学生首块木头即来自词表内 goal;分布外文本只吃到 FiLM 通道一小半带宽。
+    vocab_snap:hindsight 词表 json 路径(空串关闭)。开启时把慢塔措辞的 subgoal
+    经 MiniLM 余弦最近邻投影回词表短语——goal 对照(2026-07-11)实证:同一
+    checkpoint,词表内 goal("mine oak_log")attack 占空比 ~0.55 且出学生首块木头,
+    "explore" 固定 goal ~0.21,零 goal ~0.13 ⇒ FiLM 通道功率随文本接近训练分布单调升。
+    (更正:首轮"真慢塔臂"实为 explore 臂——慢塔服务未活,失联降级=explore goal,
+    见本类 __call__ 的 `subgoal or "explore"`;真慢塔臂另测。)
     """
 
     def __init__(self, base_url: str, encode_text, device: str, task: str = DEFAULT_TASK,

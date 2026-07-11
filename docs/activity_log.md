@@ -1001,3 +1001,22 @@ import 链与文档引用),主线执行:
   且更干净:零 0.13 < explore 0.21 < 词表内 mine oak_log 0.55(首块学生木头)。
   教训:起服后必须 curl 实测再放行评测;慢塔失联的 explore 语义要写进结论口径。
   真慢塔臂(活服务,util 0.55/maxlen 8192)与投影臂重跑中。
+
+## 2026-07-11 08:4x–10:0x goal 谱系定案+GRPO 确认 run(轨迹分离度实证)+distill3 曲线回头
+
+- **goal 干预谱系(五臂,bc_vpt4 同 seed 闭环,已入 conclusion_fasttower_skill_ceiling)**:
+  零 0.17 / explore(失联降级) 0.21 / 词表内固定 0.55(1/5 学生首木) /
+  真慢塔词表语言 prompt 0.56 / +0.6 阈值投影 0.58。部署侧修复=SLOW_SYSTEM 要求
+  "<verb> <item>";裸投影有害已定罪(chop down the tree→drop wooden axe@0.49)。
+  剩余瓶颈=aim 跟随(attack 打满但砍 dirt/树叶)。
+- **GRPO 确认 run(4×6×1200,bc_vpt4 暖启动+词表语言 Qwen 慢塔+Sonnet-low pairwise)**:
+  回答用户「轨迹能否拉开」。g0 tie 10/15(5 对过一致门,r3 因连续 4 帧卡 GUI 被一致
+  判负 Copeland -3)、g1 tie 9/15、g2 tie 7/15;三组全部无环、fallback=false、
+  judge_call_fail=0、adv_var=1.0 非零梯度、更新执行。对比 8×4×2000 时代 tie 79%:
+  分离度显著改善,胜负锚点=GUI 卡滞/位移/里程碑时间线(客观可引用)。木头族里程碑
+  仍 0——与谱系结论一致。g0 判官逐对引证透视页:artifact 802135ab(用户可视化需求)。
+- **bc_distill3 曲线回头**:下载器修复后池真实增长(163 段/21G),holdout 从
+  24k 步的 0.88-0.95 回落到 46k 步的 0.703——滚动池持续学习模式生效,
+  「数据流入追上消耗」首次在本机成立。
+- **中途加载议题(用户)**:give/tp 复现不了过程态;确定性引擎下等价物=seed+动作重放
+  (含 GRPO 中途分叉采样构想),确定性探针预登记进 next_session §2-5。

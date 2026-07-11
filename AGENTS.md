@@ -1,8 +1,72 @@
 # 助手约束与开发规范 (AGENTS.md)
 
 > **文档性质**：对 AI 助手和人类开发者均有约束力的规则文档。只记录**规则**，不记录历史活动（历史活动归 git log）。
-> §1–§7 是数值不变量与生产纪律，§8–§11 是代码组织规范（放置 / 写作 / 拆分合并），§12 是 SubAgent 使用规范。
+> **§0 是会话启动手册（新机器先读这一节）**；§1–§7 是数值不变量与生产纪律，§8–§11 是代码组织规范（放置 / 写作 / 拆分合并），§12 是 SubAgent 使用规范。
 > Godot 子系统有自己的局部规范，见 [assets/godot_meta_rl/AGENTS.md](assets/godot_meta_rl/AGENTS.md)。
+
+---
+
+## 0. 会话启动手册（新机器一键启动 + 前置检查）
+
+> 云机随时被回收，训练会话经常在全新机器上接力。**顺序执行本节，先检查后动手**；
+> 训练配方与当前待办以 `docs/next_session.md` 为准（SSOT，本节只管"把机器点亮"）。
+
+### 0.1 前置环境检查（不达标先处置，再往下走）
+
+```bash
+nvidia-smi                          # ① CUDA 版本与显存
+df -h / ${WORKSPACE:-/workspace}    # ② 磁盘
+python -c "import torch;print(torch.cuda.get_device_capability())"  # ③ 架构(装完环境后验)
+```
+
+| 检查项 | 标准 | 不达标的处置 |
+|---|---|---|
+| 磁盘 | **≥100G** | 32G 小盘实测可跑但要纪律：模型权重与 VPT 池放 `/dev/shm`（`runs/data/vpt_early` 用 symlink 指过去），venv 留盘上，nvcc/JIT 垃圾（`/tmp/tmpxft_*`）随手清，结论随做随 push |
+| CUDA（驱动） | **13.0**（用 Omni **NVFP4** 慢塔时） | 12.8 也能跑 NVFP4 但要踩四个 sm_120 坑（`tests/serve_omni_nvfp4.sh` 已内联修复）；**不用 NVFP4 可放宽到 12.8** |
+| GPU | 见 0.3 慢塔选型 | 显存 <24G 时训练与慢塔不可共卡，只能串行（L4 23G 实测口径） |
+
+### 0.2 一键启动序列
+
+```bash
+# 1) 主环境(约 6G 盘;numpy 必须 <2,gym3 要求)
+source /venv/main/bin/activate 2>/dev/null || python -m venv /venv/main && source /venv/main/bin/activate
+uv pip install -e . && uv pip install gym3 attrs openai pytest "numpy<2"
+python -m pytest tests/unit -q                       # 全绿才继续(61+ 项)
+
+# 2) 存档恢复(HF 仓映射表=tests/push_checkpoints.py 的 MAPPING)
+export HF_TOKEN=<token>
+hf download unjustify/vpt-bc-hindsight-pixeltower-v1-run1 best.pt vpt_early_goal_vocab.json --local-dir /tmp/r
+mkdir -p runs/checkpoints/bc_vpt4 runs/data/models/vpt_teacher
+cp /tmp/r/best.pt runs/checkpoints/bc_vpt4/ && cp /tmp/r/vpt_early_goal_vocab.json runs/data/
+wget -qP runs/data/models/vpt_teacher https://openaipublic.blob.core.windows.net/minecraft-rl/models/2x.model \
+  https://openaipublic.blob.core.windows.net/minecraft-rl/models/rl-from-foundation-2x.weights
+
+# 3) 数据(holdout 固定;池滚动,小盘时 --out 指向 /dev/shm 的 symlink)
+python tests/download_vpt_data.py --index all_7xx_Apr_6 --n 3 --seed 42 --out runs/data/vpt_holdout &
+python tests/download_vpt_data.py --roll all_6xx_Jun_29,all_8xx_Jun_29,all_9xx_Jun_29,all_10xx_Jun_29 \
+  --out runs/data/vpt_early --max-pool-gb <按盘定> --min-free-gb <按盘定> &
+
+# 4) 教师打标循环(与训练共卡,幂等)
+nohup bash scripts/label_loop.sh > runs/label_loop.log 2>&1 &
+
+# 5) BC/蒸馏训练——参数配方读 docs/next_session.md §2,勿凭记忆
+# 6) CraftGround(要 GRPO 时):完整版 JDK21 + GL 开发库(knowledge/install.md §2),
+#    显示服务 bash scripts/gpu_run.sh(Xorg GPU 失败会自动回退 Xvfb 软渲染,能跑但慢)
+# 7) 慢塔起服:按 0.3 选型;判官要 claude CLI 且图片路径必须在工作区内(next_session §6)
+```
+
+**注意事项**：后台命令用行内环境变量（`HF_HOME=… PYTHONPATH=… nohup python …&`），
+`export A && cmd &` 会把 export 一起后台化导致丢失；杀 vLLM 要 `kill -9` 其
+EngineCore 子进程并清 `/tmp/tmpxft_*`（JIT 中断残留可达数 G）。
+
+### 0.3 慢塔选型（按 GPU 定，契约零改动，换塔只换起服命令与 `--slow-model`）
+
+| GPU | 慢塔 | 起服 |
+|---|---|---|
+| **RTX 5090 / Blackwell（sm_120，≥32G）** | **Nemotron-3-Nano-Omni-30B NVFP4**（默认塔，权重 21.5GiB） | `tests/serve_omni_nvfp4.sh` |
+| **L4 / A10 / 其他 sm_89 级（~24G）** | **Qwen3-VL-8B-Instruct-FP8**（权重 9.9G，显存 ~13.5G） | `vllm serve Qwen/Qwen3-VL-8B-Instruct-FP8 --served-model-name qwen3_vl_8b_fp8 --gpu-memory-utilization 0.68 --max-model-len 16384 --max-num-seqs 8`，然后 `grpo_pixel --slow-model qwen3_vl_8b_fp8` |
+
+两塔同口径合规/延迟对比数字见 `docs/results/slow_tower_ab_5090.json` 与设计文档 §10.1。
 
 ---
 

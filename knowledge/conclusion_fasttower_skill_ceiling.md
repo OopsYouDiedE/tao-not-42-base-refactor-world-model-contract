@@ -197,3 +197,36 @@ relabel CLI 回填;② holdout 域窄(制图桌),伐木/采石域的 goal 分离
    BC 侧 attack 持续性,不在判官带宽。判决细节见 design_bitter_lesson §10.1 末段。
 2. 加**合成/盖屋**技能,探 aim+attack 之外的动作模态天花板(很可能才是真上限)。
 3. stone 低分验证感知假设:换有对比的后墙重测,若跳升则坐实"视觉可分辨度=瓶颈"。
+
+## VPT 教师闭环定罪实验:契约与环境无罪,病灶锁定策略侧(2026-07-11,5090)
+
+> 复跑:`tests/eval_teacher_closedloop.py --mode joint|marginal`;
+> 原始数据 `docs/results/teacher_closedloop_*.json`;联络表图 `runs/teacher_closedloop/`。
+> 动机:所有 GRPO run 锚点里程碑全 0,在"快塔策略不行"与"动作契约翻译层/环境把技能
+> 弄丢了"两种病灶间一次定罪。教师 rl-from-foundation-2x 经**与蒸馏标签完全相同的
+> 翻译层常量**闭环驱动 CraftGround(joint=联合采样保留键间相关;marginal=蒸馏目标
+> 边缘分布口径=学生完美拟合标签的行为上限)。
+
+**joint 口径判决:5/5 episodes 拿到原木(且一局顺手合成了木板)。**
+
+| ep | world seed | 树种 | 首块木头 tick | attack 占空比 | 其他 |
+|---|---|---|---|---|---|
+| 0 | 143667987 | jungle_log | 458 | 0.33 | |
+| 1 | 1060160523 | acacia_log | 209 | 0.28 | |
+| 2 | 683430448 | spruce_log | 269 | 0.38 | **spruce_planks(GUI 合成闭环走通)** |
+| 3 | 450659733 | oak_log | 170 | 0.27 | |
+| 4 | 559736384 | birch_log | 222 | 0.34 | |
+
+判读:
+1. **动作契约无罪、环境无罪**——20 键同名双射 + 相机 mu-law 解码 + V2 tick 语义经受
+   闭环检验;死因排除法只剩策略侧(BC 学生 attack 占空比 0.09–0.11 vs 教师 0.27–0.38,
+   且教师 200–460 tick 即出木头,而学生 2000 tick 全 0)。蒸馏路线的前提成立。
+2. **ep2 的木板是"合成归慢塔"路线的意外正面证据**:GUI 态光标(camera=cursor 映射)
+   +点击经我们契约可完成真实合成;快塔 GUI 光标控制的动作模态没有环境层障碍。
+3. 渲染为 Xvfb 软渲染(7.6–11.8 sps),不影响判决(教师照样砍到);Xorg GPU 待修只关采集吞吐。
+4. 边界:5 seed 全部经有树筛选;Peaceful/冻结时相;episode 1200 tick;教师采样含
+   pi_head 内置温度(T=2.0),确定性 argmax 未测(上游已知 argmax 退化,不采用)。
+
+**marginal 口径**(蒸馏目标上限,同 seed 序列):结果待补——通过 ⇒ bc_distill*
+配方(边缘 KL)天花板够高,堆数据/容量即可;失败 ⇒ 边缘化丢键间相关(如 attack+forward
+联合按压),蒸馏目标需改联合口径(top_combo CE 或动作 chunk)。

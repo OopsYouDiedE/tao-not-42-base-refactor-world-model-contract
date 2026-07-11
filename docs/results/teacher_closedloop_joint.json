@@ -1,0 +1,142 @@
+{
+ "mode": "joint",
+ "episodes": 5,
+ "got_log": 5,
+ "ticks": 1200,
+ "ts": "2026-07-11 06:53:42",
+ "per_episode": [
+  {
+   "mode": "joint",
+   "ticks_run": 1200,
+   "sps": 10.1,
+   "inv_steps": {
+    "jungle_log": 458,
+    "wheat_seeds": 706
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.2858,
+    "back": 0.0008,
+    "left": 0.005,
+    "right": 0.0067,
+    "jump": 0.04,
+    "sneak": 0.0033,
+    "sprint": 0.06,
+    "attack": 0.3275,
+    "use": 0.0017,
+    "inventory": 0.19
+   },
+   "cam_abs_mean": 3.627,
+   "episode": 0,
+   "world_seed": "143667987",
+   "has_tree": true
+  },
+  {
+   "mode": "joint",
+   "ticks_run": 1200,
+   "sps": 7.6,
+   "inv_steps": {
+    "wheat_seeds": 61,
+    "acacia_log": 209
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.1325,
+    "back": 0.0033,
+    "left": 0.0017,
+    "right": 0.0058,
+    "jump": 0.0075,
+    "sneak": 0.0017,
+    "sprint": 0.0242,
+    "attack": 0.2825,
+    "use": 0.0008,
+    "inventory": 0.2975,
+    "hotbar.1": 0.0008
+   },
+   "cam_abs_mean": 3.291,
+   "episode": 1,
+   "world_seed": "1060160523",
+   "has_tree": true
+  },
+  {
+   "mode": "joint",
+   "ticks_run": 1200,
+   "sps": 10.5,
+   "inv_steps": {
+    "spruce_log": 269,
+    "spruce_planks": 893
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.1192,
+    "back": 0.0083,
+    "left": 0.0042,
+    "right": 0.005,
+    "sneak": 0.0067,
+    "sprint": 0.0225,
+    "attack": 0.3775,
+    "use": 0.0008,
+    "inventory": 0.2033
+   },
+   "cam_abs_mean": 3.253,
+   "episode": 2,
+   "world_seed": "683430448",
+   "has_tree": true
+  },
+  {
+   "mode": "joint",
+   "ticks_run": 1200,
+   "sps": 11.8,
+   "inv_steps": {
+    "oak_log": 170
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.0975,
+    "back": 0.0017,
+    "right": 0.0008,
+    "jump": 0.0167,
+    "sneak": 0.0033,
+    "sprint": 0.0217,
+    "attack": 0.265,
+    "use": 0.0008,
+    "inventory": 0.3542,
+    "hotbar.1": 0.0017,
+    "hotbar.5": 0.0008
+   },
+   "cam_abs_mean": 4.731,
+   "episode": 3,
+   "world_seed": "450659733",
+   "has_tree": true
+  },
+  {
+   "mode": "joint",
+   "ticks_run": 1200,
+   "sps": 8.4,
+   "inv_steps": {
+    "lilac": 87,
+    "birch_log": 222
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.2167,
+    "back": 0.0008,
+    "left": 0.0058,
+    "right": 0.0033,
+    "jump": 0.0308,
+    "sneak": 0.0042,
+    "sprint": 0.0383,
+    "attack": 0.3383,
+    "use": 0.0025,
+    "drop": 0.0017,
+    "inventory": 0.2117,
+    "hotbar.1": 0.0017,
+    "hotbar.8": 0.0008
+   },
+   "cam_abs_mean": 3.57,
+   "episode": 4,
+   "world_seed": "559736384",
+   "has_tree": true
+  }
+ ]
+}

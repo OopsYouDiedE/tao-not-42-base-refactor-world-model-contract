@@ -1,0 +1,123 @@
+{
+ "mode": "student",
+ "episodes": 5,
+ "got_log": 0,
+ "init_from": "runs/checkpoints/bc_distill2/best.pt",
+ "ticks": 1200,
+ "ts": "2026-07-11 07:43:56",
+ "per_episode": [
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 20.3,
+   "inv_steps": {
+    "dirt": 295
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.5917,
+    "back": 0.005,
+    "left": 0.0792,
+    "right": 0.0233,
+    "jump": 0.02,
+    "sneak": 0.0125,
+    "sprint": 0.0092,
+    "attack": 0.1167,
+    "use": 0.0033
+   },
+   "cam_abs_mean": 2.936,
+   "episode": 0,
+   "world_seed": "143667987",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 947,
+   "sps": 19.2,
+   "inv_steps": {},
+   "death_step": 946,
+   "key_duty": {
+    "forward": 0.6315,
+    "back": 0.0011,
+    "left": 0.0253,
+    "right": 0.0116,
+    "jump": 0.0971,
+    "sneak": 0.0032,
+    "sprint": 0.0137,
+    "attack": 0.038,
+    "use": 0.0074
+   },
+   "cam_abs_mean": 2.393,
+   "episode": 1,
+   "world_seed": "855858841",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 13.9,
+   "inv_steps": {},
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.4717,
+    "back": 0.0025,
+    "left": 0.05,
+    "right": 0.0075,
+    "jump": 0.0675,
+    "sneak": 0.0133,
+    "sprint": 0.0208,
+    "attack": 0.1133,
+    "use": 0.0025
+   },
+   "cam_abs_mean": 2.912,
+   "episode": 2,
+   "world_seed": "536095522",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 24.9,
+   "inv_steps": {},
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.5458,
+    "back": 0.0433,
+    "left": 0.0542,
+    "right": 0.02,
+    "jump": 0.0833,
+    "sneak": 0.0167,
+    "sprint": 0.0283,
+    "attack": 0.0925,
+    "use": 0.0067
+   },
+   "cam_abs_mean": 3.617,
+   "episode": 3,
+   "world_seed": "633542943",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 29.7,
+   "inv_steps": {},
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.5767,
+    "back": 0.0025,
+    "left": 0.0425,
+    "right": 0.0317,
+    "jump": 0.0475,
+    "sneak": 0.0033,
+    "sprint": 0.0092,
+    "attack": 0.115,
+    "use": 0.0033,
+    "hotbar.3": 0.0008
+   },
+   "cam_abs_mean": 3.613,
+   "episode": 4,
+   "world_seed": "764689140",
+   "has_tree": true
+  }
+ ]
+}

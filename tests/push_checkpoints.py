@@ -49,6 +49,18 @@ MAPPING = [
     ("runs/checkpoints/bc_distill1_w05/acceptance.json", "vpt-bcdistill-pixeltower-v1-run1"),
     ("runs/checkpoints/bc_control_w0/best.pt", "vpt-bc-pixeltower-v1-run6"),  # w=0 对照(小池,定罪证据)
     ("runs/checkpoints/bc_control_w0/metrics.jsonl", "vpt-bc-pixeltower-v1-run6"),
+    # 蒸馏第二轮(2026-07-11 5090:init-from bc_vpt4 + KL w0.5;小池 12→41 段,闭环 0/5,
+    # 行为退化实锤——负结果存档,定罪证据)
+    ("runs/checkpoints/bc_distill2/best.pt", "vpt-bcdistill-pixeltower-v1-run2"),
+    ("runs/checkpoints/bc_distill2/last.pt", "vpt-bcdistill-pixeltower-v1-run2"),
+    ("runs/checkpoints/bc_distill2/metrics.jsonl", "vpt-bcdistill-pixeltower-v1-run2"),
+    # 2b=2 的续训(41 段小池发散判停,holdout 0.71→0.94,存档)
+    ("runs/checkpoints/bc_distill2b/best.pt", "vpt-bcdistill-pixeltower-v1-run3"),
+    ("runs/checkpoints/bc_distill2b/metrics.jsonl", "vpt-bcdistill-pixeltower-v1-run3"),
+    # 3=扩张池重开(init-from bc_vpt4,22G 池上限;在训,push 时点即档)
+    ("runs/checkpoints/bc_distill3/best.pt", "vpt-bcdistill-pixeltower-v1-run4"),
+    ("runs/checkpoints/bc_distill3/last.pt", "vpt-bcdistill-pixeltower-v1-run4"),
+    ("runs/checkpoints/bc_distill3/metrics.jsonl", "vpt-bcdistill-pixeltower-v1-run4"),
     # grpo run1(canonical 暖启动,Sonnet-low pairwise)已冻结在 HF run1 仓;
     # runs/grpo_pixel/tower.pt 是"最近一次 GRPO run"的活文件,不再映射 run1(防覆盖)。
     ("runs/grpo_pixel/metrics.jsonl", "craftground-grpo-pixeltower-v1-run1"),

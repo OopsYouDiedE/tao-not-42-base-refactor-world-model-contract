@@ -171,10 +171,16 @@ PAIR_RUBRIC_TMPL = """任务:{task}
 # ────────────────────────────────────────────────────── 慢塔
 
 class SlowTower:
-    """Omni(NVFP4,本地 vLLM)。读一帧 → 文本子目标 + 目标像素。"""
+    """Omni(NVFP4,本地 vLLM)。读一帧 → 文本子目标 + 目标像素。
+
+    vocab_snap:hindsight 词表 json 路径(空串关闭)。开启时把慢塔自由措辞的 subgoal
+    经 MiniLM 余弦最近邻投影回词表短语——goal 三臂对照(2026-07-11)实证:同一
+    checkpoint,词表内 goal 的 attack 占空比 ~0.55 vs 自由措辞 ~0.21 vs 零 goal ~0.13,
+    学生首块木头即来自词表内 goal;分布外文本只吃到 FiLM 通道一小半带宽。
+    """
 
     def __init__(self, base_url: str, encode_text, device: str, task: str = DEFAULT_TASK,
-                 model: str = MODEL):
+                 model: str = MODEL, vocab_snap: str = ""):
         self.client = OpenAI(base_url=base_url, api_key="EMPTY")
         self.model = model
         self.encode_text = encode_text
@@ -183,6 +189,20 @@ class SlowTower:
         self.cache: dict[str, torch.Tensor] = {}
         self.latencies: list[float] = []
         self.fails = 0
+        self.vocab_names: list[str] = []
+        self.vocab_mat: torch.Tensor | None = None        # [N,384] L2 归一
+        if vocab_snap:
+            vb = json.loads(Path(vocab_snap).read_text())
+            self.vocab_names = list(vb.keys())
+            m = torch.tensor(list(vb.values()), dtype=torch.float32)
+            self.vocab_mat = torch.nn.functional.normalize(m, dim=-1)
+
+    def _snap(self, subgoal: str) -> str:
+        """自由措辞 → 词表最近邻短语(嵌入同源 MiniLM,余弦)。"""
+        if self.vocab_mat is None or not subgoal:
+            return subgoal
+        v = torch.as_tensor(self.encode_text([subgoal])[0], dtype=torch.float32)
+        return self.vocab_names[int((self.vocab_mat @ v).argmax())]
 
     def _b64(self, rgb: np.ndarray) -> str:
         b = io.BytesIO()
@@ -213,6 +233,9 @@ class SlowTower:
         self.latencies.append(time.perf_counter() - t0)
 
         subgoal, aim = rep["subgoal"], rep["aim"]
+        if self.vocab_mat is not None and subgoal:
+            rep["subgoal_raw"] = subgoal               # 原话落盘,投影可審计
+            subgoal = rep["subgoal"] = self._snap(subgoal)
         if subgoal not in self.cache:
             v = self.encode_text([subgoal or "explore"])[0]
             self.cache[subgoal] = torch.as_tensor(v, dtype=torch.float32)
@@ -607,6 +630,8 @@ def main() -> None:
     ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     ap.add_argument("--slow-model", default=MODEL,
                     help="慢塔 served-model-name(Omni/Qwen-VL 可互换,契约不变)")
+    ap.add_argument("--goal-vocab-snap", default="runs/data/vpt_early_goal_vocab.json",
+                    help="慢塔 subgoal 最近邻投影回 hindsight 词表(goal 三臂对照定案);空串关闭")
     ap.add_argument("--groups", type=int, default=8)
     ap.add_argument("--per-group", type=int, default=4)
     ap.add_argument("--rollout-ticks", type=int, default=400)
@@ -679,8 +704,9 @@ def main() -> None:
     print(f"{type(tower).__name__} params = "
           f"{sum(p.numel() for p in tower.parameters()) / 1e6:.2f} M", flush=True)
 
+    snap = args.goal_vocab_snap if Path(args.goal_vocab_snap or "").exists() else ""
     slow = SlowTower(args.base_url, encode_text, device, task=args.task,
-                     model=args.slow_model)
+                     model=args.slow_model, vocab_snap=snap)
     rng = np.random.default_rng(0)
 
     for g in range(args.groups):

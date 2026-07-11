@@ -1,0 +1,144 @@
+{
+ "mode": "student",
+ "episodes": 5,
+ "got_log": 1,
+ "init_from": "runs/checkpoints/bc_vpt4/best.pt",
+ "ticks": 1200,
+ "ts": "2026-07-11 08:16:15",
+ "per_episode": [
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 14.0,
+   "inv_steps": {
+    "dirt": 38
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.1433,
+    "back": 0.0017,
+    "left": 0.0167,
+    "right": 0.0133,
+    "sneak": 0.0108,
+    "sprint": 0.005,
+    "attack": 0.7892,
+    "use": 0.0008
+   },
+   "cam_abs_mean": 0.724,
+   "episode": 0,
+   "world_seed": "143667987",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 20.6,
+   "inv_steps": {
+    "stick": 130,
+    "spruce_log": 615,
+    "dirt": 1039
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.3092,
+    "back": 0.0192,
+    "left": 0.0217,
+    "right": 0.0542,
+    "jump": 0.0075,
+    "sneak": 0.0192,
+    "sprint": 0.0208,
+    "attack": 0.62,
+    "use": 0.0075,
+    "hotbar.1": 0.0008,
+    "hotbar.4": 0.0008,
+    "hotbar.5": 0.0008,
+    "hotbar.8": 0.0008
+   },
+   "cam_abs_mean": 1.796,
+   "episode": 1,
+   "world_seed": "855858841",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 18.2,
+   "inv_steps": {
+    "dirt": 159,
+    "sweet_berries": 181
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.1983,
+    "back": 0.0117,
+    "left": 0.0017,
+    "right": 0.0208,
+    "jump": 0.04,
+    "sneak": 0.1083,
+    "sprint": 0.025,
+    "attack": 0.1625,
+    "use": 0.0267,
+    "inventory": 0.0008,
+    "hotbar.1": 0.0017,
+    "hotbar.2": 0.0033,
+    "hotbar.3": 0.0008,
+    "hotbar.5": 0.0008,
+    "hotbar.8": 0.0017
+   },
+   "cam_abs_mean": 3.322,
+   "episode": 2,
+   "world_seed": "536095522",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 22.0,
+   "inv_steps": {
+    "spruce_sapling": 559
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.2708,
+    "back": 0.015,
+    "left": 0.0192,
+    "right": 0.0517,
+    "jump": 0.0067,
+    "sneak": 0.0225,
+    "sprint": 0.0317,
+    "attack": 0.5025,
+    "use": 0.0225,
+    "hotbar.1": 0.0008
+   },
+   "cam_abs_mean": 2.082,
+   "episode": 3,
+   "world_seed": "633542943",
+   "has_tree": true
+  },
+  {
+   "mode": "student",
+   "ticks_run": 1200,
+   "sps": 19.1,
+   "inv_steps": {
+    "dirt": 347
+   },
+   "death_step": null,
+   "key_duty": {
+    "forward": 0.1808,
+    "back": 0.0025,
+    "left": 0.0092,
+    "right": 0.0567,
+    "jump": 0.0133,
+    "sneak": 0.0092,
+    "sprint": 0.0017,
+    "attack": 0.6817,
+    "use": 0.005,
+    "drop": 0.0008
+   },
+   "cam_abs_mean": 1.547,
+   "episode": 4,
+   "world_seed": "764689140",
+   "has_tree": true
+  }
+ ]
+}

@@ -142,7 +142,7 @@ def run_episode(env, teacher, no_op, mode: str, ticks: int, rng, quant) -> dict:
 
 def run_student_episode(env, student, no_op, ticks: int, device: str,
                         goal_text: str = "", slow_url: str = "",
-                        slow_model: str = "") -> dict:
+                        slow_model: str = "", vocab_snap: str = "") -> dict:
     """学生闭环(蒸馏验收锚点)。复用 grpo_pixel.rollout 的部署路径。
 
     goal 三臂:零 goal(默认)/固定词表短语(--goal-text)/真慢塔(--slow-url)。
@@ -153,7 +153,7 @@ def run_student_episode(env, student, no_op, ticks: int, device: str,
         from sentence_transformers import SentenceTransformer
         st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
         slow = SlowTower(slow_url, lambda xs: st.encode(xs, normalize_embeddings=True),
-                         device, model=slow_model)
+                         device, model=slow_model, vocab_snap=vocab_snap)
     elif goal_text:
         from sentence_transformers import SentenceTransformer
         st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
@@ -206,6 +206,8 @@ def main() -> None:
     ap.add_argument("--slow-url", default="",
                     help="student 模式:真慢塔 base_url(测部署分布 goal 干预);与 --goal-text 互斥")
     ap.add_argument("--slow-model", default="qwen3_vl_8b_fp8")
+    ap.add_argument("--vocab-snap", default="",
+                    help="慢塔臂:词表投影 json 路径(第四臂,验证 SlowTower.vocab_snap)")
     ap.add_argument("--tag", default="", help="student 模式结果文件后缀(默认取 ckpt 目录名)")
     ap.add_argument("--model", default="runs/data/models/vpt_teacher/2x.model")
     ap.add_argument("--weights",
@@ -254,7 +256,8 @@ def main() -> None:
         if args.mode == "student":
             r = run_student_episode(env, student, no_op_v2, args.ticks, args.device,
                                     goal_text=args.goal_text, slow_url=args.slow_url,
-                                    slow_model=args.slow_model)
+                                    slow_model=args.slow_model,
+                                    vocab_snap=args.vocab_snap)
         else:
             r = run_episode(env, teacher, no_op_v2, args.mode, args.ticks, rng, quant)
         env.close()

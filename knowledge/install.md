@@ -23,6 +23,12 @@ uv pip install -e .[dev]  # 加开发工具
 
 1. **CraftGround 环境**(真 Minecraft Java 版):`obs["rgb"]` 取 RGB;headless 用
    Xvfb / 软渲染,根目录 `xorg.conf.headless` 备用。Colab 简单配置可跑。
+   **裸机首次构建的两个坑(2026-07-11 L4 实测)**:Minecraft 1.21 要 **Java 21**
+   且必须**完整版** `openjdk-21-jdk`——headless 版缺 AWT,cmake `FindJNI` 报
+   `missing: AWT` 直接构建失败;外加 GL 开发库(libgl1-mesa-dev/libglew-dev/
+   libglu1-mesa-dev/libglfw3-dev,install_env.py 的清单)。启动带
+   `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`。首次构建约 3 分钟,
+   首次 reset 全程 ~166s。
 2. **Omni 慢塔(NVFP4,本地 vLLM)**:启动脚本 `tests/serve_omni_nvfp4.sh`,
    四个 sm_120(RTX 5090)问题的修复已内联进脚本;实测口径见
    `knowledge/conclusion_omni_nvfp4_5090.md`(权重 21.5GiB / TTFT 0.154s)。

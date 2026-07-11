@@ -140,19 +140,47 @@ def run_episode(env, teacher, no_op, mode: str, ticks: int, rng, quant) -> dict:
                 frames=frames_ev)
 
 
-def run_student_episode(env, student, no_op, ticks: int, device: str) -> dict:
-    """学生零 goal 闭环(蒸馏验收锚点)。复用 grpo_pixel.rollout 的部署路径。"""
-    from train.craftground.grpo_pixel import rollout, parse_slow_reply
+def run_student_episode(env, student, no_op, ticks: int, device: str,
+                        goal_text: str = "", slow_url: str = "",
+                        slow_model: str = "") -> dict:
+    """学生闭环(蒸馏验收锚点)。复用 grpo_pixel.rollout 的部署路径。
 
-    class _ZeroSlow:                                  # 零指导桩:goal=0 向量,不联网
-        latencies: list = []
-        fails = 0
+    goal 三臂:零 goal(默认)/固定词表短语(--goal-text)/真慢塔(--slow-url)。
+    """
+    from train.craftground.grpo_pixel import rollout, parse_slow_reply, SlowTower
 
-        def __call__(self, rgb, state=""):
-            return (torch.zeros(384 + 2, device=device), parse_slow_reply(""))
+    if slow_url:
+        from sentence_transformers import SentenceTransformer
+        st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
+        slow = SlowTower(slow_url, lambda xs: st.encode(xs, normalize_embeddings=True),
+                         device, model=slow_model)
+    elif goal_text:
+        from sentence_transformers import SentenceTransformer
+        st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
+        v = torch.as_tensor(st.encode([goal_text], normalize_embeddings=True)[0],
+                            dtype=torch.float32)
+        fixed = torch.cat([v, torch.tensor([0.5, 0.5])]).to(device)
+
+        class _FixedSlow:                             # 词表内固定 goal(aim=画面中心)
+            latencies: list = []
+            fails = 0
+
+            def __call__(self, rgb, state=""):
+                rep = parse_slow_reply("")
+                rep["subgoal"] = goal_text
+                return (fixed, rep)
+        slow = _FixedSlow()
+    else:
+        class _ZeroSlow:                              # 零指导桩:goal=0 向量,不联网
+            latencies: list = []
+            fails = 0
+
+            def __call__(self, rgb, state=""):
+                return (torch.zeros(384 + 2, device=device), parse_slow_reply(""))
+        slow = _ZeroSlow()
 
     t0 = time.time()
-    r = rollout(env, student, _ZeroSlow(), no_op, np.random.default_rng(0),
+    r = rollout(env, student, slow, no_op, np.random.default_rng(0),
                 ticks, device, temp=1.0)
     n = int(r["imgs"].shape[0]) if hasattr(r["imgs"], "shape") else ticks
     keys = np.asarray(r["keys"])                      # [T, 20]
@@ -173,6 +201,11 @@ def main() -> None:
     ap.add_argument("--mode", default="joint", choices=["joint", "marginal", "student"])
     ap.add_argument("--init-from", default="",
                     help="student 模式:PixelTower checkpoint(零 goal 闭环,蒸馏验收锚点)")
+    ap.add_argument("--goal-text", default="",
+                    help="student 模式:固定 goal 短语(MiniLM 编码+aim 中心;测词表内 goal 干预)")
+    ap.add_argument("--slow-url", default="",
+                    help="student 模式:真慢塔 base_url(测部署分布 goal 干预);与 --goal-text 互斥")
+    ap.add_argument("--slow-model", default="qwen3_vl_8b_fp8")
     ap.add_argument("--tag", default="", help="student 模式结果文件后缀(默认取 ckpt 目录名)")
     ap.add_argument("--model", default="runs/data/models/vpt_teacher/2x.model")
     ap.add_argument("--weights",
@@ -219,7 +252,9 @@ def main() -> None:
                 break
             env.close()
         if args.mode == "student":
-            r = run_student_episode(env, student, no_op_v2, args.ticks, args.device)
+            r = run_student_episode(env, student, no_op_v2, args.ticks, args.device,
+                                    goal_text=args.goal_text, slow_url=args.slow_url,
+                                    slow_model=args.slow_model)
         else:
             r = run_episode(env, teacher, no_op_v2, args.mode, args.ticks, rng, quant)
         env.close()

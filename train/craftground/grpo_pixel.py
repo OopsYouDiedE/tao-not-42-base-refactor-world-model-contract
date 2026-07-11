@@ -92,8 +92,13 @@ current game frame.
 
 Answer with ONE line of JSON and nothing else:
 {"prev_done": true|false, "decision": "continue|switch|replan",
- "subgoal": "<short imperative, <=6 words>", "aim": [X, Y],
+ "subgoal": "<verb> <item>", "aim": [X, Y],
  "done_when": "<machine-checkable condition, <=8 words>"}
+
+- "subgoal" MUST be exactly two tokens: a verb from {mine, collect, craft, open,
+  close, use, drop, kill} + one specific block/item name in snake_case,
+  e.g. "mine oak_log", "collect dirt", "craft crafting_table", "open inventory".
+  This is the controller's trained goal language; free-form phrases are ignored by it.
 
 - "prev_done": whether YOUR previous subgoal (shown in STATE) is now achieved.
 - "decision": continue = keep previous subgoal; switch = new target; replan = stuck, change approach.
@@ -197,12 +202,18 @@ class SlowTower:
             m = torch.tensor(list(vb.values()), dtype=torch.float32)
             self.vocab_mat = torch.nn.functional.normalize(m, dim=-1)
 
+    SNAP_MIN_COS = 0.6   # 低于此相似度不投影(裸投影实测把 "chop down the tree" 投成
+                         # "drop wooden axe"@0.49——错误注入比不投更糟;配套修法是
+                         # SLOW_SYSTEM 要求 "<verb> <item>" 词表语言,投影只做规范化)
+
     def _snap(self, subgoal: str) -> str:
-        """自由措辞 → 词表最近邻短语(嵌入同源 MiniLM,余弦)。"""
+        """慢塔措辞 → 词表最近邻短语(嵌入同源 MiniLM,余弦;低置信保留原话)。"""
         if self.vocab_mat is None or not subgoal:
             return subgoal
         v = torch.as_tensor(self.encode_text([subgoal])[0], dtype=torch.float32)
-        return self.vocab_names[int((self.vocab_mat @ v).argmax())]
+        sims = self.vocab_mat @ v
+        i = int(sims.argmax())
+        return self.vocab_names[i] if float(sims[i]) >= self.SNAP_MIN_COS else subgoal
 
     def _b64(self, rgb: np.ndarray) -> str:
         b = io.BytesIO()

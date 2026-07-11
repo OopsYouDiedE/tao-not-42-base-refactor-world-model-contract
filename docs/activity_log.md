@@ -963,3 +963,24 @@ import 链与文档引用),主线执行:
   (帧,STATE) 固化成文件,两塔逐字节同输入重放;四项合规+延迟 p50/p95+显存)。
   Omni NVFP4 服务已验证可启(torch.compile 17.8s,权重加载 21.5GiB 复现),
   为让位 BC 优先级中途停服;Qwen3-VL-8B-FP8 权重下载中。结果待记。
+
+## 2026-07-11 06:3x–07:3x 教师闭环定罪(joint+marginal 双 5/5)+慢塔 A/B 定案+蒸馏续训
+
+- **教师闭环定罪实验(用户"如何让快慢塔真的工作"指令的第一刀)**:
+  `tests/eval_teacher_closedloop.py` 入库。joint 5/5 拿原木(170–458 tick,五种树种,
+  ep2 顺手 GUI 合成木板);marginal(蒸馏目标上限)5/5(85–356 tick;首跑 3 局被
+  会话误杀,补跑 2 局换 seed,如实入档)。判决:契约/环境无罪,蒸馏目标天花板够高,
+  病灶全在快塔策略侧(教师 attack 占空比 0.27–0.41 vs 学生 0.09–0.11)。
+  **蒸馏验收升级为学生闭环 got_log>0**。入 conclusion_fasttower_skill_ceiling 末节。
+- **慢塔 A/B 定案(§10.1 (d)(e) 缺口补测,→§10.2)**:同 32 题逐字节同输入,
+  两塔四项合规均 100%、0 失败;Omni p50 0.32s vs Qwen 1.48s(4.6×),
+  1Hz 慢塔节拍在 5090+Omni 首次成立。5090 默认塔维持 Omni;Qwen=共卡替补。
+  坑:Qwen FP8 在 sm_120 要 VLLM_USE_DEEP_GEMM=0(入 install.md)。
+- **标签公开数据仓(用户拍板)**:unjustify/vpt-craftground-labels-v1 首同步
+  128 npz+词表+池 manifest;许可边界=原始录像不再分发(VPT 数据无明示许可+
+  Minecraft IP,核查 openai/Video-Pre-Training 后定)。
+- **bc_distill2 中断与续训**:为给 Omni 腾显存停训(step15600,best/last 已存),
+  A/B 结束后以 --init-from last.pt 续训到 bc_distill2b(新目录防 best.pt 被
+  新 run 首个 eval 覆盖);优化器状态未保存属训练器现状,如实记。池 41 段。
+- 误杀事故记录:按 PID 批杀时误杀 marginal 评测进程(ep2 后)——先读 ps 再 kill,
+  两步分开做,教训入本条。

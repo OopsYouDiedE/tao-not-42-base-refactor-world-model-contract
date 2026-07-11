@@ -496,5 +496,503 @@
     "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [412, 345], \"done_when\": \"tree is fully chopped down\"}"
    }
   ]
+ },
+ "omni_nvfp4_5090": {
+  "agg": {
+   "tag": "omni_nvfp4_5090",
+   "serve_model": "nemotron_3_nano_omni",
+   "n": 32,
+   "json_ok": 1.0,
+   "one_line": 1.0,
+   "aim_in": 1.0,
+   "dec_ok": 1.0,
+   "call_fail": 0,
+   "lat_p50": 0.31996964145218953,
+   "lat_p95": 0.3631145634950371,
+   "gpu_mem_mib": 27187,
+   "ts": "2026-07-11 07:25:08"
+  },
+  "rows": [
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "find tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_000",
+    "latency_s": 5.179566517996136,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"find tree\", \"aim\": [500, 500], \"done_when\": \"tree in sight\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "walk to nearest tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_001",
+    "latency_s": 0.32576416700612754,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"walk to nearest tree\", \"aim\": [500, 500], \"done_when\": \"reached tree\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "walk to nearest tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_002",
+    "latency_s": 0.3123620389960706,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"walk to nearest tree\", \"aim\": [500, 500], \"done_when\": \"reach tree\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "walk to nearest tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_003",
+    "latency_s": 0.3172252229996957,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"walk to nearest tree\", \"aim\": [500, 500], \"done_when\": \"reached tree\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "walk to nearest tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_004",
+    "latency_s": 0.3124667590018362,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"walk to nearest tree\", \"aim\": [500, 500], \"done_when\": \"reach tree\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "walk to nearest tree",
+    "aim": [
+     500.0,
+     600.0
+    ],
+    "decision": "continue",
+    "item": "item_005",
+    "latency_s": 0.33432723296573386,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"walk to nearest tree\", \"aim\": [500, 600], \"done_when\": \"reach tree trunk\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "walk to nearest tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_006",
+    "latency_s": 0.3109986810013652,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"walk to nearest tree\", \"aim\": [500, 500], \"done_when\": \"reach tree\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_007",
+    "latency_s": 0.3235649859998375,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     495.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_008",
+    "latency_s": 0.3223511099931784,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [495, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_009",
+    "latency_s": 0.31824349804082885,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     450.0,
+     450.0
+    ],
+    "decision": "continue",
+    "item": "item_010",
+    "latency_s": 0.3266115610022098,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [450, 450], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     480.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_011",
+    "latency_s": 0.3193580939550884,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [480, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_012",
+    "latency_s": 0.3661747470032424,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_013",
+    "latency_s": 0.3327030829968862,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_014",
+    "latency_s": 0.3244957200367935,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     495.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_015",
+    "latency_s": 0.3165798689587973,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [495, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_016",
+    "latency_s": 0.31368469301378354,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_017",
+    "latency_s": 0.309928844042588,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     495.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_018",
+    "latency_s": 0.32848556101089343,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [495, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     495.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_019",
+    "latency_s": 0.3137698540231213,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [495, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_020",
+    "latency_s": 0.3135804230114445,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_021",
+    "latency_s": 0.3606107769883238,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_022",
+    "latency_s": 0.32591178704751655,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_023",
+    "latency_s": 0.31173081300221384,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "find a tree to chop down",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_024",
+    "latency_s": 0.3149034890229814,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"find a tree to chop down\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_025",
+    "latency_s": 0.3154050120501779,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     350.0,
+     450.0
+    ],
+    "decision": "continue",
+    "item": "item_026",
+    "latency_s": 0.32058118894929066,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [350, 450], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     485.0,
+     495.0
+    ],
+    "decision": "continue",
+    "item": "item_027",
+    "latency_s": 0.3186290379962884,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [485, 495], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     495.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_028",
+    "latency_s": 0.34414186200592667,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [495, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_029",
+    "latency_s": 0.31864743900951,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     485.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_030",
+    "latency_s": 0.3260905870120041,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [485, 500], \"done_when\": \"tree chopped down\"}"
+   },
+   {
+    "json_ok": true,
+    "one_line": true,
+    "aim_in": true,
+    "dec_ok": true,
+    "subgoal": "chop down the tree",
+    "aim": [
+     500.0,
+     500.0
+    ],
+    "decision": "continue",
+    "item": "item_031",
+    "latency_s": 0.33383352699456736,
+    "raw": "{\"prev_done\": false, \"decision\": \"continue\", \"subgoal\": \"chop down the tree\", \"aim\": [500, 500], \"done_when\": \"tree chopped down\"}"
+   }
+  ]
  }
 }

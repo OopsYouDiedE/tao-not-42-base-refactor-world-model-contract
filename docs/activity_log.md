@@ -984,3 +984,13 @@ import 链与文档引用),主线执行:
   新 run 首个 eval 覆盖);优化器状态未保存属训练器现状,如实记。池 41 段。
 - 误杀事故记录:按 PID 批杀时误杀 marginal 评测进程(ep2 后)——先读 ps 再 kill,
   两步分开做,教训入本条。
+- **学生闭环基线定档(07:5x)**:bc_vpt4 与 bc_distill2 均 0/5;病灶细化为「对准树干的
+  持续按压」联合结构(bcvpt4 单局 duty 0.28 达教师域仍无 log;另局打树叶得 stick);
+  小池蒸馏行为退化实锤(0.04-0.12 劣于基线)。入 conclusion_fasttower_skill_ceiling。
+- **训练线换挡**:bc_distill2b 续训小池发散(holdout 0.71→0.94)判停;bc_distill3
+  (init-from bc_vpt4 + KL w0.5)在扩张池上重开。Omni 权重删除让位数据池
+  (要用重下),池上限 6→22G。
+- **下载器事故记录**:迁池后新旧两个下载器(cap 6/22)并存,旧进程持续按 6G 淘汰,
+  淘汰 267 段(seen 机制不回灌,索引存量足够);后均死亡未被发现——pgrep 误把自身
+  wrapper 计成下载器。已干净重启(cap 22)并挂增长/死亡监控。教训:验证后台进程
+  用 ps aux | grep [x],别用裸 pgrep -f 计数。

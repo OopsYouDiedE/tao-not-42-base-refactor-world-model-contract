@@ -166,10 +166,17 @@
    BC 暖启动的 attack 持续性与慢塔指导落地率,不是时长。判决入
    design_bitter_lesson §10.1 末段与 conclusion_fasttower_skill_ceiling「下一步」注记。
    下一步候选:BC 侧 attack 持续性强化 / 近树率诊断,优先于继续堆时长。
-5. **候选项（不阻塞）**：craftground 上游若修掉 ZEROCOPY 每帧 register/unregister，
+5. **里程碑接力起点课程（用户提出 2026-07-11，触发条件=首木 GRPO 起效后）**：
+   on-policy GRPO 恒从 t=0 荒野开局 ⇒ 深阶段技能的有效样本量随前缀成功率连乘塌缩
+   （"一直练出生点"问题）。对策：训练侧用 CraftGround `handleCommand`（give/tp）
+   构造分层起点组（"已有木头组"/"已有镐组"），与有树 seed 筛选同性质（实验设计层
+   特权，只进训练侧、预登记）；组内仍同起点同世界（判官可比性不变），奖励锚点按
+   课程层分段（有镐组只认 stone/iron）。BC/蒸馏线本就覆盖全阶段（人类数据），
+   此课程只服务 GRPO 精修的纵深扩展。
+6. **候选项（不阻塞）**：craftground 上游若修掉 ZEROCOPY 每帧 register/unregister，
    env.step 的 4.3 ms 差距还会缩小；CraftGround 全无 X 渲染需上游 mixin/GLFW 特性，
    估数天级且收益存疑（Xorg 路径已通）。
-6. **待用户复核的清理边界项**（prune3，清单 `runs/prune3_manifest.md`）：
+7. **待用户复核的清理边界项**（prune3，清单 `runs/prune3_manifest.md`）：
    - Godot 线：`train/godot_meta_rl/vec_env.py` + `utils/godot_rl/*` 是 assets 禁触子系统的
      唯一驱动桥。**用户 2026-07-10 裁决：保留（未来可能启用），本复核项关闭。**
    - `train/craftground/action_contract.py:22` 指向已删 vpt_lib 的注释：该文件属硬禁触区未改，

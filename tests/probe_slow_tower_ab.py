@@ -75,13 +75,17 @@ def collect(args) -> None:
     from net.pixel_tower import PixelTowerConfig, build_pixel_tower
     from train.craftground.grpo_pixel import rollout
 
+    from train.craftground.action_contract import CAM_BINS as _CB, V2_KEYS as _VK
+    from train.craftground.grpo_pixel import IMG_HW
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     rng = np.random.default_rng(args.seed)
-    cfg = PixelTowerConfig()
+    cfg = PixelTowerConfig(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(_VK),
+                           camera_bins=_CB)                # 与 grpo_pixel v1 同契约
     tower = build_pixel_tower(cfg).to(device)
     if args.init_from:
         ck = torch.load(args.init_from, map_location=device, weights_only=True)
-        tower.load_state_dict(ck["model"])
+        tower.load_state_dict(ck["tower"])
         print(f"init from {args.init_from} (bc_step={ck.get('step')})", flush=True)
     st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
     encode_text = lambda xs: st.encode(xs, normalize_embeddings=True)  # noqa: E731

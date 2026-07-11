@@ -34,6 +34,11 @@ uv pip install -e .[dev]  # 加开发工具
    `knowledge/conclusion_omni_nvfp4_5090.md`(权重 21.5GiB / TTFT 0.154s)。
 3. **Haiku 判官**:`claude` CLI(`claude -p --model haiku`),判官读图依赖 Read 权限,
    图片路径必须在工作区内(见 `docs/next_session.md §6` 的 fallback 陷阱)。
+4. **Qwen3-VL-8B-FP8 慢塔在 sm_120(RTX 5090)的坑(2026-07-11 实测)**:vLLM 0.24 对
+   FP8 W8A8 默认选 DeepGEMM 后端,sm_120 上加载即断言崩溃
+   `deepgemm layout.hpp:59: Unknown SF transformation`——起服加 `VLLM_USE_DEEP_GEMM=0`
+   即可(回退 cutlass/triton 路径,功能无损)。L4(sm_89)无此问题但有 flashinfer
+   采样器 ninja JIT 坑(`VLLM_USE_FLASHINFER_SAMPLER=0`,见 activity_log 2026-07-10)。
 
 另:MiniLM 句向量(`sentence-transformers/all-MiniLM-L6-v2`)随核心依赖自动可用;
 DINOv3 权重 gated,需 HF token(见 `net/backbone.py` 与 `utils/io.py` 的 HF_TOKEN 说明),

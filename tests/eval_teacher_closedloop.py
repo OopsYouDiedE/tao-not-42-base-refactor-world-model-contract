@@ -140,11 +140,40 @@ def run_episode(env, teacher, no_op, mode: str, ticks: int, rng, quant) -> dict:
                 frames=frames_ev)
 
 
+def run_student_episode(env, student, no_op, ticks: int, device: str) -> dict:
+    """学生零 goal 闭环(蒸馏验收锚点)。复用 grpo_pixel.rollout 的部署路径。"""
+    from train.craftground.grpo_pixel import rollout, parse_slow_reply
+
+    class _ZeroSlow:                                  # 零指导桩:goal=0 向量,不联网
+        latencies: list = []
+        fails = 0
+
+        def __call__(self, rgb, state=""):
+            return (torch.zeros(384 + 2, device=device), parse_slow_reply(""))
+
+    t0 = time.time()
+    r = rollout(env, student, _ZeroSlow(), no_op, np.random.default_rng(0),
+                ticks, device, temp=1.0)
+    n = int(r["imgs"].shape[0]) if hasattr(r["imgs"], "shape") else ticks
+    keys = np.asarray(r["keys"])                      # [T, 20]
+    duty = {k: round(float(keys[:, i].mean()), 4)
+            for i, k in enumerate(V2_KEYS) if keys[:, i].any()}
+    return dict(mode="student", ticks_run=int(keys.shape[0]),
+                sps=round(keys.shape[0] / (time.time() - t0), 1),
+                inv_steps=dict(r["inv_steps"]), death_step=r["death_step"],
+                key_duty=duty,
+                cam_abs_mean=round(float(np.abs(np.asarray(r["cam_deg"])).sum(-1).mean()), 3),
+                frames=r["frames"])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--episodes", type=int, default=5)
     ap.add_argument("--ticks", type=int, default=1200)
-    ap.add_argument("--mode", default="joint", choices=["joint", "marginal"])
+    ap.add_argument("--mode", default="joint", choices=["joint", "marginal", "student"])
+    ap.add_argument("--init-from", default="",
+                    help="student 模式:PixelTower checkpoint(零 goal 闭环,蒸馏验收锚点)")
+    ap.add_argument("--tag", default="", help="student 模式结果文件后缀(默认取 ckpt 目录名)")
     ap.add_argument("--model", default="runs/data/models/vpt_teacher/2x.model")
     ap.add_argument("--weights",
                     default="runs/data/models/vpt_teacher/rl-from-foundation-2x.weights")
@@ -157,7 +186,22 @@ def main() -> None:
     from craftground.environment.action_space import no_op_v2
     rng = np.random.default_rng(args.seed)
     quant = CameraQuantizer(**TEACHER_CAM_KWARGS)
-    teacher = VPTTeacher(args.model, args.weights, device=args.device)
+    teacher = student = None
+    if args.mode == "student":
+        # 学生零 goal 闭环 = 蒸馏验收锚点(got_log>0 才算起效);复用 grpo_pixel.rollout,
+        # 慢塔用零指导桩(goal=0 向量),自标定照跑——与 GRPO 部署路径同代码。
+        from net.pixel_tower import PixelTowerConfig, build_pixel_tower
+        from train.craftground.grpo_pixel import IMG_HW
+        from train.craftground.action_contract import CAM_BINS
+        assert args.init_from, "student 模式必须 --init-from"
+        cfg = PixelTowerConfig(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(V2_KEYS),
+                               camera_bins=CAM_BINS)
+        student = build_pixel_tower(cfg).to(args.device)
+        ck = torch.load(args.init_from, map_location=args.device, weights_only=True)
+        student.load_state_dict(ck["tower"])
+        print(f"student init {args.init_from} (bc_step={ck.get('step')})", flush=True)
+    else:
+        teacher = VPTTeacher(args.model, args.weights, device=args.device)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     results = []
@@ -174,10 +218,15 @@ def main() -> None:
             if has_tree or att == args.seed_tries - 1:
                 break
             env.close()
-        r = run_episode(env, teacher, no_op_v2, args.mode, args.ticks, rng, quant)
+        if args.mode == "student":
+            r = run_student_episode(env, student, no_op_v2, args.ticks, args.device)
+        else:
+            r = run_episode(env, teacher, no_op_v2, args.mode, args.ticks, rng, quant)
         env.close()
         frames = r.pop("frames")
-        contact_sheet(frames, OUT_DIR / f"{args.mode}_ep{ep}.png")
+        tag = args.tag or (Path(args.init_from).parent.name if args.init_from else args.mode)
+        name = tag if args.mode == "student" else args.mode
+        contact_sheet(frames, OUT_DIR / f"{name}_ep{ep}.png")
         r.update(episode=ep, world_seed=wseed, has_tree=has_tree)
         results.append(r)
         logs = {k: v for k, v in r["inv_steps"].items() if "log" in k}
@@ -186,9 +235,12 @@ def main() -> None:
               f"logs={logs or '无'} inv={list(r['inv_steps'])}", flush=True)
 
     got_log = sum(any("log" in k for k in r["inv_steps"]) for r in results)
+    tag = args.tag or (Path(args.init_from).parent.name if args.init_from else args.mode)
+    name = tag if args.mode == "student" else args.mode
     agg = dict(mode=args.mode, episodes=len(results), got_log=got_log,
+               init_from=args.init_from or None,
                ticks=args.ticks, ts=time.strftime("%F %T"), per_episode=results)
-    out = Path(f"docs/results/teacher_closedloop_{args.mode}.json")
+    out = Path(f"docs/results/teacher_closedloop_{name}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(agg, ensure_ascii=False, indent=1))
     print(f"== {args.mode}: {got_log}/{len(results)} episodes 拿到 log → {out}", flush=True)

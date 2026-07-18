@@ -7,7 +7,7 @@ metadata:
 
 # 实验索引(2026-07-07 夜 – 07-08,数字核自 runs/*.json;含 07-08 结论有效性审计)
 
-退役结构的压缩档案见 [[fovea-twotower-campaign-archive]]；可复用教训见 `knowledge/lessons_do_not_retry.md`。
+退役结构的压缩档案见 [[fovea-twotower-campaign-archive]]；可复用教训见 `knowledge/README.md`。
 闭环指标口径:err_p1/p2 = 切换前/后对指令目标的中位角误差(deg);switch = 切换后
 30 步内(或稳态)对新目标中位 <12° 的局占比;arrive = 末 30 步内距目标 ≤2.8 格的局占比。
 

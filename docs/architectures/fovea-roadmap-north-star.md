@@ -1,5 +1,5 @@
 > ⚠️ 部分废弃(2026-07-10 封存):终点目标与 MC 路线知识(下界与钻石解耦/村庄铁傀儡/放置课程阶梯)仍有效;但训练信号设计(双塔+宏 raycast+手工里程碑深度分/过程分)已随 2026-07-09 退役,且被 next_session §6 纪律明令禁止,勿照做。
-> 现行入口:docs/next_session.md + knowledge/design_bitter_lesson_map_integration.md。
+> 现行入口:docs/next_session.md + knowledge/README.md。
 
 # 北极星路线图：多样化成就 · 铁与钻石 · 进入下界（· 刷铁机）
 

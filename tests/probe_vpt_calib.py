@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """VPT 真实数据上的键位无关离线标定探针(net/calibration.fit_action_flow_map 的实测验收)。
 
-⚠ 实测结论(2026-07-10,负结果,已录 knowledge/lessons_do_not_retry.md):
+⚠ 实测结论(2026-07-10,负结果,已录 knowledge/README.md §4):
     人类录像上单帧**全局**相位相关不可靠——静态覆盖层(HUD/F3 调试屏/手持地图)把
     全局峰锁死在零位移;快转头帧运动模糊使世界纹理弱于覆盖层。实测增益衰减 ~7×
     (deg/mouse_px 0.021 vs 官方约定 0.15),相机主导帧(|dx|>30)的流比值中位数≈0.0028;

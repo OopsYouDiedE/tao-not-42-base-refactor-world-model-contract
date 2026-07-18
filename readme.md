@@ -2,11 +2,10 @@
 
 游戏驱动的快速迁移模型基座。在预训练底座上，通过数分钟自监督交互学习"动作在当前场景里会产生什么效果"，并以此为核心输出游戏实时指导信号。游戏是训练载体，不是最终产品。
 
-> **现状（2026-07）**：当前唯一在跑的主线是 **GRPO-Pixel 双塔线**（真 Minecraft / CraftGround）：
-> 从零像素快塔（20Hz）+ Omni 慢塔（1Hz 文本子目标 + 像素指点）+ Haiku 判官组内排序 + VPT 人类视频 BC 暖启动。
-> 早期的世界模型线（Δz-JEPA / RSSM / DreamerV3 / Dreamer4）已整线退役删除（git 历史可查）；
-> 其设计愿景保留在 [knowledge/mental_world.md](knowledge/mental_world.md)，外部版图调研保留在
-> [knowledge/world_model_landscape.md](knowledge/world_model_landscape.md)。
+> **现状（2026-07）**：当前运行主线是 **GRPO-Pixel 双塔线**（真 Minecraft / CraftGround）：
+> 默认 v1 像素快塔，也可选择已接通 GRPO 的 v2 DINO+地图快塔；低频视觉语言模型提供子目标与像素指点，
+> VPT 人类视频与教师分布提供动作先验，成对判官负责偏好精修。早期世界模型和 YOLOE 路线已退役，
+> 仍有效的设计与实验结论统一收敛在 [knowledge/README.md](knowledge/README.md)。
 
 ---
 
@@ -22,7 +21,7 @@ uv pip install -e .[dev]  # 加开发工具
 ```
 
 当前主线的三个运行时依赖（CraftGround 环境 / Omni 慢塔 / Haiku 判官）与冒烟自检见
-**[knowledge/install.md](knowledge/install.md)**。
+**[knowledge/README.md](knowledge/README.md)**。
 
 ---
 
@@ -36,7 +35,7 @@ uv pip install -e .[dev]  # 加开发工具
 - **特权信息只进训练侧**：raycast / env pose 只用于标定与评测，不进部署回路。
 - **自标定**：分辨率 / FOV / 相机增益 / 步速是环境参数不是代码常量，开局探针实测（`net/calibration.py`）。
 
-完整定稿设计见 [knowledge/design_bitter_lesson_map_integration.md](knowledge/design_bitter_lesson_map_integration.md)（§6–§12）。
+完整设计、证据、停止规则与运行约束见 [knowledge/README.md](knowledge/README.md)。
 
 ---
 
@@ -70,7 +69,7 @@ runs/              下载数据 / checkpoints / 日志  [gitignored]
 ## 环境
 
 - **生产（训练）**：Linux + CUDA。核心依赖经 `pip install -e .` 安装；
-  CraftGround 另需 Java 21 与 X 渲染（见 [knowledge/install.md](knowledge/install.md)）。
+  CraftGround 另需 Java 21 与 X 渲染（见 [knowledge/README.md](knowledge/README.md)）。
 - **开发（测试 + net 前向）**：Windows + CUDA 同样可跑——Mamba 已弃用，不再有平台限制。
 - DINOv3 权重受访问限制：需 HuggingFace token，经 Colab Secret（`HF_TOKEN`）或仓库根 `.env` 注入
   （`utils/io.py` 的 `get_hf_token`）。无 token 时使用开放权重 dinov2 预设。
@@ -91,7 +90,7 @@ python train/craftground/grpo_pixel.py --init-from runs/checkpoints/bc_vpt/best.
 ```
 
 渲染路径选型（Xvfb / Xorg+RAW / ZEROCOPY）实测口径见
-[knowledge/conclusion_craftground_run.md](knowledge/conclusion_craftground_run.md) §3。
+[knowledge/README.md](knowledge/README.md) §3。
 
 ---
 
@@ -109,13 +108,6 @@ python -m pytest tests/unit/                       # 当前运行时与定稿未
 |---|---|
 | [AGENTS.md](AGENTS.md) | 助手约束与代码规范：I1–I8、生产纯净、SSOT、放置 / 写作 / 拆分合并 |
 | [docs/next_session.md](docs/next_session.md) | 现行交接单：现行结论 / 待办 / 纪律 |
-| [knowledge/design_bitter_lesson_map_integration.md](knowledge/design_bitter_lesson_map_integration.md) | 定稿设计（§6–§12）：接口 / 视觉前端 / 地图 / 慢塔会话 / 训练顺序 |
-| [knowledge/arch_current.md](knowledge/arch_current.md) | 当前在跑结构的数学契约（file:line 级） |
-| [knowledge/status_built_not_wired.md](knowledge/status_built_not_wired.md) | 已建成未接线部件清单（接线判据 + file:line） |
-| [knowledge/install.md](knowledge/install.md) | 安装指南（当前主线三运行时依赖 + 冒烟自检） |
-| [knowledge/lessons_do_not_retry.md](knowledge/lessons_do_not_retry.md) | 负结果登记表（方案本身不成立的路线，提案前检索） |
-| [knowledge/papers_in_use.md](knowledge/papers_in_use.md) | 当前在用的外部成果清单（部件 × 成果对照） |
-| [knowledge/mental_world.md](knowledge/mental_world.md) | 设计愿景与诚实边界（宏观架构、算法意图） |
-| [knowledge/world_model_landscape.md](knowledge/world_model_landscape.md) | 世界模型外部版图调研与设计对照 |
+| [knowledge/README.md](knowledge/README.md) | 唯一知识库：现行架构、决策证据、停止规则、实现边界、安装与重放契约 |
 
 Godot 子系统文档见 [assets/godot_meta_rl/README.md](assets/godot_meta_rl/README.md)。

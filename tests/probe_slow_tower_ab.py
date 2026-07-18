@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """慢塔候选同口径 A/B 探针(5090):契约合规四项 + 延迟,考题一次采集、逐塔重放。
 
-背景:design_bitter_lesson_map_integration.md §10.1 只有 Qwen3-VL-8B-FP8 在 L4 的
-合规率(当时为临时代码,未入库);Omni 本尊的同口径数字一直缺位。本脚本把考题
+背景与选型见 knowledge/README.md §3、§6.2。本脚本把考题
 固化成文件,保证两塔看到逐字节相同的 (frame, STATE) 输入。
 
 用法:

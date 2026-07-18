@@ -13,14 +13,14 @@
 rl-from-foundation-2x 离线打标(train/minecraft/vpt_teacher.py,含契约翻译),
 无教师标签的 tick 掩码跳过;goal 机制(hindsight 标签 + --goal-drop)原样保留。
 
-依据(受控实证,conclusion_fasttower_skill_ceiling.md):GRPO 两次起效都从 BC 暖启动
+依据（见 knowledge/README.md §2.2、§3）：GRPO 两次起效都从 BC 暖启动
 起跑(可见目标 0.50→0.81);从随机初始化直接 GRPO 的监督带宽差 4~5 个数量级
 (design_bitter_lesson §1.1)。本训练器把 VPT 承包商数据边缘化到 CraftGround V2 契约:
 
   相机:jsonl mouse dx/dy(px)× 0.15 deg/px → /CAM_MAX_DEG 归一 → mu-law 11 bins。
     0.15 = 上游 openai/Video-Pre-Training run 代码的 CAMERA_SCALER=360/2400,是该
     数据集的**格式常量**(schema 知识,非注入物理先验;光流自标定在人类录像上被
-    静态覆盖层污染,见 lessons_do_not_retry"感知先验与表征"节)。
+    静态覆盖层污染，见 knowledge/README.md §4)。
   键位:VPT_KEYS → V2_KEYS 逐名置换(w→forward / s→back / a→left / d→right,余同序)。
   口径:T=1 + 帧堆叠 S=4、goal=hindsight relabel 真标签(train/minecraft/
     hindsight_relabel.py 事件倒推;无标签 tick 全零,有标签 tick 以 --goal-drop

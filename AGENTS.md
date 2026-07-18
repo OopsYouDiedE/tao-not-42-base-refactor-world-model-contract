@@ -50,7 +50,7 @@ python tests/download_vpt_data.py --roll all_6xx_Jun_29,all_8xx_Jun_29,all_9xx_J
 nohup bash scripts/label_loop.sh > runs/label_loop.log 2>&1 &
 
 # 5) BC/蒸馏训练——参数配方读 docs/next_session.md §2,勿凭记忆
-# 6) CraftGround(要 GRPO 时):完整版 JDK21 + GL 开发库(knowledge/install.md §2),
+# 6) CraftGround(要 GRPO 时):完整版 JDK21 + GL 开发库(knowledge/README.md §6),
 #    显示服务 bash scripts/gpu_run.sh(Xorg GPU 失败会自动回退 Xvfb 软渲染,能跑但慢)
 # 7) 慢塔起服:按 0.3 选型;判官要 claude CLI 且图片路径必须在工作区内(next_session §6)
 ```
@@ -75,7 +75,7 @@ EngineCore 子进程并清 `/tmp/tmpxft_*`（JIT 中断残留可达数 G）。
 - 所有项目文档（`.md` 文件）必须使用**中文**撰写和更新。
 - **SSOT 原则**：代码是逻辑的唯一事实来源。Markdown 只说明宏观架构、算法设计思路与物理含义，禁止在 Markdown 中描述容易变动的微观实现细节。
 - 所有 Class / Function 必须用 NumPy / Google 风格 Docstring 明确声明 Shape 和 Dtype 契约。
-- 任何对 `net/` 或 `train/` 的目录结构、类名、核心方法签名的修改，**必须同步更新** `knowledge/` 中对应专题（如 `arch_current.md` / `status_built_not_wired.md`）。
+- 任何对 `net/` 或 `train/` 的目录结构、类名、核心方法签名的修改，若影响跨模块架构或运行契约，**必须同步更新**唯一知识库 `knowledge/README.md` 的对应章节。
 - 废弃模块必须**物理删除**原文件，禁止留空文件或仅写注释，并在 commit message 中明确描述迁移路径。
 - 每次完成一轮修改后必须提交一次 Git commit。
 
@@ -191,7 +191,7 @@ utils 横向供给各层；tests 依赖一切但不被依赖（离线脚本 / mo
 3. **注释分两类，物理隔离**：
    - **接口契约 / 不变量**（Shape、I1–I8、单位、为何 fp32）→ 留在代码紧邻处。
    - **设计动机 / "为什么这么改"**（成段的实验说明）→ 沉到 `knowledge/`，代码里只留
-     `# 见 knowledge/xxx.md §N` 一行指针。新增代码按此办；既有的成段注释逐步迁移，不强制一次清。
+     `# 见 knowledge/README.md §N` 一行指针。新增代码按此办；既有的成段注释逐步迁移，不强制一次清。
 4. **命名**：标识符英文、docstring/说明中文。**靠目录消歧，不靠前缀**——`net/` 下同类只有一个时用
    通用名而非领域前缀名。
 5. **import**：依赖一律写在**文件顶部**，禁止函数内跨模块借用（隐藏依赖）；禁止 `from x import *`
@@ -307,5 +307,3 @@ helper 下沉到二者的公共下游。
 ## 13. 已知技术债（待清，不阻塞）
 
 - `train/minecraft/vpt_dataset.py` 等文件头若仍保留成段设计叙事，按 §9.3 应逐步下沉到 `knowledge/`，代码留指针。
-- `knowledge/mental_world.md` 描述的部分内容（fovea/gaze 选择性读取等）是**尚未落地的设计愿景**，与当前
-  代码是"愿景 vs 现状"关系，已在该文顶部标注。

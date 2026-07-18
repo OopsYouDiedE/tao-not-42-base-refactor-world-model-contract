@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 启动 Nemotron-3-Nano-Omni NVFP4 的 vLLM OpenAI 服务(单卡 RTX 5090 32GB)。
 #
-# 环境前提(见 knowledge/conclusion_omni_nvfp4_5090.md §1):
+# 环境前提(见 knowledge/README.md §6.2):
 #   - 驱动 570.x ⇒ 最高 CUDA 12.8 ⇒ 必须用 cu129 轮子,PyPI 默认的 vllm/torch 是 cu13 构建,跑不起来
 #       pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
 #           --index-url https://download.pytorch.org/whl/cu129
@@ -14,7 +14,7 @@
 #   --max-num-seqs    384    -> 8       (慢系统 worker 并发极低,不需要大 batch)
 # 实测 KV cache 容量 289,408 token(fp8),故 --max-model-len 131072 仍有 2.2x 并发余量。
 # image 上限拉到 64:Lumine 式多帧历史要把 (图,动作) 对灌进上下文;一帧 640x360 仅 ~298 token,
-# 100 帧 ≈ 30k token,Mamba 的常数状态让"直接灌历史"成为可行选项(Lumine 指点复现探针已删,结论入档 knowledge/conclusion_omni_pixel_control.md)。
+# 100 帧 ≈ 30k token,Mamba 的常数状态让"直接灌历史"成为可行选项(Lumine 指点复现探针已删,结论入档 knowledge/README.md)。
 #
 # 坑:model card 的 "RTX Pro: append --moe-backend triton" **对 NVFP4 权重无效**——
 # triton 不在 NVFP4 MoE 的后端集合里,vLLM 直接 ValueError:
@@ -28,7 +28,7 @@
 # PTX JIT 吃不下 CUDA 12.9 的 PTX ⇒ 加载期 profile_run 直接
 #   torch.AcceleratorError: CUDA error: the provided PTX was compiled with an unsupported toolchain
 # LLM 主干不受影响(它选的是 FlashInfer,有预编译 cubin)。故必须把**编码器**注意力换掉。
-# 最小复现探针已删(prune3);sm_120 PTX 问题结论入档 knowledge/conclusion_omni_nvfp4_5090.md §1。
+# 最小复现探针已删(prune3);sm_120 PTX 问题结论入档 knowledge/README.md §6.2。
 #
 # 坑 3(同上环境):FlashInfer 需要为 sm_120 **JIT 编译** cutlass FP8 GEMM,但它的
 # _normalize_cuda_arch() 硬编码 "SM 12.x requires CUDA >= 12.9";本机系统 nvcc 是 12.8

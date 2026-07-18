@@ -37,7 +37,6 @@ class ContinuousTimeEncoding(nn.Module):
     ⚠️ 单位契约:Δt 必须以**帧**为单位喂入(预测跨度 / 距上次观测的帧数),不能传秒。
     频率组 div∈[1, 1e-4] 按整数帧量程标定(同原版 Transformer 正弦 PE);传秒级小量(如 0.05)
     会让所有通道角度趋近 0 ⇒ sin≈0、cos≈1,编码退化成常量、低频通道失效。
-    见 knowledge/mental_world.md §3。
     """
 
     def __init__(self, d):

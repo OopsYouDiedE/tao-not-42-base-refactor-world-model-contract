@@ -498,7 +498,7 @@ def main():
     if "craftground" in modules:
         print("  # Craftground 环境已就绪")
 
-    print("\n🔗 查看完整文档: knowledge/install.md")
+    print("\n🔗 查看完整文档: knowledge/README.md §6")
 
 
 if __name__ == "__main__":

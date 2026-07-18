@@ -3,7 +3,7 @@
 对外接口:
     DinoTokenizer — 冻结视觉骨干出 patch 特征网格,轻量 ConvDecoder 解回像素,只训解码头。
 
-设计意图(见 knowledge/mental_world.md、world_model_landscape.md):感知先验借**冻结 DINOv3**
+设计意图(见 knowledge/README.md §2.1):感知先验借**冻结 DINOv3**
 (不从零训编码器),但世界模型需**可解码隐空间**做重建/流匹配,故在冻结 patch 特征上另训一个
 小解码头。相较 net/dreamer4.Tokenizer 的从零 ConvEncoder,这里:
   · 编码器零训练、no_grad 前向(不存反向激活,便宜),故可放心用高分辨率取更细 patch 网格;

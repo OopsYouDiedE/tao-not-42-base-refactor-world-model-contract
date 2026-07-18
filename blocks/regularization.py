@@ -40,8 +40,7 @@ class SIGReg(nn.Module):
     来源:LeWM(github.com/lucas-maes/le-wm,见其 LICENSE)。
     思路:用随机单位方向把高维 embedding 投影成 1D,再用 Epps-Pulley 经验特征函数检验,
     把每个投影分布钉到标准正态 N(0,1)——目标实部 `E[cos(t·s)]=exp(-t²/2)`、虚部 `E[sin(t·s)]=0`。
-    单 GPU、无需 EMA target、无需负样本即可防坍缩。弃 Mamba 递归凸更新后,递归潜序列失去
-    结构性防坍缩保险,本正则近乎必需(见 knowledge/mental_world.md §5.2)。统计项,只进 loss、不进前向(I6 精神)。
+    单 GPU、无需 EMA target、无需负样本即可防坍缩。统计项只进入 loss，不进入前向（I6）。
 
     Args:
         knots: 梯形积分节点数(t∈[0,3])。

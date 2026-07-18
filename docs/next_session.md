@@ -7,17 +7,17 @@
 > 本单于 2026-07-10 重写为单一现行交接单：只保留现行结论（§1）、待办（§2）、
 > 已修必修项的验收记录（§3）与纪律（§6）。此前叠加的"已作废的设定"整节、
 > 旧设定逐行裁决表、路线待决点（已由用户裁决关闭）均已删除，git 历史可查。
-> 定稿设计的唯一入口：`knowledge/design_bitter_lesson_map_integration.md`（§6–§12）。
+> 稳定知识的唯一入口：`knowledge/README.md`；本文件只保留会话级状态与待办。
 
 ---
 
 ## 1. 现行结论（直接当结论用，勿重跑）
 
 - **心跳延迟**：85ms@1.5B / 94ms@2B-VL（448×256）。慢塔硬件预算基线。
-- **Omni NVFP4 慢塔在单卡 5090 原生可用**（2026-07-09 实测，`conclusion_omni_nvfp4_5090.md`）：
+- **Omni NVFP4 慢塔在单卡 5090 原生可用**（2026-07-09 实测，`knowledge/README.md`）：
   权重 21.5GiB、图像 TTFT 0.154s（热）、ASR WER 0、Crafter 帧语义与像素指点（2.2–5.4px）全部合格。
   四个 sm_120 问题的修复已内联进 `tests/serve_omni_nvfp4.sh`。**结论：感知/指点质量无损，
-  可自托管当 episode 级慢塔；但零样本不能当控制器**（`conclusion_omni_pixel_control.md`：
+  可自托管当 episode 级慢塔；但零样本不能当控制器**（`knowledge/README.md`：
   像素直控最好 4 块 vs 手写 39 块；病灶是"感知→动作不接"，相机连续标定符号/增益 LLM 无法完成）。
 - **I_gui**：16×16 灰度 + 逻辑回归判定 GUI 开合，准确率 99.91%。
 - **IPM 数学精确**（单测含解析几何精确值）。
@@ -33,21 +33,21 @@
   **N=20**（sweep 10/20/40 → 留出决策 acc 0.349/0.937/0.841）；留出决策 acc 0.937 / 格式合规 1.0。
 - **9B QLoRA 本地工具链**（R-F，PASS）：NF4 + LoRA（qkvo）反向跑通，loss 3.8→0.04，峰值 13.38GB。
   投影不能压 4bit 的结论成立；精度档位以实测为准：官方 NVFP4 里 Mamba `in_proj`/`out_proj` 是 **FP8**，
-  只有 `A_log`/`D`/`conv1d`/`dt_bias` 留 **BF16**（见 `conclusion_omni_nvfp4_5090.md §2`）。
+  只有 `A_log`/`D`/`conv1d`/`dt_bias` 留 **BF16**（见 `knowledge/README.md` §3）。
   NF4 硬压 Mamba 投影会触发 mamba-ssm 融合内核的 raw `F.linear` 报错，
   `llm_int8_skip_modules=[out_proj,conv1d,lm_head]`。
 - **稀疏键（E/背包/合成等）归慢塔**：视觉平均 BC 学不到稀疏+精准+零容差的关键动作
-  （`conclusion_fasttower_skill_ceiling.md`：合成闭环 0.00，BC holdout loss 0.0013 但只学到背景）。
-- **GRPO 起效的受控对照**（`conclusion_fasttower_skill_ceiling.md`，**决定 GRPO-Pixel 成败的核心先验**）：
+  （`knowledge/README.md`：合成闭环 0.00，BC holdout loss 0.0013 但只学到背景）。
+- **GRPO 起效的受控对照**（`knowledge/README.md`，**决定 GRPO-Pixel 成败的核心先验**）：
   GRPO 能否起效由"目标是否视觉可见（能否产生奖励信号）"决定——可见目标（木头）0.50→0.81，
   不可见目标（石头贴石头墙）0.31→0.06 退化；且两次都是从 **BC 暖启动**起跑。
   aim+attack+导航族从视觉 BC 全学得会（0.31–0.69）；合成 GUI 学不会（动作模态问题，非对齐问题）。
-- **渲染选型**（`conclusion_craftground_run.md §3/§3.1b`，L4 实测，复跑 `tests/bench_render_craftground.py`）：
+- **渲染选型**（`knowledge/README.md` §3，L4 实测，复跑 `tests/bench_render_craftground.py`）：
   端到端、无争抢口径下 **ZEROCOPY 最快**（107.2 sps，比 Xorg+RAW 快 41%，python 侧 CPU 低 8×）；
   采集与训练同卡并行时选 Xorg+RAW（37.3 vs 25.3 sps）。ZEROCOPY 必须先经
   `patch_craftground_native()`（craftground 2.6.15 两处上游 bug 的运行时 shim）。
   EGL 无 X 渲染：驱动层可用，CraftGround 栈不支持（缺口在 Minecraft/GLFW 窗口层，需上游特性）。
-- **VPT BC 暖启动第一批**（2026-07-10，`conclusion_fasttower_skill_ceiling.md` 末节）：
+- **VPT BC 暖启动第一批**（2026-07-10，`knowledge/README.md` §3）：
   holdout ce+bce **0.6350@run3-600**，cam_acc 0.830 vs 基线 0.8225，keyF1 0.651；
   checkpoint `runs/checkpoints/bc_vpt/best.pt`，`grpo_pixel.py --init-from` 就绪。
   过拟合点恒在 600–1200 步 ⇒ 加数据是纯规模杠杆（公开 blob 有数千段可继续加）。
@@ -58,14 +58,14 @@
   **joint 5/5、marginal 5/5 拿到原木**（170–458 tick；一局顺手 GUI 合成木板）⇒
   动作契约/环境无罪，蒸馏目标（边缘 KL）天花板够高，"砍不到木头"责任全在快塔策略侧
   （教师 attack 占空比 0.27–0.41 vs 学生 0.09–0.11）。复跑
-  `tests/eval_teacher_closedloop.py`；明细 `conclusion_fasttower_skill_ceiling.md` 末节。
+  `tests/eval_teacher_closedloop.py`；结论见 `knowledge/README.md` §3。
   **蒸馏验收标准就此升级：学生 checkpoint 闭环 got_log 率 >0 才算起效**（同款脚本改
   学生策略即可），离线教师一致率/holdout loss 只作过程指标。
 - **慢塔 A/B 同口径（2026-07-11，5090，§10.1 缺口补测）**：32 组真实 (帧,STATE) 考题
   逐字节同输入。Qwen3-VL-8B-FP8：四项合规全 100%，p50 1.48s / p95 1.60s（640×360）。
   Omni NVFP4 结果见 `docs/results/slow_tower_ab_5090.json`（探针
   `tests/probe_slow_tower_ab.py` 可复跑）。sm_120 坑：Qwen FP8 要
-  `VLLM_USE_DEEP_GEMM=0`（install.md §2-4）。
+  `VLLM_USE_DEEP_GEMM=0`（`knowledge/README.md` §6.2）。
 
 ## 2. 待办（顺序即优先级）
 
@@ -82,7 +82,7 @@
    更新执行、checkpoint 落 `runs/grpo_pixel/tower_v2.pt`（v1 的 tower.pt 不受影响）。
    遗留：v2 的 BC 暖启动未接（GRPO 更新回放记录 token，MapWriter.w_c 梯度需 BC 侧
    同图重放）；relocalize 周期修正与慢塔 MAP 行未接。明细
-   `knowledge/status_built_not_wired.md`。
+   `knowledge/README.md`。
 2. **DINO 瞄准可学性探针——已跑，判决 PASS（2026-07-10 后半）**：活环境采集
    104 样本（24 episodes、5 个产样 seed、树干目标 raycast 标签，只进训练侧），
    DINOv3 冻结 patch + ridge 5 折：**R²_all=0.899，hole 0.885 / slope 0.881，
@@ -164,7 +164,7 @@
    机制层全通（fallback 全 false、slow_fail=0、死亡截断 5 次、全并列组零梯度跳过）;
    信号层——锚点里程碑 32 条仍全 0,「episode 过短是主因」被证伪一半,瓶颈指向
    BC 暖启动的 attack 持续性与慢塔指导落地率,不是时长。判决入
-   design_bitter_lesson §10.1 末段与 conclusion_fasttower_skill_ceiling「下一步」注记。
+   统一知识库 `knowledge/README.md` §3、§5。
    下一步候选:BC 侧 attack 持续性强化 / 近树率诊断,优先于继续堆时长。
 5. **慢塔能力卷：aim 像素精度 A/B（预登记 2026-07-11，本会话来不及考）**：
    合规卷两塔全 100% 无区分度；"谁能力强"未决，而 aim 跟随已被谱系实验定罪为
@@ -202,7 +202,7 @@
 ## 3. 五个 log π 必修 bug——已修（2026-07-10），验收记录
 
 采样端与更新端曾在五处使 `log π(a)` 算错；数学论证与逐条修法的完整档案见
-`knowledge/arch_current.md §6`。修复内容：
+`knowledge/README.md` §2.2。修复内容：
 
 1. **T 失配**：双侧统一 T=1 + 帧堆叠 S=4（同时消灭速度盲，D1）；
 2. **dropout**：采样 `eval()` / 更新 `train()`，`dropout` 默认改 0；
@@ -222,9 +222,8 @@
 ## 5. 定稿设计入口
 
 当前运行时 = `train/craftground/grpo_pixel.py` + `bc_vpt_warmstart.py`。
-定稿设计 = `knowledge/design_bitter_lesson_map_integration.md`（§6–§12），其 §12 是执行清单；
-建成未接线部件的判据与 file:line 明细 = `knowledge/status_built_not_wired.md`。
-细节勿凭记忆，读设计文档。
+稳定架构、已接通边界和停止规则统一见 `knowledge/README.md` §1–§5。
+细节勿凭记忆，以代码为准。
 
 ## 6. 纪律提醒（违者重来）
 
@@ -247,7 +246,7 @@
   random 臂与慢塔臂曾共用同一 rng 却看到不同画面序列，三臂根本不可比。
 
 - **判官会把纯噪声排成严格全序；`adv_var>0` 不等于学到东西。**
-  实测（探针已删，结论入档 `knowledge/lessons_do_not_retry.md`）：4 条证据文本完全相同、
+  实测（探针已删，结论入档 `knowledge/README.md`）：4 条证据文本完全相同、
   图上只是无意义色块，判官仍编造语义并给出严格全序，且从不主动说"分不出高下"。
   故每个 judge-driven run 必须带一组"同轨迹不同渲染 / 退化输入"对照，测判官幻觉率。
   判官读图依赖 `claude -p` 的 Read 权限，图片路径必须在工作区内（`grpo_pixel.py` 的

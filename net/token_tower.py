@@ -12,8 +12,8 @@
     key_prior 先验注入与 PixelTower 一致)。
 
 单 tick 反应式(T=1;时序记忆归地图与慢塔,承 D1 裁决);帧间速度由视觉前端的
-帧堆叠/多帧 token 承担。**建成未接线**:接线以 §8 探针裁决视觉前端后进行
-(登记于 knowledge/status_built_not_wired.md)。
+帧堆叠/多帧 token 承担。当前已通过 train/craftground/tower_v2.py 接入 GRPO；
+BC 同图重放等边界见 knowledge/README.md §5。
 """
 from __future__ import annotations
 

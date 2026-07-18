@@ -596,7 +596,7 @@ def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> floa
       ④ goal 逐 tick 回放(rollout 已逐 tick 落盘 386 维向量,不再抹成 goal_last)。
       ⑤ 一个 group 全部梯度累积后**单次 opt.step()**:采样分布 = 被更新分布,
          这是严格 on-policy 的 REINFORCE;不做多步复用,故无需 ratio/clip/KL。
-         (若未来改多步复用,必须补 importance ratio,见 arch_current §5.4。)
+         (若未来改多步复用,必须补 importance ratio,见 knowledge/README.md §1.2。)
     chunk 只是显存分块,数学上无意义(梯度按全组 tick 数归一后累加)。
     """
     tower.train()
@@ -669,7 +669,7 @@ def main() -> None:
                          "最大尝试数(特权信息只进训练侧,保证任务物理可能)")
     ap.add_argument("--init-from", default="",
                     help="BC 暖启动 checkpoint(bc_vpt_warmstart 产出;GRPO 只做精修,"
-                         "受控对照见 conclusion_fasttower_skill_ceiling)")
+                         "受控对照见 knowledge/README.md §3)")
     ap.add_argument("--port", type=int, default=8700)
     ap.add_argument("--smoke", action="store_true", help="短 rollout,只验链路")
     args = ap.parse_args()
@@ -709,7 +709,7 @@ def main() -> None:
             ck = torch.load(args.init_from, map_location=device, weights_only=True)
             if "policy" not in ck:
                 sys.exit("--init-from 给的是 v1 checkpoint,v2 塔不能加载"
-                         "(v2 的 BC 暖启动尚未接线,见 status_built_not_wired)")
+                         "(v2 的 BC 暖启动尚未接线,见 knowledge/README.md §5.2)")
             tower.load_state_dict(ck["policy"])
             print(f"init from {args.init_from} (v2)", flush=True)
         v2rt = V2Runtime(tower, frontend, device)

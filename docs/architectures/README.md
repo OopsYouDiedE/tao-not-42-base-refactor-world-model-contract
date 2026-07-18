@@ -22,8 +22,8 @@
 - **特性**: C-RADIOv4 视觉 + Parakeet 音频,262K 上下文,NVFP4 实测 **21.5GiB** 单卡 5090 自托管
 - **开源**: ✅ **NVIDIA Open Model Agreement** (arXiv:2604.24954)(更正:非 CC BY 4.0)
 - **用途**: 本项目慢系统 VLM worker 生产候选;含 L2b prefill 直读位置标注
-- **实测**: knowledge/conclusion_omni_nvfp4_5090.md(原生加载/量化结构/延迟);
-  knowledge/conclusion_omni_pixel_control.md(零样本像素直控失败)
+- **实测**: knowledge/README.md(原生加载/量化结构/延迟);
+  knowledge/README.md(零样本像素直控失败)
 
 ### 2. [Nemotron-Labs-TwoTower](./nemotron-twotower-architecture.md)
 - **参数**: ~60B 总(30B 冻结 AR 塔 + 30B 可训扩散塔),每塔激活 ~3B

@@ -11,7 +11,7 @@
   # ② 对某塔重放打分(对每个候选各跑一次,起服/停服在外部做)
   python tests/probe_slow_tower_ab.py --exam --base-url http://127.0.0.1:8000/v1 \
       --serve-model nemotron_3_nano_omni --tag omni_nvfp4
-  # 结果累积写 docs/results/slow_tower_ab_5090.json
+  # 结果累积写 runs/results/slow_tower_ab_5090.json
 
 评分口径(与 L4 2026-07-10 探针四项一致):
   json_ok   单行 JSON 可解析(parse_slow_reply 的 parsed)
@@ -42,7 +42,7 @@ from train.craftground.grpo_pixel import (DECISIONS, SLOW_SYSTEM,  # noqa: E402
                                           parse_slow_reply)
 
 EXAM_DIR = Path("runs/probe_slow_ab/exam")
-OUT_JSON = Path("docs/results/slow_tower_ab_5090.json")
+OUT_JSON = Path("runs/results/slow_tower_ab_5090.json")
 
 
 # ────────────────────────────────────────────── ① 考题采集(真实循环)

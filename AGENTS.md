@@ -9,7 +9,7 @@
 ## 0. 会话启动手册（新机器一键启动 + 前置检查）
 
 > 云机随时被回收，训练会话经常在全新机器上接力。**顺序执行本节，先检查后动手**；
-> 训练配方与当前待办以 `docs/next_session.md` 为准（SSOT，本节只管"把机器点亮"）。
+> 训练配方与当前待办以 `knowledge/README.md` §5 为准（SSOT，本节只管"把机器点亮"）。
 
 ### 0.1 前置环境检查（不达标先处置，再往下走）
 
@@ -49,10 +49,10 @@ python tests/download_vpt_data.py --roll all_6xx_Jun_29,all_8xx_Jun_29,all_9xx_J
 # 4) 教师打标循环(与训练共卡,幂等)
 nohup bash scripts/label_loop.sh > runs/label_loop.log 2>&1 &
 
-# 5) BC/蒸馏训练——参数配方读 docs/next_session.md §2,勿凭记忆
+# 5) BC/蒸馏训练——顺序与验收读 knowledge/README.md §5,勿凭记忆
 # 6) CraftGround(要 GRPO 时):完整版 JDK21 + GL 开发库(knowledge/README.md §6),
 #    显示服务 bash scripts/gpu_run.sh(Xorg GPU 失败会自动回退 Xvfb 软渲染,能跑但慢)
-# 7) 慢塔起服:按 0.3 选型;判官要 claude CLI 且图片路径必须在工作区内(next_session §6)
+# 7) 慢塔起服:按 0.3 选型;判官要 claude CLI 且图片必须在工作区内(knowledge/README.md §2.2/§6.2)
 ```
 
 **注意事项**：后台命令用行内环境变量（`HF_HOME=… PYTHONPATH=… nohup python …&`），
@@ -66,7 +66,7 @@ EngineCore 子进程并清 `/tmp/tmpxft_*`（JIT 中断残留可达数 G）。
 | **RTX 5090 / Blackwell（sm_120，≥32G）** | **Nemotron-3-Nano-Omni-30B NVFP4**（默认塔，权重 21.5GiB） | `tests/serve_omni_nvfp4.sh` |
 | **L4 / A10 / 其他 sm_89 级（~24G）** | **Qwen3-VL-8B-Instruct-FP8**（权重 9.9G，显存 ~13.5G） | `vllm serve Qwen/Qwen3-VL-8B-Instruct-FP8 --served-model-name qwen3_vl_8b_fp8 --gpu-memory-utilization 0.68 --max-model-len 16384 --max-num-seqs 8`，然后 `grpo_pixel --slow-model qwen3_vl_8b_fp8` |
 
-两塔同口径合规/延迟对比数字见 `docs/results/slow_tower_ab_5090.json` 与设计文档 §10.1。
+两塔同口径合规/延迟对比结论见 `knowledge/README.md` §3。
 
 ---
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""hindsight relabel BC 的双对照验收(next_session §2-3;对照臂纪律,不许跳)。
+"""hindsight relabel BC 的双对照验收（见 knowledge/README.md §2.2；对照臂纪律，不许跳）。
 
 两道门,全过才算"goal 通道修通":
   1. holdout 有标签 tick(GUI 剔除)上,真 goal 的 ce+bce **显著低于**组内 permute

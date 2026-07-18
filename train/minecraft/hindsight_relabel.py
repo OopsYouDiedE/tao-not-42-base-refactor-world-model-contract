@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""VPT 原始承包商 jsonl → 事后重标语言目标(hindsight relabel,next_session §2-3)。
+"""VPT 原始承包商 jsonl → 事后重标语言目标（见 knowledge/README.md §2.4）。
 
 动机:BC 期 goal 全零向量,FiLM 通道从未学过"goal 变化 ↔ 行为变化"(GRPO 8×4×2000
 run 实证:慢塔指令正确但快塔听不见)。本模块给人类录像倒推出**已发生事实**的语言目标,

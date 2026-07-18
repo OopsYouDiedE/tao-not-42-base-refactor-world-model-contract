@@ -24,7 +24,7 @@
 
 里程碑(inv_events)**只作不可刷的汇报锚点**,不进训练信号。
 
-2026-07-10 五个 log π 修复(next_session §3,详见 update() docstring):
+2026-07-10 五个 log π 修复（见 knowledge/README.md §2.2 与 update() docstring）：
     ① 双侧 T=1+帧堆叠  ② eval 采样/train 更新(dropout=0)  ③ 温度双侧一致
     ④ goal 逐 tick 落盘并回放(含 aim)  ⑤ 组内梯度累积单次 opt.step
 数学验收单测:tests/unit/test_grpo_pixel_fixes.py(CUDA 冒烟)。
@@ -588,7 +588,7 @@ def update(tower, opt, rolls, adv, chunk: int, temp: float, device: str) -> floa
 
     CE 打在**采样到的** bin 上 ⇒ 等价 -log π(a);最小化 adv·CE = 最大化 adv·log π(a)。
 
-    2026-07-10 修复(编号对应 next_session §3):
+    2026-07-10 修复（设计约束见 knowledge/README.md §2.2）：
       ① 采样/更新同分布:双侧都是 T=1 + frame_stack(帧堆叠由 stack_frames 与采样端
          deque 逐字节同序),失配从结构上消灭;tick 沿 batch 维成批,尾部 tick 不再丢弃。
       ② 采样 tower.eval() / 更新 tower.train()(且 cfg.dropout=0,两模式恒等)。

@@ -278,7 +278,7 @@ def main() -> None:
     agg = dict(mode=args.mode, episodes=len(results), got_log=got_log,
                init_from=args.init_from or None,
                ticks=args.ticks, ts=time.strftime("%F %T"), per_episode=results)
-    out = Path(f"docs/results/teacher_closedloop_{name}.json")
+    out = Path(f"runs/results/teacher_closedloop_{name}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(agg, ensure_ascii=False, indent=1))
     print(f"== {args.mode}: {got_log}/{len(results)} episodes 拿到 log → {out}", flush=True)

@@ -107,7 +107,6 @@ python -m pytest tests/unit/                       # 当前运行时与定稿未
 | 文档 | 内容 |
 |---|---|
 | [AGENTS.md](AGENTS.md) | 助手约束与代码规范：I1–I8、生产纯净、SSOT、放置 / 写作 / 拆分合并 |
-| [docs/next_session.md](docs/next_session.md) | 现行交接单：现行结论 / 待办 / 纪律 |
 | [knowledge/README.md](knowledge/README.md) | 唯一知识库：现行架构、决策证据、停止规则、实现边界、安装与重放契约 |
 
 Godot 子系统文档见 [assets/godot_meta_rl/README.md](assets/godot_meta_rl/README.md)。

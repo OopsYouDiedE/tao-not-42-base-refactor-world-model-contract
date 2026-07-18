@@ -9,7 +9,7 @@
     若日后重启此路线,需分块中位数流(网格分块各自相位相关取中位数)级别的鲁棒化;
     BC 数据侧的相机单位改按上游数据集格式常量 0.15 deg/px(见 bc_vpt_warmstart.py)。
 
-背景(docs/activity_log 2026-07-10 登记的未验项):fit_action_flow_map 只在合成数据上
+背景（见 knowledge/README.md §4）：fit_action_flow_map 只在合成数据上
 验证过;本探针在真实 BASALT/VPT 承包商录像上跑通,回答三个问题:
   1. 真实录像(运动模糊/行走径向流/动态实体)下 flow 证据的可用率(conf 门控通过率);
   2. 相机通道增益 M[0,0]/M[1,1] 是否跨 clip 一致(中位数±IQR)——一致才可当数据集常量;

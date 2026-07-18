@@ -11,8 +11,11 @@ metadata:
 > `fovea-twotower-design.md`、`-step1.md`、`-step1-handoff.md`、`-step2.md`、`-step3.md`、
 > `-step4.md`、`-step5.md`、`-handoff-2026-07-05.md`、`-scale-readiness.md`。
 > 只保留假设、核心数字、裁决与仍可复用的事实;执行手册/命令/预登记细节全在 git 历史。
-> 该线整体已退役;其 W4 证据链另有两处存活出处:`fovea-brain-division-scale-plan.md`
-> (谱测量段)与 `knowledge/lessons_do_not_retry.md`。
+> 该线整体已退役；其 W4 证据链收敛于本文与 `knowledge/lessons_do_not_retry.md`。
+
+W4 失败的谱测量显示静态衰减谱并不缺慢通道：λ 中位数 0.979，55% 通道可支撑
+H=32，27.6% 可支撑 H=300，且每层都有 λ≈1 的积分器。因此失败原因不是衰减谱不足，
+而是预训练头已有语言用途，短预算 LoRA 与递归参数解冻不足以完成跨层重分配。
 
 ## 核心命题与最终裁决
 

@@ -27,12 +27,12 @@ metadata:
 
 - 别再 BC 一个不是学生观测函数的教师(raycast 特权),或动作含不可观测潜变量的教师(随机搜索
   方向)— 前者视觉学生天花板锁死,后者同观测标签 ±15° 对冲、BC 均值归零、切换率钉死 0.17 —
-  证据:docs/architectures/fovea-brain-division-scale-plan.md:117-120,149-151;fovea-experiments-index.md:42。
+  证据:docs/architectures/fovea-experiments-index.md:42 及 git 历史中的退役训练配方。
 - 别再指望慢塔 Mamba belief 比单帧向量更能减少学生要学的 — ΔR²=−0.02(线性);**限定**:该实验
   教师是 raycast 特权驱动、动作非视觉函数,结论受混淆非定论 — 证据:knowledge/conclusion_fovea_ceiling_mamba_seed.md:36-42。
 - 别再指望预训练 LLM 的递归 SSM 状态兼职视觉世界记忆 — W4/W4b/W4c 三连败,LoRA+3k 步内解冻
   递归张量也未恢复视觉 age(边界:全参/更长预算未测);λ 谱不缺慢通道,病灶是头级全职承诺 —
-  证据:docs/architectures/fovea-brain-division-scale-plan.md:31,35-43。
+  证据:docs/architectures/fovea-twotower-campaign-archive.md 的 W4 裁决与谱测量摘要。
 
 ## 感知先验与表征
 

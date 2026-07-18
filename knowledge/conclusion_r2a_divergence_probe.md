@@ -1,6 +1,6 @@
 # 结论:R2a 采样发散度探针——60k 复测 PASS(2026-07-03)
 
-> 对应 [design_rollout_research_program.md] §R2a。探针脚本 `tests/probe_r2a_divergence.py`,
+> 对应已退役 rollout 研究计划的 R2a；原计划见 git 历史。探针脚本 `tests/probe_r2a_divergence.py`,
 > 训练管线 `train/crafter/train_dreamerv3.py --size small`(6.7M 参数,200k 步,runs/crafter_r2a)。
 > **裁决:PASS**——60k 检查点正式规模复测 mean per-k Spearman = 0.519 ≥ 0.5,
 > 采样发散度采纳为想象截断/降权信号,R3(自适应想象视野)解锁。

@@ -10,7 +10,7 @@ metadata:
 **技术报告**: arXiv:2604.24954(2026-04)
 **权重**: HF `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-{BF16,FP8,NVFP4}`,
 许可 **NVIDIA Open Model Agreement**(非 CC BY 4.0;2026-07-09 核对 model card)
-**定位(本项目)**: 双系统嵌合线慢系统 VLM worker 的生产候选(见 knowledge/design_llm_deep_integration.md)
+**定位(本项目)**: 双系统慢塔 VLM worker 的生产候选；现行接口见 `knowledge/design_bitter_lesson_map_integration.md`。
 **实测**: 单卡 RTX 5090 原生加载跑通,见 knowledge/conclusion_omni_nvfp4_5090.md;
 零样本像素直控失败,见 knowledge/conclusion_omni_pixel_control.md
 

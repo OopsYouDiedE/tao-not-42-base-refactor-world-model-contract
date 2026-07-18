@@ -4,7 +4,7 @@
 > 命题(用户):Agent 与其把鼠标点击序列化成字符 token(如 `{"action":"click","x":512,"y":384}`,
 > 约 20–40 token),不如让网络直接输出动作(专用动作头/坐标头/特殊动作 token),token 数低很多,
 > 效果或许快很多。按 [design_llm_semantic_layer.md](design_llm_semantic_layer.md) 惯例,
-> 正反两轮对抗后收敛。相关:[design_llm_deep_integration.md](design_llm_deep_integration.md)(L2b
+> 正反两轮对抗后收敛。相关的退役世界模型嵌合方案见 git 历史；本文只保留仍有效的动作输出裁决（L2b
 > prefill-only 直读状态)。
 
 ## 1. 裁决(先行)

@@ -1,4 +1,4 @@
-"""Craftground Minecraft RL 环境相关模块。
+"""CraftGround Minecraft 强化学习环境。
 
 对外接口：
     CraftGroundVectorizedEnvironment — CraftGround 向量化环境

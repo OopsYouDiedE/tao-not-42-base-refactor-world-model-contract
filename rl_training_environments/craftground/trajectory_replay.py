@@ -13,8 +13,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from train.craftground.action_contract import V2_KEYS
-from train.craftground.world_snapshot import (
+from rl_training_environments.craftground.action_contract import V2_KEYS
+from rl_training_environments.craftground.world_snapshot import (
     SnapshotManifest,
     WorldSnapshotStore,
     atomic_json_dump,

@@ -8,12 +8,13 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG,  # noqa: E402
+from rl_training_environments.craftground.action_contract import (  # noqa: E402
+                                               CAM_BINS, CAM_MAX_DEG,
                                                V2_KEYS, bins_to_deg, deg_to_bins,
                                                stack_frames)
 from train.minecraft.behavior_cloning_warm_start import (VPT_TO_V2, bin_center_t,  # noqa: E402
                                                 deg_to_bins_t, encode_targets)
-from train.minecraft.vpt_video_dataset import VPT_KEYS  # noqa: E402
+from datasets.vpt.video_dataset import VPT_KEYS  # noqa: E402
 
 
 def test_mulaw_roundtrip():

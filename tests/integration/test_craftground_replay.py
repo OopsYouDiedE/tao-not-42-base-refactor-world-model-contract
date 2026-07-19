@@ -9,7 +9,7 @@ from typing import Any, Dict, Mapping
 
 import pytest
 
-from train.craftground.trajectory_replay import (
+from rl_training_environments.craftground.trajectory_replay import (
     ReplayDivergence,
     ReplayTrajectory,
     TrajectoryRecorder,

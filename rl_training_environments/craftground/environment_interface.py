@@ -13,11 +13,11 @@ import torch.nn.functional as F
 from collections import deque
 from typing import Tuple, Dict, Optional
 from craftground.screen_encoding_modes import ScreenEncodingMode
-from train.craftground.environment import (
+from rl_training_environments.craftground.environment import (
     CraftGroundVectorizedEnvironment,
     MinecraftCraftGroundEnvironment,
 )
-from train.craftground.achievements import ALL_ACHIEVEMENTS
+from rl_training_environments.craftground.achievements import ALL_ACHIEVEMENTS
 
 
 class CraftGroundEnvironmentWithTerrainCheck(MinecraftCraftGroundEnvironment):

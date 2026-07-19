@@ -13,8 +13,11 @@ from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
 from craftground.environment.action_space import ActionSpaceVersion
 from craftground.screen_encoding_modes import ScreenEncodingMode
 
-from train.craftground.trajectory_replay import ReplayTrajectory, restore_and_replay
-from train.craftground.world_snapshot import WorldSnapshotStore
+from rl_training_environments.craftground.trajectory_replay import (
+    ReplayTrajectory,
+    restore_and_replay,
+)
+from rl_training_environments.craftground.world_snapshot import WorldSnapshotStore
 
 
 @dataclass(frozen=True)

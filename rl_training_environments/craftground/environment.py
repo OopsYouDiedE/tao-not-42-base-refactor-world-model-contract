@@ -19,7 +19,7 @@ from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
 from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
 from craftground.screen_encoding_modes import ScreenEncodingMode
 
-from train.craftground.reward_shaping import RewardShaper
+from rl_training_environments.craftground.reward_shaping import RewardShaper
 
 # ── V2_MINERL_HUMAN 动作空间 ────────────────────────────────────────────────
 # V2 动作是一个 dict：布尔按键 (attack/forward/jump/...) + hotbar.1-9 +

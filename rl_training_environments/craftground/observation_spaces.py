@@ -62,7 +62,7 @@ ACTION_NAMES = {
 }
 
 # 成就空间
-from train.craftground.achievements import ALL_ACHIEVEMENTS
+from rl_training_environments.craftground.achievements import ALL_ACHIEVEMENTS
 
 NUM_ACHIEVEMENTS = len(ALL_ACHIEVEMENTS)
 

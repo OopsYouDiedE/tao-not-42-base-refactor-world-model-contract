@@ -42,9 +42,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from net.pixel_tower import PixelTowerConfiguration, build_pixel_tower  # noqa: E402
-from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG, CAM_MU,  # noqa: E402
+from rl_training_environments.craftground.action_contract import (  # noqa: E402
+    CAM_BINS, CAM_MAX_DEG, CAM_MU,
                                                V2_KEYS, stack_frames)
-from train.minecraft.vpt_video_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
+from datasets.vpt.video_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
                                          _pair_list, assemble_goal)
 
 IMG_HW = (90, 160)

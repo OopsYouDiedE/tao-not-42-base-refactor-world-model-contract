@@ -26,7 +26,7 @@ train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
 train-minecraft-bc = "train.minecraft.behavior_cloning_warm_start:main"
 
 [tool.setuptools.packages.find]
-include = ["blocks*", "net*", "rl_training_environments*", "train*", "utils*"]
+include = ["blocks*", "datasets*", "net*", "rl_training_environments*", "train*", "utils*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

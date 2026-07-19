@@ -4,6 +4,6 @@
 引擎资产，禁止跨后端引用具体实现。
 
 - `godot/`：Godot 共享内存环境、SB3 适配、训练入口与 `engine/` 工程。
-- `craftground/`：预留给后续 CraftGround 迁移；本轮仍位于 `train/craftground/`。
+- `craftground/`：CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照。
 
 目录名使用正确英文拼写 `environments`。

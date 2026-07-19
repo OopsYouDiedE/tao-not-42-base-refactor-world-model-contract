@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
 import numpy as np
 
-from train.minecraft.vpt_action_contract import CAMERA_SCALE, N_MOUSE
+from datasets.vpt.action_contract import CAMERA_SCALE, N_MOUSE
 
 # 动作向量布局(与 download_sample_data / colab 转换脚本严格一致):2 鼠标 + 20 键盘
 # 与 vpt_action_contract.py 一致：鼠标在前（索引 0,1），并按 CAMERA_SCALE 归一化。

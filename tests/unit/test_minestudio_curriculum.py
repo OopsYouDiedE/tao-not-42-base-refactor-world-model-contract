@@ -27,6 +27,7 @@ from net.spatiotemporal_fast_tower import (
 from train.minecraft.autodl_curriculum import (
     build_curriculum_schedule,
     distribute_updates,
+    limit_image_shards,
 )
 
 
@@ -137,6 +138,21 @@ def test_autodl_schedule_covers_every_shard_and_has_exact_targets():
     assert [entry.stage for entry in schedule] == [
         "foundation", "foundation", "construction",
     ]
+
+
+def test_image_shard_limit_uses_stable_prefix_and_zero_means_all():
+    image_shards = ("image/part-0", "image/part-1", "image/part-2")
+
+    assert limit_image_shards(image_shards, 0) == image_shards
+    assert limit_image_shards(image_shards, 2) == image_shards[:2]
+    assert limit_image_shards(image_shards, 20) == image_shards
+
+    try:
+        limit_image_shards(image_shards, -1)
+    except ValueError as error:
+        assert "不能为负" in str(error)
+    else:
+        raise AssertionError("负分片限制必须被拒绝")
 
 
 def test_pruning_only_removes_complete_unselected_image_databases(tmp_path):

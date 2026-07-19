@@ -64,6 +64,18 @@ def distribute_updates(total_updates: int, shard_count: int) -> tuple[int, ...]:
     )
 
 
+def limit_image_shards(
+    image_shards: tuple[str, ...],
+    maximum_image_shards: int,
+) -> tuple[str, ...]:
+    """为滚动链路冒烟保留稳定前缀；零表示使用全部远端分片。"""
+    if maximum_image_shards < 0:
+        raise ValueError("maximum_image_shards 不能为负")
+    if maximum_image_shards == 0:
+        return image_shards
+    return image_shards[:maximum_image_shards]
+
+
 def build_curriculum_schedule(
     stages: tuple[str, ...],
     stage_image_shards: dict[str, tuple[str, ...]],
@@ -276,6 +288,10 @@ def main() -> None:
     parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--download-workers", type=int, default=4)
+    parser.add_argument(
+        "--maximum-image-shards-per-stage", type=int, default=0,
+        help="每阶段最多训练前 N 个图像分片；0 表示全部，用 2 可验证滚动切换",
+    )
     parser.add_argument("--window-stride", type=int, default=0)
     parser.add_argument("--validation-fraction", type=float, default=0.02)
     parser.add_argument("--history", type=int, default=4)
@@ -330,6 +346,8 @@ def main() -> None:
         raise ValueError("batch 和 gradient-accumulation-steps 必须大于零")
     if arguments.workers < 0 or arguments.download_workers < 1:
         raise ValueError("workers 不能为负且 download-workers 必须大于零")
+    if arguments.maximum_image_shards_per_stage < 0:
+        raise ValueError("maximum-image-shards-per-stage 不能为负")
     if not 0.0 <= arguments.validation_fraction < 1.0:
         raise ValueError("validation-fraction 必须位于 [0,1)")
     if any(stage_updates[stage] < 1 for stage in stages):
@@ -339,7 +357,10 @@ def main() -> None:
     if not arguments.dry_run:
         _validate_cuda_runtime()
     stage_image_shards = {
-        stage: list_stage_image_shards(stage)
+        stage: limit_image_shards(
+            list_stage_image_shards(stage),
+            arguments.maximum_image_shards_per_stage,
+        )
         for stage in stages
     }
     schedule = build_curriculum_schedule(

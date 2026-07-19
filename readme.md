@@ -96,6 +96,22 @@ Hugging Face branch、tag 或 commit 时传 `--revision REVISION`。预取多个
 - 新分片完整下载后才删除同阶段旧图像；阶段 checkpoint 完成后删除已完成阶段数据，
 最后一个启用阶段除外。删除的数据可从 Hugging Face 重新下载，checkpoint 不删除。
 
+在新机器上先用两个 foundation 图像分片验证完整滚动链路，不必下载全课程：
+
+    python -m train.minecraft.autodl_curriculum \
+        --stages foundation \
+        --maximum-image-shards-per-stage 2 \
+        --foundation-updates 500 \
+        --data-root runs/data/minestudio \
+        --output runs/checkpoints/minecraft_rolling_smoke \
+        --save-every 100 \
+        --validate-every 100 \
+        --validation-batches 16
+
+该命令先下载完整 action 与第一个 image LMDB，训练 250 update，再完整下载第二个
+image LMDB、删除第一个并训练至累计 500 update。确认链路后，移除分片上限并使用新的
+输出目录开始正式全课程训练；冒烟 checkpoint 的训练覆盖不足，不作为正式初始化。
+
 这里不按同名分片配对不同模态：image、action 和可选 meta_info 的 `part-*` 编号本来
 就可以不同。读取器扫描已启用模态的全量 episode 索引，再以 episode 名称和帧数取
 交集。因此动作不能跟随当前图像编号只下载一个分片；启用 meta_info 时也必须下载其

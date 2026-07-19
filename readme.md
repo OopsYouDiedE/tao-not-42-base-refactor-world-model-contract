@@ -9,13 +9,24 @@
 需要 Git、Python 3.11+。Godot 环境另需 Godot 4.6.1 .NET 与 .NET 8；CraftGround
 环境另需 Java 21。Minecraft 训练需要支持 BF16 的 CUDA GPU。从空目录安装：
 
-    command -v git >/dev/null || { echo "请先按当前操作系统安装 Git"; exit 1; }
-    git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
-    cd tao-not-42-base-refactor-world-model-contract
-    python -m venv .venv
-    source .venv/bin/activate
-    python -m pip install --upgrade pip
-    python -m pip install -e .
+    if ! command -v git >/dev/null 2>&1; then
+        echo "请先按当前操作系统安装 Git"
+    else
+        repository_ready=false
+        if [ -d tao-not-42-base-refactor-world-model-contract/.git ]; then
+            cd tao-not-42-base-refactor-world-model-contract && repository_ready=true
+        elif git clone \
+            https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git && \
+            cd tao-not-42-base-refactor-world-model-contract; then
+            repository_ready=true
+        fi
+        if $repository_ready; then
+            python -m venv .venv && \
+                source .venv/bin/activate && \
+                python -m pip install --upgrade pip && \
+                python -m pip install -e .
+        fi
+    fi
 
 ## MineStudio 无限训练
 

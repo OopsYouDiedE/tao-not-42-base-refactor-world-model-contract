@@ -6,26 +6,33 @@
 
 ## 安装
 
-需要 Python 3.11+。Godot 环境另需 Godot 4.6.1 .NET 与 .NET 8；CraftGround 环境
-另需 Java 21。Minecraft 训练需要支持 BF16 的 CUDA GPU。
+需要 Git、Python 3.11+。Godot 环境另需 Godot 4.6.1 .NET 与 .NET 8；CraftGround
+环境另需 Java 21。Minecraft 训练需要支持 BF16 的 CUDA GPU。从空目录安装：
 
+    command -v git >/dev/null || { echo "请先按当前操作系统安装 Git"; exit 1; }
+    git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
+    cd tao-not-42-base-refactor-world-model-contract
+    python -m venv .venv
+    source .venv/bin/activate
+    python -m pip install --upgrade pip
     python -m pip install -e .
 
 ## MineStudio 无限训练
 
 默认范围是 `10xx`，默认模态是完整 `image + action`：
 
-    export TAO_STORAGE_ROOT=/root/autodl-tmp/tao-training
-    export HF_HOME=$TAO_STORAGE_ROOT/huggingface
+    export TAO_STORAGE_ROOT="${TAO_STORAGE_ROOT:-$PWD/runs}"
+    export HF_HOME="$TAO_STORAGE_ROOT/cache/huggingface"
     export HF_REPO_ID=你的用户名/minecraft-dreamer-lite-10xx
+    mkdir -p "$TAO_STORAGE_ROOT" "$HF_HOME"
     hf auth whoami >/dev/null 2>&1 || hf auth login
     python -m train.minecraft.world_model_training \
         --dataset-group 10xx \
         --modalities image action \
-        --data-root $TAO_STORAGE_ROOT/minestudio \
-        --cache-directory $HF_HOME/hub \
-        --output $TAO_STORAGE_ROOT/checkpoints \
-        --hub-repo-id $HF_REPO_ID
+        --data-root "$TAO_STORAGE_ROOT/data/minestudio" \
+        --cache-directory "$HF_HOME/hub" \
+        --output "$TAO_STORAGE_ROOT/checkpoints/minecraft-dreamer-lite-10xx" \
+        --hub-repo-id "$HF_REPO_ID"
 
 入口按固定顺序执行：
 
@@ -41,9 +48,11 @@
 代码使用登录态认证，不把 token 放入命令参数。若 `--hub-repo-id` 不存在，入口会创建公开
 模型仓库；若同名仓库已经是私有仓库，入口会拒绝上传，避免继续占用私有仓库额度。
 
-数据正文位于 `$TAO_STORAGE_ROOT/minestudio/10xx`，数据续传元数据位于该目录内的
+数据正文位于 `$TAO_STORAGE_ROOT/data/minestudio/10xx`，数据续传元数据位于该目录内的
 `.cache/huggingface`。DINOv3 与 MiniLM 的共享缓存由 `--cache-directory` 指定，上例为
-`$HF_HOME/hub`。本地 checkpoint 位于 `$TAO_STORAGE_ROOT/checkpoints`。
+`$HF_HOME/hub`。本地 checkpoint 位于
+`$TAO_STORAGE_ROOT/checkpoints/minecraft-dreamer-lite-10xx`。`TAO_STORAGE_ROOT` 未设置时
+默认使用当前仓库的 `runs/`；需要放到其他磁盘时，在运行前自行设置绝对路径即可。
 
 `--target-memory-fraction` 可修改 0.75 目标，`--maximum-auto-batch` 限制探测上界。
 `--resume auto` 是默认值，会自动恢复输出目录中的 `last.pt`。按 Ctrl+C 时会保存最近完成
@@ -63,7 +72,21 @@
     python -m datasets.minestudio.download \
         --dataset-group 10xx \
         --modalities image action \
-        --data-root $TAO_STORAGE_ROOT/minestudio
+        --data-root "$TAO_STORAGE_ROOT/data/minestudio" \
+        --cache-directory "$HF_HOME/hub"
+
+## 有效性验收
+
+训练日志当前给出 episode 级固定留出集上的 `action`、`latent` 和 `kl` loss；这些 loss
+只能用于发现发散或过拟合，不能单独证明策略有效。正式验收至少包含以下三层：
+
+1. 在固定 seed、按 episode 隔离且从未参与训练的留出集上，报告相机角度 MAE、互斥
+   动作块 macro-F1、稀有按钮 recall 和整组动作准确率，并与多数类、动作持久化基线比较。
+2. 对世界模型按未来第 1 至第 4 步分别报告误差；再将真实动作替换为打乱动作。只有真实
+   动作误差显著更低，才能证明模型实际利用动作，而不是潜状态塌缩或只复制上一帧。
+3. 在 CraftGround 固定任务、固定 seed 上做闭环回放，报告样本量、成功率及 95% 置信
+   区间，并与未训练模型和纯行为克隆基线比较。离线指标通过且闭环成功率稳定领先基线，
+   才能判定训练足够有效；连续多个 checkpoint 不再改善时再考虑停止。
 
 ## 在线环境
 

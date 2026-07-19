@@ -23,7 +23,7 @@
 
     export TAO_STORAGE_ROOT="${TAO_STORAGE_ROOT:-$PWD/runs}"
     export HF_HOME="$TAO_STORAGE_ROOT/cache/huggingface"
-    export HF_REPO_ID=你的用户名/minecraft-dreamer-lite-10xx
+    export HF_REPO_ID=unjustify/minecraft-dreamer-lite-10xx
     mkdir -p "$TAO_STORAGE_ROOT" "$HF_HOME"
     hf auth whoami >/dev/null 2>&1 || hf auth login
     python -m train.minecraft.world_model_training \
@@ -77,8 +77,9 @@
 
 ## 有效性验收
 
-训练日志当前给出 episode 级固定留出集上的 `action`、`latent` 和 `kl` loss；这些 loss
-只能用于发现发散或过拟合，不能单独证明策略有效。正式验收至少包含以下三层：
+训练器每次验证会在 episode 级固定留出集上同时输出 loss、相机角度 MAE、动作
+macro-F1、稀有按钮 recall、完整动作准确率、no-op 准确率基线，以及真实动作和打乱动作
+在每个 horizon 的 open-loop 世界模型误差。正式验收包含以下三层：
 
 1. 在固定 seed、按 episode 隔离且从未参与训练的留出集上，报告相机角度 MAE、互斥
    动作块 macro-F1、稀有按钮 recall 和整组动作准确率，并与多数类、动作持久化基线比较。
@@ -87,6 +88,24 @@
 3. 在 CraftGround 固定任务、固定 seed 上做闭环回放，报告样本量、成功率及 95% 置信
    区间，并与未训练模型和纯行为克隆基线比较。离线指标通过且闭环成功率稳定领先基线，
    才能判定训练足够有效；连续多个 checkpoint 不再改善时再考虑停止。
+
+第三层由闭环入口直接执行。下面默认使用固定 seed `0..9`，每局最多 12,000 tick，成功
+条件是库存曾出现 `diamond_pickaxe`；同一组 seed 还会运行 no-op 基线。当 checkpoint 的
+Wilson 95% 下界高于 no-op 上界时，`effective_over_noop_95` 才为 `true`：
+
+    python -m train.minecraft.evaluate_checkpoint \
+        --checkpoint "$TAO_STORAGE_ROOT/checkpoints/minecraft-dreamer-lite-10xx/last.pt" \
+        --dataset-group 10xx \
+        --cache-directory "$HF_HOME/hub" \
+        --seeds 0 1 2 3 4 5 6 7 8 9 \
+        --maximum-steps 12000
+
+闭环评估会启动真实 Java Minecraft，需要可用的显示服务。只想先运行 checkpoint、跳过
+耗时加倍的 no-op 对照时可加 `--no-compare-noop`，但这种结果不能产生对基线的保守判定。
+若有旧版、未训练初始化或其他消融 checkpoint，可在评估命令追加
+`--baseline-checkpoint /path/to/baseline/last.pt`；结果会额外输出
+`effective_over_baseline_95`。当前快塔动作头本身使用 BC 监督，而世界模型是独立训练期
+辅助路径，所以关闭世界模型 loss 不能构成有意义的“非 BC 对照”。
 
 ## 在线环境
 

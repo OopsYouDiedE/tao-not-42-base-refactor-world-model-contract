@@ -11,7 +11,7 @@ Craftground 是基于 Minecraft Java 版的 RL 环境。
 """
 
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Mapping, Tuple
 
 import numpy as np
 import torch
@@ -19,7 +19,10 @@ from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
 from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
 from craftground.screen_encoding_modes import ScreenEncodingMode
 
-from rl_training_environments.craftground.reward_shaping import RewardShaper
+from rl_training_environments.craftground.reward_shaping import (
+    RewardShaper,
+    extract_inventory_keys,
+)
 
 # ── V2_MINERL_HUMAN 动作空间 ────────────────────────────────────────────────
 # V2 动作是一个 dict：布尔按键 (attack/forward/jump/...) + hotbar.1-9 +
@@ -117,7 +120,11 @@ class MinecraftCraftGroundEnvironment:
         （protobuf）自行构造稠密内在奖励，并在 info["successes"] 中给出本步
         新解锁的成就索引（供上层 env_interface 统计与发放成就奖励）。
         """
-        result = self.env.step(DISCRETE_TO_V2[int(action)])
+        return self.step_v2(DISCRETE_TO_V2[int(action)])
+
+    def step_v2(self, action: Mapping[str, object]) -> Tuple[np.ndarray, float, bool, Dict]:
+        """执行完整 CraftGround V2 动作并返回可用于闭环验收的库存信息。"""
+        result = self.env.step(dict(action))
 
         # craftground.step 返回 (final_obs, reward, done, truncated, final_obs)
         if len(result) == 5:
@@ -137,7 +144,11 @@ class MinecraftCraftGroundEnvironment:
             )
 
         rgb = obs["rgb"]
-        info = {"achievements": True, "successes": new_ach_indices}
+        info = {
+            "achievements": True,
+            "successes": new_ach_indices,
+            "inventory_keys": sorted(extract_inventory_keys(full_obs)),
+        }
 
         # 死档(idle/无镐深入)触发强制重开
         if force_done:

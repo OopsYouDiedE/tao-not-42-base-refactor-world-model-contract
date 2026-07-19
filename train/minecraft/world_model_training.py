@@ -33,6 +33,7 @@ from net.latent_world_model import (
 )
 from net.spatiotemporal_fast_tower import (
     SpatiotemporalFastTowerConfiguration,
+    StructuredActionOutput,
     build_spatiotemporal_fast_tower,
 )
 from train.minecraft.action_supervision import (
@@ -40,6 +41,11 @@ from train.minecraft.action_supervision import (
     DEGREES_PER_MOUSE_PIXEL,
     encode_targets,
     structured_action_loss,
+)
+from train.minecraft.evaluation import (
+    ActionMetricAccumulator,
+    open_loop_latent_errors,
+    shuffled_actions,
 )
 
 CHECKPOINT_VERSION = "minecraft_dreamer_lite_v6"
@@ -55,6 +61,19 @@ class TrainingLosses:
     action: torch.Tensor
     latent: torch.Tensor
     kl: torch.Tensor
+
+
+@dataclass
+class TrainingBatchComputation:
+    """联合损失及验证所需的结构化预测与世界模型目标。"""
+
+    losses: TrainingLosses
+    action_output: StructuredActionOutput
+    camera_bins: torch.Tensor
+    keys: torch.Tensor
+    observation: torch.Tensor
+    target_actions: torch.Tensor
+    future_dt: torch.Tensor
 
 
 class FrozenFeatureEncoders:
@@ -219,7 +238,7 @@ def _world_model_loss(
     return torch.stack(latent_losses).mean(), torch.stack(kl_losses).mean()
 
 
-def _batch_losses(
+def _batch_computation(
     batch: dict[str, object],
     encoders: FrozenFeatureEncoders,
     tower: torch.nn.Module,
@@ -230,8 +249,8 @@ def _batch_losses(
     world_weight: float,
     kl_weight: float,
     device: torch.device,
-) -> TrainingLosses:
-    """计算一个 MineStudio 批次的结构化 BC 与潜动力学损失。"""
+) -> TrainingBatchComputation:
+    """计算联合损失，并保留验证指标所需的中间结果。"""
     images = batch["img"]
     actions = batch["act_agg"]
     dt_frames = batch["dt"]
@@ -270,7 +289,34 @@ def _batch_losses(
             world_model, observation, target_actions, future_dt,
         )
         total = action_loss + world_weight * latent_loss + kl_weight * kl_loss
-    return TrainingLosses(total, action_loss, latent_loss, kl_loss)
+    return TrainingBatchComputation(
+        losses=TrainingLosses(total, action_loss, latent_loss, kl_loss),
+        action_output=action_output,
+        camera_bins=camera_bins,
+        keys=keys,
+        observation=observation,
+        target_actions=target_actions,
+        future_dt=future_dt,
+    )
+
+
+def _batch_losses(
+    batch: dict[str, object],
+    encoders: FrozenFeatureEncoders,
+    tower: torch.nn.Module,
+    world_model: torch.nn.Module,
+    tower_configuration: SpatiotemporalFastTowerConfiguration,
+    history: int,
+    action_horizon: int,
+    world_weight: float,
+    kl_weight: float,
+    device: torch.device,
+) -> TrainingLosses:
+    """计算训练路径只需保留的联合损失。"""
+    return _batch_computation(
+        batch, encoders, tower, world_model, tower_configuration,
+        history, action_horizon, world_weight, kl_weight, device,
+    ).losses
 
 
 def _data_loader(
@@ -358,24 +404,53 @@ def _evaluate(
     kl_weight: float,
     device: torch.device,
 ) -> dict[str, float]:
-    """在当前图像分片的 episode 级留出集上计算平均损失。"""
+    """在 episode 留出集上计算损失、动作质量与动作反事实世界模型指标。"""
     tower.eval()
     world_model.eval()
     totals = {"total": 0.0, "action": 0.0, "latent": 0.0, "kl": 0.0}
+    action_metrics = ActionMetricAccumulator()
+    open_loop = torch.zeros(action_horizon, dtype=torch.float64)
+    shuffled_open_loop = torch.zeros(action_horizon, dtype=torch.float64)
     batches = 0
     for batch in loader:
-        losses = _batch_losses(
+        computation = _batch_computation(
             batch, encoders, tower, world_model, tower_configuration,
             history, action_horizon, world_weight, kl_weight, device,
         )
+        losses = computation.losses
         for name in totals:
             totals[name] += float(getattr(losses, name))
+        action_metrics.update(
+            computation.action_output,
+            computation.camera_bins,
+            computation.keys,
+        )
+        open_loop += open_loop_latent_errors(
+            world_model, computation.observation,
+            computation.target_actions, computation.future_dt,
+        ).double().cpu()
+        shuffled_open_loop += open_loop_latent_errors(
+            world_model, computation.observation,
+            shuffled_actions(computation.target_actions), computation.future_dt,
+        ).double().cpu()
         batches += 1
         if batches >= maximum_batches:
             break
     if batches == 0:
         raise RuntimeError("验证 DataLoader 没有可评估批次")
-    return {name: value / batches for name, value in totals.items()}
+    measurements = {name: value / batches for name, value in totals.items()}
+    measurements.update(action_metrics.compute())
+    open_loop /= batches
+    shuffled_open_loop /= batches
+    for horizon in range(action_horizon):
+        measurements[f"world_open_loop_h{horizon + 1}"] = float(open_loop[horizon])
+        measurements[f"world_shuffled_action_h{horizon + 1}"] = float(
+            shuffled_open_loop[horizon],
+        )
+    measurements["world_action_sensitivity"] = float(
+        (shuffled_open_loop - open_loop).mean(),
+    )
+    return measurements
 
 
 def _save_checkpoint(
@@ -613,7 +688,7 @@ def main() -> None:
     )
     parser.add_argument("--output", default="runs/checkpoints/minecraft_dreamer_lite")
     parser.add_argument(
-        "--hub-repo-id", required=True,
+        "--hub-repo-id", default="unjustify/minecraft-dreamer-lite-10xx",
         help="持续上传 last.pt 的公开 Hugging Face 模型仓库，例如 user/model",
     )
     parser.add_argument(

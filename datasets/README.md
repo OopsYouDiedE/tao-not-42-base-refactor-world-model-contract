@@ -3,11 +3,16 @@
 本目录保存可被不同训练流程复用的数据读取与原始数据契约。数据文件本身仍放在
 已忽略的 `runs/data/`，不进入 Git。
 
-- `vpt/`：Minecraft VPT `mp4 + jsonl` 流式视频读取、滚动下载与原始动作编码。
+- `vpt/`：Minecraft VPT `mp4 + jsonl` 流式读取，以及 MineStudio
+  `image + action + meta_info` LMDB 课程读取和原始动作编码。
 
 `rolling_download.py` 接受 JSON/JSONL 下载清单，以 `.part` 临时文件和原子重命名
 发布完整文件对，并维持有界磁盘缓存。`video_dataset.py` 只使用 clip 级 uint8
 缓存，不提供全量 RAM 预载旁路。
+
+MineStudio 每个课程阶段全量下载 `action/**` 与 `meta_info/**`，只允许
+`image/**` 按 LMDB 分片轮换。三种模态的分片编号没有配对含义；
+`minestudio_dataset.py` 扫描各自 episode 索引后按 episode 和帧数对齐。
 
 行为克隆优化循环属于 `train/minecraft/`，CraftGround 执行动作契约属于
 `rl_training_environments/craftground/`。

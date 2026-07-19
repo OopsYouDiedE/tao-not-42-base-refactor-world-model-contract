@@ -8,6 +8,8 @@ from datasets.vpt.minestudio_curriculum import (
     get_curriculum_stage,
 )
 from datasets.vpt.minestudio_download import (
+    image_shards_from_repository_files,
+    prune_completed_stage,
     prune_other_image_shards,
     select_stage_shard,
 )
@@ -18,6 +20,10 @@ from net.latent_world_model import (
 from net.spatiotemporal_fast_tower import (
     SpatiotemporalFastTowerConfiguration,
     build_spatiotemporal_fast_tower,
+)
+from train.minecraft.autodl_curriculum import (
+    build_curriculum_schedule,
+    distribute_updates,
 )
 
 
@@ -65,6 +71,36 @@ def test_shard_selection_keeps_all_actions_and_one_image_database():
     )
 
 
+def test_repository_image_shards_have_numeric_stable_order():
+    files = [
+        "image/part-11/data.mdb",
+        "image/part-2/data.mdb",
+        "image/part-1/lock.mdb",
+    ]
+    assert image_shards_from_repository_files(files) == (
+        "image/part-2", "image/part-11",
+    )
+
+
+def test_autodl_schedule_covers_every_shard_and_has_exact_targets():
+    allocations = distribute_updates(10, 3)
+    assert allocations == (4, 3, 3)
+    schedule = build_curriculum_schedule(
+        stages=("foundation", "construction"),
+        stage_image_shards={
+            "foundation": ("image/part-0", "image/part-1"),
+            "construction": ("image/part-0",),
+        },
+        stage_updates={"foundation": 7, "construction": 5},
+        stage_learning_rates={"foundation": 1e-4, "construction": 7e-5},
+    )
+    assert [entry.updates for entry in schedule] == [4, 3, 5]
+    assert [entry.target_step for entry in schedule] == [4, 7, 12]
+    assert [entry.stage for entry in schedule] == [
+        "foundation", "foundation", "construction",
+    ]
+
+
 def test_pruning_only_removes_complete_unselected_image_databases(tmp_path):
     image_root = tmp_path / "image"
     for name in ("part-1", "part-2"):
@@ -81,3 +117,16 @@ def test_pruning_only_removes_complete_unselected_image_databases(tmp_path):
     assert not (image_root / "part-1").exists()
     assert (image_root / "part-2" / "data.mdb").is_file()
     assert (partial / "data.mdb.part").is_file()
+
+
+def test_completed_stage_pruning_stays_inside_data_root(tmp_path):
+    completed = tmp_path / "7xx"
+    completed.mkdir()
+    (completed / "marker").write_text("data", encoding="utf-8")
+    untouched = tmp_path / "9xx"
+    untouched.mkdir()
+
+    assert prune_completed_stage(tmp_path, "foundation") is True
+    assert not completed.exists()
+    assert untouched.is_dir()
+    assert prune_completed_stage(tmp_path, "foundation") is False

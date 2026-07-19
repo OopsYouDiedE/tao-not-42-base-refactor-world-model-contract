@@ -133,8 +133,9 @@ class MineStudioLMDBDataset(Dataset):
     """从一个课程阶段的本地图像/动作 LMDB 返回固定连续窗口。
 
     每个图像分片只与全部动作和元数据库求 episode 交集，因此不要求三种模态的
-    分片编号对齐。元数据用于拒绝 GUI 噪声窗口。LMDB 句柄在 DataLoader worker
-    内惰性打开，不跨进程序列化。
+    分片编号对齐。元数据提供 GUI 状态和绝对光标位置；GUI 中的相对光标移动仍由
+    ``camera`` 两轴动作监督。LMDB 句柄在 DataLoader worker 内惰性打开，不跨
+    进程序列化。
     """
 
     def __init__(
@@ -268,12 +269,21 @@ class MineStudioLMDBDataset(Dataset):
                 chunks.append(value)
         return chunks, start - first_chunk
 
-    def _decode_images(self, chunks: list[bytes]) -> np.ndarray:
+    def _decode_images(
+        self,
+        chunks: list[bytes],
+    ) -> tuple[np.ndarray, tuple[int, int]]:
         frames = []
+        source_size = None
         for chunk in chunks:
             with av.open(io.BytesIO(chunk), mode="r") as container:
                 for frame in container.decode(video=0):
                     image = frame.to_ndarray(format="rgb24")
+                    frame_source_size = image.shape[:2]
+                    if source_size is None:
+                        source_size = frame_source_size
+                    elif source_size != frame_source_size:
+                        raise RuntimeError("同一 MineStudio 窗口的源图像尺寸不一致")
                     if image.shape[:2] != self.image_size:
                         image = cv2.resize(
                             image, (self.image_size[1], self.image_size[0]),
@@ -282,7 +292,9 @@ class MineStudioLMDBDataset(Dataset):
                     frames.append(image)
         if not frames:
             raise RuntimeError("MineStudio 图像 chunk 无法解码")
-        return np.stack(frames)
+        if source_size is None:
+            raise RuntimeError("MineStudio 图像 chunk 缺少源尺寸")
+        return np.stack(frames), source_size
 
     @staticmethod
     def _decode_actions(chunks: list[bytes]) -> dict[str, np.ndarray]:
@@ -294,19 +306,48 @@ class MineStudioLMDBDataset(Dataset):
         }
 
     @staticmethod
-    def _contains_gui(chunks: list[bytes], bias: int, length: int) -> bool:
+    def _decode_metadata(
+        chunks: list[bytes],
+        bias: int,
+        length: int,
+        source_size: tuple[int, int],
+    ) -> dict[str, torch.Tensor]:
+        """返回 GUI 状态和归一化绝对光标位置。"""
         frames = []
         for chunk in chunks:
             frames.extend(pickle.loads(chunk))
         window = frames[bias:bias + length]
         if len(window) != length:
             raise RuntimeError("MineStudio meta_info chunk 长度与索引不一致")
-        gui_frames = sum(
-            bool(frame.get("isGuiOpen", False))
-            or bool(frame.get("isGuiInventory", False))
-            for frame in window
+        source_height, source_width = source_size
+        cursor_xy = torch.zeros(length, 2, dtype=torch.float32)
+        gui_open = torch.tensor(
+            [bool(frame.get("isGuiOpen", False)) for frame in window],
+            dtype=torch.bool,
         )
-        return gui_frames / max(length, 1) > 0.1
+        gui_inventory = torch.tensor(
+            [bool(frame.get("isGuiInventory", False)) for frame in window],
+            dtype=torch.bool,
+        )
+        cursor_valid = torch.zeros(length, dtype=torch.bool)
+        for index, frame in enumerate(window):
+            if not bool(gui_open[index]):
+                continue
+            cursor_x = float(frame.get("cursor_x", float("nan")))
+            cursor_y = float(frame.get("cursor_y", float("nan")))
+            if not np.isfinite(cursor_x) or not np.isfinite(cursor_y):
+                continue
+            if not 0.0 <= cursor_x < source_width or not 0.0 <= cursor_y < source_height:
+                continue
+            cursor_xy[index, 0] = cursor_x / max(source_width - 1, 1)
+            cursor_xy[index, 1] = cursor_y / max(source_height - 1, 1)
+            cursor_valid[index] = True
+        return {
+            "cursor_xy": cursor_xy,
+            "cursor_valid": cursor_valid,
+            "gui_open": gui_open,
+            "gui_inventory": gui_inventory,
+        }
 
     def _locate_window(self, index: int) -> tuple[_EpisodeLocation, int]:
         episode_index = bisect_right(self.cumulative_windows, index)
@@ -317,19 +358,11 @@ class MineStudioLMDBDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, Any]:
         if not 0 <= index < len(self):
             raise IndexError(index)
-        for attempt in range(min(64, len(self))):
-            candidate_index = (index + attempt) % len(self)
-            location, start = self._locate_window(candidate_index)
-            metadata_chunks, metadata_bias = self._read_chunks(
-                location.metadata_database, location.metadata_episode_index,
-                location.metadata_chunk_size, start, self.sequence_length,
-            )
-            if not self._contains_gui(
-                metadata_chunks, metadata_bias, self.sequence_length,
-            ):
-                break
-        else:
-            raise RuntimeError("连续 64 个 MineStudio 窗口都包含 GUI，无法构造可靠监督")
+        location, start = self._locate_window(index)
+        metadata_chunks, metadata_bias = self._read_chunks(
+            location.metadata_database, location.metadata_episode_index,
+            location.metadata_chunk_size, start, self.sequence_length,
+        )
         image_chunks, image_bias = self._read_chunks(
             location.image_database, location.image_episode_index,
             location.image_chunk_size, start, self.sequence_length,
@@ -338,9 +371,11 @@ class MineStudioLMDBDataset(Dataset):
             location.action_database, location.action_episode_index,
             location.action_chunk_size, start, self.sequence_length - 1,
         )
-        images = self._decode_images(image_chunks)[
-            image_bias:image_bias + self.sequence_length
-        ]
+        decoded_images, source_size = self._decode_images(image_chunks)
+        images = decoded_images[image_bias:image_bias + self.sequence_length]
+        metadata = self._decode_metadata(
+            metadata_chunks, metadata_bias, self.sequence_length, source_size,
+        )
         raw_actions = self._decode_actions(action_chunks)
         actions = minestudio_action_vector(
             {key: value[action_bias:action_bias + self.sequence_length - 1]
@@ -357,4 +392,5 @@ class MineStudioLMDBDataset(Dataset):
             "task_text": self.task_text,
             "t_vec": torch.arange(self.sequence_length, dtype=torch.float32) / 20.0,
             "episode": location.episode,
+            **metadata,
         }

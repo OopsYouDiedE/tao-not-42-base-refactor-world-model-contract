@@ -79,8 +79,14 @@ def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
     _write_database(
         tmp_path / "meta_info" / "part-4",
         pickle.dumps([
-            {"isGuiOpen": False, "isGuiInventory": False}
-            for _ in range(frame_count)
+            {"isGuiOpen": False, "isGuiInventory": False,
+             "cursor_x": 0, "cursor_y": 0},
+            {"isGuiOpen": True, "isGuiInventory": True,
+             "cursor_x": 8, "cursor_y": 4},
+            {"isGuiOpen": True, "isGuiInventory": False,
+             "cursor_x": 15, "cursor_y": 15},
+            {"isGuiOpen": False, "isGuiInventory": False,
+             "cursor_x": 0, "cursor_y": 0},
         ]),
         frame_count,
     )
@@ -98,13 +104,9 @@ def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
     assert np.isclose(float(sample["act_agg"][0, 1]), 1.0 / 18.0)
     assert float(sample["act_agg"][0, 2]) == 1.0
     assert sample["task_text"] == "test task"
-
-
-def test_gui_windows_are_detected_from_metadata():
-    metadata = pickle.dumps([
-        {"isGuiOpen": False},
-        {"isGuiOpen": True},
-        {"isGuiOpen": False},
-        {"isGuiOpen": False},
-    ])
-    assert MineStudioLMDBDataset._contains_gui([metadata], 0, 4)
+    assert sample["gui_open"].tolist() == [False, True, True]
+    assert sample["gui_inventory"].tolist() == [False, True, False]
+    assert sample["cursor_valid"].tolist() == [False, True, True]
+    assert np.isclose(float(sample["cursor_xy"][1, 0]), 8.0 / 15.0)
+    assert np.isclose(float(sample["cursor_xy"][1, 1]), 4.0 / 15.0)
+    assert sample["cursor_xy"][2].tolist() == [1.0, 1.0]

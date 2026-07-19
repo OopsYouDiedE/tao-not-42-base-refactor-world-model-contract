@@ -291,9 +291,9 @@ class SpatiotemporalFastTower(nn.Module):
         dt : torch.Tensor
             Shape ``[B,H+1,1]``，Dtype float32，单位秒。
         aim_xy : torch.Tensor
-            Shape ``[B,2]``，Dtype float32，归一化像素指点坐标。
+            Shape ``[B,2]``，Dtype float32，归一化 GUI 光标/像素指点坐标。
         aim_valid : torch.Tensor
-            Shape ``[B]``，Dtype bool，指点有效位。
+            Shape ``[B]``，Dtype bool，GUI 光标/指点有效位。
 
         Returns
         -------

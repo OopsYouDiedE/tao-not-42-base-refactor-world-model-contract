@@ -8,7 +8,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from train.minecraft.action_contract import (CAM_BINS, CAM_MAX_DEG,  # noqa: E402
+from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG,  # noqa: E402
                                                V2_KEYS, bins_to_deg, deg_to_bins,
                                                stack_frames)
 from train.minecraft.bc_warmstart import (VPT_TO_V2, bin_center_t,  # noqa: E402

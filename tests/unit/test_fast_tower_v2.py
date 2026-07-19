@@ -1,0 +1,51 @@
+"""验证重新设计的快塔 v2 契约。"""
+
+import torch
+
+from net.fast_tower_v2 import FastTowerV2Config, NullMemory, build_fast_tower_v2
+
+
+def test_fast_tower_v2_shapes_and_legacy_keys():
+    """验证时空输入、结构化动作和 20 键展开。"""
+    cfg = FastTowerV2Config(
+        visual_dim=24, text_dim=12, d=32, heads=4,
+        spatial_layers=1, temporal_layers=1, grid_hw=(4, 6),
+        max_history=4, max_text_tokens=8,
+    )
+    model = build_fast_tower_v2(cfg)
+    output = model(
+        current_patches=torch.zeros(2, 24, 24),
+        history_patches=torch.zeros(2, 2, 24, 24),
+        text_tokens=torch.zeros(2, 5, 12),
+        text_mask=torch.ones(2, 5, dtype=torch.bool),
+        past_actions=torch.zeros(2, 3, 22),
+        dt=torch.full((2, 3, 1), 0.05),
+        aim_xy=torch.tensor([[0.5, 0.5], [0.0, 0.0]]),
+        aim_valid=torch.tensor([True, False]),
+    )
+    assert output.camera_logits.shape == (2, 2, 11)
+    assert output.move_fb_logits.shape == (2, 3)
+    assert output.move_lr_logits.shape == (2, 3)
+    assert output.stance_logits.shape == (2, 3)
+    assert output.hotbar_logits.shape == (2, 10)
+    assert output.button_logits.shape == (2, 5)
+    assert output.legacy_key_probabilities().shape == (2, 20)
+    camera, keys = output.sample_legacy(deterministic=True)
+    assert camera.shape == (2, 2)
+    assert keys.shape == (2, 20)
+    assert not torch.any((keys[:, 0] > 0) & (keys[:, 1] > 0))
+    assert not torch.any((keys[:, 2] > 0) & (keys[:, 3] > 0))
+    assert torch.all(keys[:, 11:20].sum(dim=-1) <= 1)
+
+
+def test_null_memory_is_empty():
+    """验证默认记忆不注入 token。"""
+    memory = NullMemory(32)
+    assert memory(3, torch.device("cpu")).shape == (3, 0, 32)
+
+
+def test_default_trainable_parameter_budget():
+    """验证默认快塔核心处于 4–6M 可训练参数预算。"""
+    model = build_fast_tower_v2(FastTowerV2Config())
+    count = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+    assert 4_000_000 <= count <= 6_000_000

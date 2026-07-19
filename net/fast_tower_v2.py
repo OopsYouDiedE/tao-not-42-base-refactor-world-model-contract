@@ -1,0 +1,353 @@
+"""语言条件化的时空视觉快塔 v2。
+
+对外接口：FastTowerV2Config、MemoryProvider、NullMemory、StructuredActionOutput、
+FastTowerV2、build_fast_tower_v2。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+@dataclass(frozen=True)
+class FastTowerV2Config:
+    """快塔结构配置。
+
+    Attributes
+    ----------
+    visual_dim : int
+        冻结视觉编码器 patch token 的通道数。
+    text_dim : int
+        冻结文本编码器 token 的通道数。
+    action_dim : int
+        历史结构化动作向量维数。
+    d : int
+        快塔内部通道数。
+    grid_hw : tuple[int, int]
+        当前帧 patch 网格高宽，默认 18×32。
+    """
+
+    visual_dim: int = 768
+    text_dim: int = 384
+    action_dim: int = 22
+    d: int = 256
+    heads: int = 8
+    spatial_layers: int = 2
+    temporal_layers: int = 2
+    grid_hw: tuple[int, int] = (18, 32)
+    camera_bins: int = 11
+    max_history: int = 16
+    max_text_tokens: int = 64
+    dropout: float = 0.0
+
+
+class MemoryProvider(nn.Module):
+    """可选长期记忆 token 的接口。"""
+
+    def forward(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        """返回记忆 token。
+
+        Parameters
+        ----------
+        batch_size : int
+            batch 数量。
+        device : torch.device
+            输出设备。
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``[B, M, d]``，Dtype float32/模型 dtype。
+        """
+        raise NotImplementedError
+
+
+class NullMemory(MemoryProvider):
+    """默认无记忆实现，不引入地图或递归状态。"""
+
+    def __init__(self, d: int):
+        super().__init__()
+        self.d = d
+
+    def forward(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        """返回空 token 序列。
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``[B, 0, d]``，Dtype float32。
+        """
+        return torch.empty(batch_size, 0, self.d, device=device)
+
+
+@dataclass
+class StructuredActionOutput:
+    """互斥结构化动作分布的 logits。"""
+
+    camera_logits: torch.Tensor
+    move_fb_logits: torch.Tensor
+    move_lr_logits: torch.Tensor
+    stance_logits: torch.Tensor
+    hotbar_logits: torch.Tensor
+    button_logits: torch.Tensor
+
+    def legacy_key_probabilities(self) -> torch.Tensor:
+        """展开为旧接口的 20 键边缘概率。
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``[B, 20]``，Dtype float32。键序为 CraftGround V2_KEYS。
+        """
+        fb = F.softmax(self.move_fb_logits.float(), dim=-1)
+        lr = F.softmax(self.move_lr_logits.float(), dim=-1)
+        stance = F.softmax(self.stance_logits.float(), dim=-1)
+        hotbar = F.softmax(self.hotbar_logits.float(), dim=-1)
+        buttons = torch.sigmoid(self.button_logits.float())
+        return torch.cat(
+            [fb[:, 2:3], fb[:, 0:1], lr[:, 0:1], lr[:, 2:3], buttons[:, 0:1],
+             stance[:, 1:2], stance[:, 2:3], buttons[:, 1:5], hotbar[:, 1:]],
+            dim=-1,
+        )
+
+    def sample_legacy(self, deterministic: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
+        """从结构化分布采样并展开旧相机/20 键接口。
+
+        Parameters
+        ----------
+        deterministic : bool
+            True 使用 argmax/阈值，False 按分布采样。
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            相机 Shape ``[B,2]``、Dtype int64；按键 Shape ``[B,20]``、Dtype int32。
+            前后、左右、姿态和 hotbar 各组构造上互斥。
+        """
+        def categorical(logits: torch.Tensor) -> torch.Tensor:
+            """按最后一维的类别分布采样，输入 ``[B,C]`` logits。"""
+            if deterministic:
+                return logits.argmax(dim=-1)
+            p = F.softmax(logits.float(), dim=-1)
+            return torch.multinomial(p, 1).squeeze(-1)
+
+        camera = self.camera_logits.argmax(dim=-1) if deterministic else torch.stack(
+            [categorical(self.camera_logits[:, axis]) for axis in range(2)], dim=-1,
+        )
+        fb = categorical(self.move_fb_logits)
+        lr = categorical(self.move_lr_logits)
+        stance = categorical(self.stance_logits)
+        hotbar = categorical(self.hotbar_logits)
+        if deterministic:
+            events = self.button_logits >= 0
+        else:
+            events = torch.bernoulli(torch.sigmoid(self.button_logits.float())).bool()
+        keys = torch.zeros(self.button_logits.shape[0], 20, dtype=torch.int32,
+                           device=self.button_logits.device)
+        keys[:, 0] = (fb == 2).int()
+        keys[:, 1] = (fb == 0).int()
+        keys[:, 2] = (lr == 0).int()
+        keys[:, 3] = (lr == 2).int()
+        keys[:, 4] = events[:, 0].int()
+        keys[:, 5] = (stance == 1).int()
+        keys[:, 6] = (stance == 2).int()
+        keys[:, 7:11] = events[:, 1:5].int()
+        active_hotbar = hotbar > 0
+        rows = torch.arange(keys.shape[0], device=keys.device)[active_hotbar]
+        keys[rows, hotbar[active_hotbar] + 10] = 1
+        return camera, keys
+
+
+class _Encoder(nn.Module):
+    """Pre-LN Transformer 编码器。"""
+
+    def __init__(self, d: int, heads: int, layers: int, dropout: float):
+        super().__init__()
+        layer = nn.TransformerEncoderLayer(
+            d, heads, dim_feedforward=4 * d, dropout=dropout,
+            activation="gelu", batch_first=True, norm_first=True,
+        )
+        self.body = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+        self.norm = nn.LayerNorm(d)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """编码 token 序列 ``[B,L,d]``，保持 Shape 与 Dtype。"""
+        return self.norm(self.body(x))
+
+
+class FastTowerV2(nn.Module):
+    """时空视觉、文本、动作历史到结构化动作分布的快塔。"""
+
+    def __init__(self, cfg: FastTowerV2Config, memory: MemoryProvider | None = None):
+        super().__init__()
+        if cfg.d % cfg.heads:
+            raise ValueError("d 必须能被 heads 整除")
+        gh, gw = cfg.grid_hw
+        if gh % 2 or gw % 2:
+            raise ValueError("grid_hw 必须能被 2×2 历史池化整除")
+        self.cfg = cfg
+        self.memory = memory if memory is not None else NullMemory(cfg.d)
+        self.visual_in = nn.Linear(cfg.visual_dim, cfg.d)
+        self.text_in = nn.Linear(cfg.text_dim, cfg.d)
+        self.action_in = nn.Linear(cfg.action_dim + 1, cfg.d)
+        self.goal_scale = nn.Linear(cfg.d, cfg.d)
+        self.goal_bias = nn.Linear(cfg.d, cfg.d)
+        self.aim_in = nn.Linear(1, cfg.d, bias=False)
+        self.spatial_pos = nn.Parameter(torch.zeros(1, gh * gw, cfg.d))
+        self.history_pos = nn.Parameter(torch.zeros(1, cfg.max_history, cfg.d))
+        self.text_pos = nn.Parameter(torch.zeros(1, cfg.max_text_tokens, cfg.d))
+        self.spatial = _Encoder(cfg.d, cfg.heads, cfg.spatial_layers, cfg.dropout)
+        self.temporal = _Encoder(cfg.d, cfg.heads, cfg.temporal_layers, cfg.dropout)
+        self.action_history = _Encoder(cfg.d, cfg.heads, 1, cfg.dropout)
+        self.action_queries = nn.Parameter(torch.empty(1, 6, cfg.d))
+        self.cross_norm_q = nn.LayerNorm(cfg.d)
+        self.cross_norm_kv = nn.LayerNorm(cfg.d)
+        self.cross = nn.MultiheadAttention(cfg.d, cfg.heads, batch_first=True, dropout=cfg.dropout)
+        self.camera_head = nn.Linear(cfg.d, 2 * cfg.camera_bins)
+        self.move_fb_head = nn.Linear(cfg.d, 3)
+        self.move_lr_head = nn.Linear(cfg.d, 3)
+        self.stance_head = nn.Linear(cfg.d, 3)
+        self.hotbar_head = nn.Linear(cfg.d, 10)
+        self.button_head = nn.Linear(cfg.d, 5)
+        u = (torch.arange(gw, dtype=torch.float32) + 0.5) / gw
+        v = (torch.arange(gh, dtype=torch.float32) + 0.5) / gh
+        vv, uu = torch.meshgrid(v, u, indexing="ij")
+        self.register_buffer("patch_uv", torch.stack([uu.flatten(), vv.flatten()], dim=-1))
+        nn.init.trunc_normal_(self.spatial_pos, std=0.02)
+        nn.init.trunc_normal_(self.history_pos, std=0.02)
+        nn.init.trunc_normal_(self.text_pos, std=0.02)
+        nn.init.trunc_normal_(self.action_queries, std=0.02)
+
+    def _text(self, tokens: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """投影文本 token 并计算有掩码汇总。
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            token Shape ``[B,L,d]`` 与汇总 Shape ``[B,d]``，Dtype float32/模型 dtype。
+        """
+        if tokens.shape[1] > self.cfg.max_text_tokens:
+            raise ValueError("文本 token 数超过 max_text_tokens")
+        x = self.text_in(tokens) + self.text_pos[:, :tokens.shape[1]]
+        weight = mask.to(dtype=x.dtype).unsqueeze(-1)
+        x = x * weight
+        denom = weight.sum(dim=1).float().clamp(min=1e-4).to(dtype=x.dtype)
+        summary = (x * weight).sum(dim=1) / denom
+        return x, summary
+
+    def _pool_history(self, history: torch.Tensor) -> torch.Tensor:
+        """历史 patch 做 2×2 空间池化。
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``[B,H,gh/2*gw/2,Dv]``，保持输入 Dtype。
+        """
+        b, h, _, d = history.shape
+        gh, gw = self.cfg.grid_hw
+        x = history.reshape(b, h, gh // 2, 2, gw // 2, 2, d)
+        return x.mean(dim=(3, 5)).reshape(b, h, (gh // 2) * (gw // 2), d)
+
+    def forward(
+        self,
+        current_patches: torch.Tensor,
+        history_patches: torch.Tensor,
+        text_tokens: torch.Tensor,
+        text_mask: torch.Tensor,
+        past_actions: torch.Tensor,
+        dt: torch.Tensor,
+        aim_xy: torch.Tensor,
+        aim_valid: torch.Tensor,
+    ) -> StructuredActionOutput:
+        """计算下一步结构化动作 logits。
+
+        Parameters
+        ----------
+        current_patches : torch.Tensor
+            Shape ``[B,576,Dv]``，Dtype float32/bfloat16，当前帧 DINO patch。
+        history_patches : torch.Tensor
+            Shape ``[B,H,576,Dv]``，Dtype float32/bfloat16，历史 DINO patch。
+        text_tokens : torch.Tensor
+            Shape ``[B,L,Dt]``，Dtype float32/bfloat16，冻结文本编码器输出。
+        text_mask : torch.Tensor
+            Shape ``[B,L]``，Dtype bool，文本有效位。
+        past_actions : torch.Tensor
+            Shape ``[B,H+1,A]``，Dtype float32，已请求/执行动作历史。
+        dt : torch.Tensor
+            Shape ``[B,H+1,1]``，Dtype float32，单位秒。
+        aim_xy : torch.Tensor
+            Shape ``[B,2]``，Dtype float32，归一化像素指点坐标。
+        aim_valid : torch.Tensor
+            Shape ``[B]``，Dtype bool，指点有效位。
+
+        Returns
+        -------
+        StructuredActionOutput
+            相机 ``[B,2,11]``；移动/姿态 ``[B,3]``；hotbar ``[B,10]``；
+            事件按钮 ``[B,5]``，logits Dtype 与模型计算 dtype 一致。
+        """
+        b, n, _ = current_patches.shape
+        gh, gw = self.cfg.grid_hw
+        if n != gh * gw:
+            raise ValueError(f"当前 patch 数必须为 {gh * gw}")
+        h = history_patches.shape[1]
+        if h > self.cfg.max_history - 1:
+            raise ValueError("历史帧数超过 max_history-1")
+        text, goal = self._text(text_tokens, text_mask)
+        current = self.visual_in(current_patches) + self.spatial_pos
+        current = current * (1.0 + torch.tanh(self.goal_scale(goal))[:, None])
+        current = current + self.goal_bias(goal)[:, None]
+        dist2 = ((self.patch_uv[None] - aim_xy[:, None].float()) ** 2).sum(dim=-1)
+        aim_weight = torch.exp((-dist2 / 0.02).clamp(min=-20.0, max=0.0))
+        aim_weight = aim_weight * aim_valid.float()[:, None]
+        current = current + self.aim_in(aim_weight.to(current.dtype).unsqueeze(-1))
+        current = self.spatial(current)
+
+        pooled_current = current.reshape(b, gh, gw, self.cfg.d)
+        pooled_current = pooled_current.reshape(b, gh // 2, 2, gw // 2, 2, self.cfg.d)
+        pooled_current = pooled_current.mean(dim=(2, 4)).flatten(1, 2)
+        history = self.visual_in(self._pool_history(history_patches))
+        history = history * (1.0 + torch.tanh(self.goal_scale(goal))[:, None, None])
+        history = history + self.goal_bias(goal)[:, None, None]
+        frames = torch.cat([history, pooled_current[:, None]], dim=1)
+        frames = frames + self.history_pos[:, :h + 1, None]
+        _, t, p, d = frames.shape
+        temporal = frames.permute(0, 2, 1, 3).reshape(b * p, t, d)
+        temporal = self.temporal(temporal)[:, -1].reshape(b, p, d)
+
+        action = self.action_in(torch.cat([past_actions.float(), dt.float()], dim=-1))
+        action = self.action_history(action.to(current.dtype))
+        memory = self.memory(b, current.device).to(dtype=current.dtype)
+        kv = torch.cat([current, temporal, text, action, memory], dim=1)
+        query = self.action_queries.expand(b, -1, -1) + goal[:, None]
+        attended, _ = self.cross(
+            self.cross_norm_q(query), self.cross_norm_kv(kv), self.cross_norm_kv(kv),
+            need_weights=False,
+        )
+        query = query + attended
+        return StructuredActionOutput(
+            camera_logits=self.camera_head(query[:, 0]).reshape(b, 2, self.cfg.camera_bins),
+            move_fb_logits=self.move_fb_head(query[:, 1]),
+            move_lr_logits=self.move_lr_head(query[:, 2]),
+            stance_logits=self.stance_head(query[:, 3]),
+            hotbar_logits=self.hotbar_head(query[:, 4]),
+            button_logits=self.button_head(query[:, 5]),
+        )
+
+
+def build_fast_tower_v2(
+    cfg: FastTowerV2Config,
+    memory: MemoryProvider | None = None,
+) -> FastTowerV2:
+    """构造快塔 v2。
+
+    Returns
+    -------
+    FastTowerV2
+        未加载视觉或文本骨干权重的快塔核心。
+    """
+    return FastTowerV2(cfg, memory)

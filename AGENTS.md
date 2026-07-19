@@ -5,8 +5,9 @@
 - 引擎资产放在 assets/godot_meta_rl/。
 - 通用 Python 通信与进程基础设施放在 utils/godot_rl/。
 - 训练装配与任务适配放在 train/godot_meta_rl/。
+- CraftGround 在线环境、奖励、回放和世界快照放在 train/craftground/。
 - Minecraft VPT 数据、动作契约与 BC 训练放在 train/minecraft/。
-- 像素快塔放在 net/，任务无关注意力算子放在 blocks/。
+- v1/v2 快塔放在 net/，任务无关注意力算子放在 blocks/。
 - 测试放在 tests/，训练产物放在已忽略的 runs/。
 
 ## 依赖

@@ -5,11 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tao-not-42"
 version = "0.2.0"
-description = "Godot 元学习强化学习训练环境"
+description = "Godot、CraftGround 与 Minecraft 行为克隆训练环境"
 readme = "readme.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
+    "craftground",
     "numpy",
     "gymnasium",
     "opencv-python",

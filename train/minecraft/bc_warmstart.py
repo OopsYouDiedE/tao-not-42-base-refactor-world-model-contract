@@ -42,7 +42,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
-from train.minecraft.action_contract import (CAM_BINS, CAM_MAX_DEG, CAM_MU,  # noqa: E402
+from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG, CAM_MU,  # noqa: E402
                                                V2_KEYS, stack_frames)
 from train.minecraft.vpt_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
                                          _pair_list, assemble_goal)
@@ -370,9 +370,6 @@ def main() -> None:
             m.update(step=step, train_loss=round(float(loss), 4),
                      lr=opt.param_groups[0]["lr"],
                      wall_min=round((time.time() - t0) / 60, 1))
-            if args.distill_dir:
-                m.update(kl_cam=round(kl_c, 4), kl_key=round(kl_k, 4),
-                         tch_cov=round(cov, 3), distill_w=args.distill_weight)
             with (out / "metrics.jsonl").open("a") as f:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
             hold = 0.5 * (score_t + score_0)     # 双口径都不许烂:选 best 用均值

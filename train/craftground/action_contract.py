@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Minecraft 快塔 动作契约的单一定义:键序 / 相机 mu-law 分箱 / 帧堆叠。
+"""CraftGround V2 动作契约的单一定义:键序 / 相机 mu-law 分箱 / 帧堆叠。
 
 对外接口:
     V2_KEYS, CAM_BINS, CAM_MAX_DEG — 契约常量(与 net.PixelTowerConfig 的 n_keys/camera_bins
@@ -8,11 +8,12 @@
     deg_to_bins(deg) — 度 → mu-law 分箱(BC 数据端编码;与 bins_to_deg 互逆,单测锚定)
     stack_frames(imgs, s) — 帧堆叠(旧→新,开局首帧填充;采样/更新/BC 三侧逐字节同序)
 
-BC 暖启动端消费本模块，后续在线策略也必须复用同一动作编码。
+采样端(grpo_pixel)与 BC 暖启动端(bc_vpt_warmstart)共同消费本模块——
+"采样 π = 更新 π = BC 目标编码"的口径一致性以单一定义保证(AGENTS §10 合并触发)。
 """
 import numpy as np
 
-# Minecraft 快塔 里的 20 个二值键(与 PixelTowerConfig.n_keys=20 一致)
+# CraftGround V2 里的 20 个二值键(与 PixelTowerConfig.n_keys=20 一致)
 V2_KEYS = ["forward", "back", "left", "right", "jump", "sneak", "sprint", "attack", "use",
            "drop", "inventory", "hotbar.1", "hotbar.2", "hotbar.3", "hotbar.4",
            "hotbar.5", "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9"]

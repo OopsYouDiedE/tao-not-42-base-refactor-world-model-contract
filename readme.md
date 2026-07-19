@@ -49,8 +49,9 @@ Dreamer-lite 潜状态世界模型。冻结 DINOv3-S 与 MiniLM 会从 Hugging F
         --data-root runs/data/minestudio
 
 动作加元数据库常驻约 14–64 GB，单个图像分片通常为几十 GB，三个阶段的典型
-峰值分别约为 95 / 72 / 38 GB。元数据提供逐帧 GUI 状态和绝对光标坐标：坐标按
-源图像高宽归一化后送入快塔，GUI 中的相对鼠标移动继续由两轴 camera 动作监督，
+峰值分别约为 95 / 72 / 38 GB。元数据提供逐帧 GUI 状态和绝对光标坐标，但它们
+只保留为辅助监督与诊断目标，绝不直接送入策略。MineStudio 和 CraftGround 都把
+GUI 光标渲染进 RGB，策略从图像感知光标，并由两轴 camera 动作监督相对鼠标移动；
 GUI 窗口不会被过滤。切换分片时加入
 `--replace-image-shards`，会在新分片完整下载后只删除本阶段的旧图像 LMDB；因此本地
 不需要容纳整组数据。该删除不可从本项目恢复，但 Hugging Face 下载可重新执行。
@@ -64,7 +65,7 @@ checkpoint 都会记录本轮实际读取的分片名。
         --stage foundation \
         --steps 100000
 
-同阶段下一图像分片或下一课程都从同一个 v2 checkpoint 续训；`--steps` 是累计
+同阶段下一图像分片或下一课程都从同一个 v4 checkpoint 续训；`--steps` 是累计
 优化步数。例如先准备 `construction` 的图像分片，再执行：
 
     python -m train.minecraft.world_model_warm_start \
@@ -75,8 +76,9 @@ checkpoint 都会记录本轮实际读取的分片名。
 
 世界模型负责动作条件化的下一视觉 latent 预测与离散 KL；奖励、继续概率、事件和
 物品栏头已定义，但只有 CraftGround 回放提供对应真值后才应加入损失。训练 checkpoint
-显式标记为 `minecraft_dreamer_lite_v3`；v3 接入绝对 GUI 光标并保留 GUI 动作监督，
-不与 PixelTower、旧 v2/v1 世界模型 checkpoint 静默部分加载。旧 PixelTower BC
+显式标记为 `minecraft_dreamer_lite_v4`；v4 移除训练期绝对光标特权输入，仅从 RGB
+观察光标并保留 GUI 动作监督，不与 PixelTower、旧 v3/v2/v1 世界模型 checkpoint
+静默部分加载。旧 PixelTower BC
 入口仍读取原始 `mp4 + jsonl`；新的联合
 训练入口直接读取 MineStudio v1.1 的 `image + action + meta_info` LMDB，不安装
 MineStudio 本体及其模拟器依赖；约 400 GB segmentation 以及当前没有监督头的
@@ -107,7 +109,7 @@ event/motion 都不会下载。
 - 当前帧：`[B,576,Dv]`，对应 `18×32` 完整 patch 网格；
 - 历史帧：`[B,H,576,Dv]`，内部做 `2×2` 池化后逐空间位置进行时间混合；
 - 文本：完整 token 与有效位，不使用 UTF-8 字节从零学习语义；
-- 控制状态：过去动作、每步 `dt`、归一化 GUI 光标/像素指点及其有效位；
+- 控制状态：过去动作和每步 `dt`；没有结构化光标坐标输入，GUI 光标只从 RGB 感知；
 - 记忆：默认 `NullMemory`，地图不是基线必需项；
 - 输出：未来 `[B,K]` 上的相机两轴 11 档、互斥前后/左右/姿态/hotbar，以及五个事件按钮；部署只执行前 1–2 步后重规划。
 

@@ -104,9 +104,9 @@ def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
     assert np.isclose(float(sample["act_agg"][0, 1]), 1.0 / 18.0)
     assert float(sample["act_agg"][0, 2]) == 1.0
     assert sample["task_text"] == "test task"
-    assert sample["gui_open"].tolist() == [False, True, True]
-    assert sample["gui_inventory"].tolist() == [False, True, False]
-    assert sample["cursor_valid"].tolist() == [False, True, True]
-    assert np.isclose(float(sample["cursor_xy"][1, 0]), 8.0 / 15.0)
-    assert np.isclose(float(sample["cursor_xy"][1, 1]), 4.0 / 15.0)
-    assert sample["cursor_xy"][2].tolist() == [1.0, 1.0]
+    assert sample["gui_open_target"].tolist() == [False, True, True]
+    assert sample["gui_inventory_target"].tolist() == [False, True, False]
+    assert sample["cursor_target_valid"].tolist() == [False, True, True]
+    assert np.isclose(float(sample["cursor_target_xy"][1, 0]), 8.0 / 15.0)
+    assert np.isclose(float(sample["cursor_target_xy"][1, 1]), 4.0 / 15.0)
+    assert sample["cursor_target_xy"][2].tolist() == [1.0, 1.0]

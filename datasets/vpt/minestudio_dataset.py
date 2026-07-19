@@ -133,9 +133,9 @@ class MineStudioLMDBDataset(Dataset):
     """从一个课程阶段的本地图像/动作 LMDB 返回固定连续窗口。
 
     每个图像分片只与全部动作和元数据库求 episode 交集，因此不要求三种模态的
-    分片编号对齐。元数据提供 GUI 状态和绝对光标位置；GUI 中的相对光标移动仍由
-    ``camera`` 两轴动作监督。LMDB 句柄在 DataLoader worker 内惰性打开，不跨
-    进程序列化。
+    分片编号对齐。元数据中的 GUI 状态和绝对光标位置只作为辅助监督目标，不得作为
+    策略输入；GUI 中的相对光标移动仍由 ``camera`` 两轴动作监督。LMDB 句柄在
+    DataLoader worker 内惰性打开，不跨进程序列化。
     """
 
     def __init__(
@@ -312,7 +312,7 @@ class MineStudioLMDBDataset(Dataset):
         length: int,
         source_size: tuple[int, int],
     ) -> dict[str, torch.Tensor]:
-        """返回 GUI 状态和归一化绝对光标位置。"""
+        """返回仅供辅助监督或诊断的 GUI 与绝对光标目标。"""
         frames = []
         for chunk in chunks:
             frames.extend(pickle.loads(chunk))
@@ -343,10 +343,10 @@ class MineStudioLMDBDataset(Dataset):
             cursor_xy[index, 1] = cursor_y / max(source_height - 1, 1)
             cursor_valid[index] = True
         return {
-            "cursor_xy": cursor_xy,
-            "cursor_valid": cursor_valid,
-            "gui_open": gui_open,
-            "gui_inventory": gui_inventory,
+            "cursor_target_xy": cursor_xy,
+            "cursor_target_valid": cursor_valid,
+            "gui_open_target": gui_open,
+            "gui_inventory_target": gui_inventory,
         }
 
     def _locate_window(self, index: int) -> tuple[_EpisodeLocation, int]:

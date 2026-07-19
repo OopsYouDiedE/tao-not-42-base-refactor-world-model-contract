@@ -24,8 +24,6 @@ def test_spatiotemporal_fast_tower_shapes_and_legacy_keys():
         text_mask=torch.ones(2, 5, dtype=torch.bool),
         past_actions=torch.zeros(2, 3, 22),
         dt=torch.full((2, 3, 1), 0.05),
-        aim_xy=torch.tensor([[0.5, 0.5], [0.0, 0.0]]),
-        aim_valid=torch.tensor([True, False]),
     )
     assert output.camera_logits.shape == (2, 3, 2, 11)
     assert output.move_fb_logits.shape == (2, 3, 3)

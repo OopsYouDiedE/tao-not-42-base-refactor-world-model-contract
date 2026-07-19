@@ -203,7 +203,6 @@ class SpatiotemporalFastTower(nn.Module):
         self.action_in = nn.Linear(configuration.action_dim + 1, configuration.d)
         self.goal_scale = nn.Linear(configuration.d, configuration.d)
         self.goal_bias = nn.Linear(configuration.d, configuration.d)
-        self.aim_in = nn.Linear(1, configuration.d, bias=False)
         self.spatial_pos = nn.Parameter(torch.zeros(1, gh * gw, configuration.d))
         self.history_pos = nn.Parameter(torch.zeros(1, configuration.max_history, configuration.d))
         self.text_pos = nn.Parameter(torch.zeros(1, configuration.max_text_tokens, configuration.d))
@@ -223,10 +222,6 @@ class SpatiotemporalFastTower(nn.Module):
         self.stance_head = nn.Linear(configuration.d, 3)
         self.hotbar_head = nn.Linear(configuration.d, 10)
         self.button_head = nn.Linear(configuration.d, 5)
-        u = (torch.arange(gw, dtype=torch.float32) + 0.5) / gw
-        v = (torch.arange(gh, dtype=torch.float32) + 0.5) / gh
-        vv, uu = torch.meshgrid(v, u, indexing="ij")
-        self.register_buffer("patch_uv", torch.stack([uu.flatten(), vv.flatten()], dim=-1))
         nn.init.trunc_normal_(self.spatial_pos, std=0.02)
         nn.init.trunc_normal_(self.history_pos, std=0.02)
         nn.init.trunc_normal_(self.text_pos, std=0.02)
@@ -271,8 +266,6 @@ class SpatiotemporalFastTower(nn.Module):
         text_mask: torch.Tensor,
         past_actions: torch.Tensor,
         dt: torch.Tensor,
-        aim_xy: torch.Tensor,
-        aim_valid: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """将完整空间网格、连续历史、文本和已执行动作编码为注意力上下文。
 
@@ -290,10 +283,6 @@ class SpatiotemporalFastTower(nn.Module):
             Shape ``[B,H+1,A]``，Dtype float32，已请求/执行动作历史。
         dt : torch.Tensor
             Shape ``[B,H+1,1]``，Dtype float32，单位秒。
-        aim_xy : torch.Tensor
-            Shape ``[B,2]``，Dtype float32，归一化 GUI 光标/像素指点坐标。
-        aim_valid : torch.Tensor
-            Shape ``[B]``，Dtype bool，GUI 光标/指点有效位。
 
         Returns
         -------
@@ -317,10 +306,6 @@ class SpatiotemporalFastTower(nn.Module):
         current = self.visual_in(current_patches) + self.spatial_pos
         current = current * (1.0 + torch.tanh(self.goal_scale(goal))[:, None])
         current = current + self.goal_bias(goal)[:, None]
-        dist2 = ((self.patch_uv[None] - aim_xy[:, None].float()) ** 2).sum(dim=-1)
-        aim_weight = torch.exp((-dist2 / 0.02).clamp(min=-20.0, max=0.0))
-        aim_weight = aim_weight * aim_valid.float()[:, None]
-        current = current + self.aim_in(aim_weight.to(current.dtype).unsqueeze(-1))
         current = self.spatial(current)
 
         pooled_current = current.reshape(b, gh, gw, self.configuration.d)
@@ -349,13 +334,11 @@ class SpatiotemporalFastTower(nn.Module):
         text_mask: torch.Tensor,
         past_actions: torch.Tensor,
         dt: torch.Tensor,
-        aim_xy: torch.Tensor,
-        aim_valid: torch.Tensor,
     ) -> tuple[StructuredActionOutput, torch.Tensor]:
         """计算动作块和供价值学习使用的策略状态。"""
         kv, goal = self._encode_context(
             current_patches, history_patches, text_tokens, text_mask,
-            past_actions, dt, aim_xy, aim_valid,
+            past_actions, dt,
         )
         b = current_patches.shape[0]
         query = self.action_queries.expand(b, -1, -1, -1) + goal[:, None, None]
@@ -391,13 +374,11 @@ class SpatiotemporalFastTower(nn.Module):
         text_mask: torch.Tensor,
         past_actions: torch.Tensor,
         dt: torch.Tensor,
-        aim_xy: torch.Tensor,
-        aim_valid: torch.Tensor,
     ) -> StructuredActionOutput:
         """计算未来 ``action_horizon`` 步的结构化动作 logits。"""
         output, _ = self.forward_with_state(
             current_patches, history_patches, text_tokens, text_mask,
-            past_actions, dt, aim_xy, aim_valid,
+            past_actions, dt,
         )
         return output
 

@@ -35,7 +35,7 @@ from train.minecraft.action_supervision import (
     structured_action_loss,
 )
 
-CHECKPOINT_VERSION = "minecraft_dreamer_lite_v3"
+CHECKPOINT_VERSION = "minecraft_dreamer_lite_v4"
 DEFAULT_VISION_MODEL = "facebook/dinov3-vits16-pretrain-lvd1689m"
 DEFAULT_TEXT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -316,12 +316,6 @@ def main() -> None:
             batch["act_agg"], batch["dt"], arguments.history,
             arguments.action_horizon, device,
         )
-        aim_xy = batch["cursor_xy"][:, arguments.history].to(
-            device, non_blocking=True,
-        )
-        aim_valid = batch["cursor_valid"][:, arguments.history].to(
-            device, non_blocking=True,
-        )
         tower.train()
         world_model.train()
         with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -332,8 +326,6 @@ def main() -> None:
                 text_mask=text_mask,
                 past_actions=past_actions,
                 dt=past_dt,
-                aim_xy=aim_xy,
-                aim_valid=aim_valid,
             )
             action_loss = structured_action_loss(action_output, camera_bins, keys)
             observation = patches[

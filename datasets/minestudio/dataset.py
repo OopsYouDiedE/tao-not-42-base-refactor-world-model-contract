@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import pickle
 from typing import Any
+import logging
 
 import av
 import cv2
@@ -339,7 +340,10 @@ class MineStudioLMDBDataset(Dataset):
                     if source_size is None:
                         source_size = frame_source_size
                     elif source_size != frame_source_size:
-                        raise RuntimeError("同一 MineStudio 窗口的源图像尺寸不一致")
+                        logging.warning(
+                            f"MineStudio 源图像尺寸突变: 从 {source_size} 变为 {frame_source_size}，"
+                            f"已忽略并强制缩放至 {self.image_size}"
+                        )
                     if image.shape[:2] != self.image_size:
                         image = cv2.resize(
                             image, (self.image_size[1], self.image_size[0]),

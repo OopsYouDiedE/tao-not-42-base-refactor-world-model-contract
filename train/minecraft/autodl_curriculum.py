@@ -25,7 +25,7 @@ from train.minecraft.world_model_warm_start import (
 )
 
 
-SCHEDULE_VERSION = "autodl_minecraft_curriculum_v1"
+SCHEDULE_VERSION = "autodl_minecraft_curriculum_v2"
 DEFAULT_STAGE_UPDATES = {
     "foundation": 100_000,
     "construction": 50_000,
@@ -173,6 +173,7 @@ def _schedule_payload(
             "image_width": arguments.image_width,
             "window_stride": arguments.window_stride,
             "validation_fraction": arguments.validation_fraction,
+            "include_metadata_targets": arguments.include_metadata_targets,
             "world_weight": arguments.world_weight,
             "kl_weight": arguments.kl_weight,
             "vision_model": arguments.vision_model,
@@ -231,6 +232,8 @@ def _training_command(
         command.extend(["--resume", str(checkpoint_path)])
     if not arguments.fused_optimizer:
         command.append("--no-fused-optimizer")
+    if arguments.include_metadata_targets:
+        command.append("--include-metadata-targets")
     if arguments.small:
         command.append("--small")
     return command
@@ -288,6 +291,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--vision-model", default=DEFAULT_VISION_MODEL)
     parser.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
+    parser.add_argument(
+        "--include-metadata-targets", action="store_true",
+        help="额外下载并解码 meta_info 辅助目标；当前不计入训练 loss",
+    )
     parser.add_argument(
         "--replace-image-shards", action=argparse.BooleanOptionalAction, default=True,
         help="下载新分片成功后删除当前阶段旧图像分片",
@@ -396,6 +403,7 @@ def main() -> None:
                 arguments.replace_image_shards
                 and entry.stage not in prefetched_stages
             ),
+            include_metadata_targets=arguments.include_metadata_targets,
         )
         if selection.image_shard != entry.image_shard:
             raise RuntimeError("远端图像分片列表在课程创建后发生变化，请使用新输出目录重建课程")

@@ -349,6 +349,10 @@ def main() -> None:
     parser.add_argument("--resume", default="", help="从同版本 last.pt 严格恢复模型与优化器")
     parser.add_argument("--vision-model", default=DEFAULT_VISION_MODEL)
     parser.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
+    parser.add_argument(
+        "--include-metadata-targets", action="store_true",
+        help="读取 meta_info 辅助目标；当前只随 batch 返回，不计入 loss",
+    )
     parser.add_argument("--steps", type=int, default=100000)
     parser.add_argument("--batch", type=int, default=2)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
@@ -442,6 +446,7 @@ def main() -> None:
         split="train",
         validation_fraction=arguments.validation_fraction,
         seed=arguments.seed,
+        include_metadata_targets=arguments.include_metadata_targets,
     )
     if len(dataset) < arguments.batch:
         raise RuntimeError("训练窗口数小于 batch，无法形成一个完整训练批次")
@@ -463,6 +468,7 @@ def main() -> None:
                 split="validation",
                 validation_fraction=arguments.validation_fraction,
                 seed=arguments.seed,
+                include_metadata_targets=arguments.include_metadata_targets,
             )
             validation_loader = _data_loader(
                 validation_dataset, arguments.batch, arguments.workers,

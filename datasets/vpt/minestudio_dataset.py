@@ -1,4 +1,4 @@
-"""直接读取 MineStudio v1.1 的图像与动作 LMDB 训练窗口。"""
+"""直接读取 MineStudio v1.1 的图像、动作与可选元数据 LMDB 训练窗口。"""
 
 from __future__ import annotations
 
@@ -45,9 +45,9 @@ class _EpisodeLocation:
     action_database: Path
     action_episode_index: int
     action_chunk_size: int
-    metadata_database: Path
-    metadata_episode_index: int
-    metadata_chunk_size: int
+    metadata_database: Path | None
+    metadata_episode_index: int | None
+    metadata_chunk_size: int | None
     num_frames: int
 
 
@@ -132,9 +132,9 @@ def minestudio_action_vector(
 class MineStudioLMDBDataset(Dataset):
     """从一个课程阶段的本地图像/动作 LMDB 返回固定连续窗口。
 
-    每个图像分片只与全部动作和元数据库求 episode 交集，因此不要求三种模态的
-    分片编号对齐。元数据中的 GUI 状态和绝对光标位置只作为辅助监督目标，不得作为
-    策略输入；GUI 中的相对光标移动仍由 ``camera`` 两轴动作监督。LMDB 句柄在
+    默认只按图像与全部动作库求 episode 交集。可选元数据启用后再加入交集，其中
+    GUI 状态和绝对光标位置只作为辅助监督目标，不得作为策略输入；GUI 中的相对
+    光标移动仍由 ``camera`` 两轴动作监督。各模态不要求分片编号对齐。LMDB 句柄在
     DataLoader worker 内惰性打开，不跨进程序列化。
     """
 
@@ -149,6 +149,7 @@ class MineStudioLMDBDataset(Dataset):
         split: str = "train",
         validation_fraction: float = 0.02,
         seed: int = 0,
+        include_metadata_targets: bool = False,
     ):
         if sequence_length < 2:
             raise ValueError("sequence_length 必须至少为 2")
@@ -163,6 +164,7 @@ class MineStudioLMDBDataset(Dataset):
         self.image_size = image_size
         self.task_text = task_text
         self.camera_max_degrees = camera_max_degrees
+        self.include_metadata_targets = include_metadata_targets
         self.stride = stride or sequence_length
         if self.stride < 1:
             raise ValueError("stride 必须大于零")
@@ -173,28 +175,41 @@ class MineStudioLMDBDataset(Dataset):
         self.action_shards = tuple(
             path.name for path in _database_directories(self.data_directory / "action")
         )
-        self.metadata_shards = tuple(
-            path.name for path in _database_directories(self.data_directory / "meta_info")
+        self.metadata_shards = (
+            tuple(
+                path.name
+                for path in _database_directories(self.data_directory / "meta_info")
+            )
+            if include_metadata_targets else ()
         )
         images = _scan_modality(self.data_directory / "image")
         actions = _scan_modality(self.data_directory / "action")
-        metadata = _scan_modality(self.data_directory / "meta_info")
+        metadata = (
+            _scan_modality(self.data_directory / "meta_info")
+            if include_metadata_targets else {}
+        )
         if not images:
             raise RuntimeError(f"{self.data_directory} 没有已下载的 image LMDB")
         if not actions:
             raise RuntimeError(f"{self.data_directory} 没有已下载的 action LMDB")
-        if not metadata:
+        if include_metadata_targets and not metadata:
             raise RuntimeError(f"{self.data_directory} 没有已下载的 meta_info LMDB")
 
         self.episodes: list[_EpisodeLocation] = []
         self.cumulative_windows: list[int] = []
         self.total_frames = 0
         total_windows = 0
-        for episode in sorted(images.keys() & actions.keys() & metadata.keys()):
+        episode_names = images.keys() & actions.keys()
+        if include_metadata_targets:
+            episode_names &= metadata.keys()
+        for episode in sorted(episode_names):
             image = images[episode]
             action = actions[episode]
-            episode_metadata = metadata[episode]
-            if len({image.num_frames, action.num_frames, episode_metadata.num_frames}) != 1:
+            episode_metadata = metadata.get(episode)
+            frame_counts = {image.num_frames, action.num_frames}
+            if episode_metadata is not None:
+                frame_counts.add(episode_metadata.num_frames)
+            if len(frame_counts) != 1:
                 continue
             digest = hashlib.sha256(f"{seed}:{episode}".encode()).digest()
             bucket = int.from_bytes(digest[:8], "big") / float(2**64)
@@ -217,9 +232,15 @@ class MineStudioLMDBDataset(Dataset):
                 action_database=action.database,
                 action_episode_index=action.episode_index,
                 action_chunk_size=action.chunk_size,
-                metadata_database=episode_metadata.database,
-                metadata_episode_index=episode_metadata.episode_index,
-                metadata_chunk_size=episode_metadata.chunk_size,
+                metadata_database=(
+                    episode_metadata.database if episode_metadata is not None else None
+                ),
+                metadata_episode_index=(
+                    episode_metadata.episode_index if episode_metadata is not None else None
+                ),
+                metadata_chunk_size=(
+                    episode_metadata.chunk_size if episode_metadata is not None else None
+                ),
                 num_frames=image.num_frames,
             ))
             total_windows += windows
@@ -359,10 +380,6 @@ class MineStudioLMDBDataset(Dataset):
         if not 0 <= index < len(self):
             raise IndexError(index)
         location, start = self._locate_window(index)
-        metadata_chunks, metadata_bias = self._read_chunks(
-            location.metadata_database, location.metadata_episode_index,
-            location.metadata_chunk_size, start, self.sequence_length,
-        )
         image_chunks, image_bias = self._read_chunks(
             location.image_database, location.image_episode_index,
             location.image_chunk_size, start, self.sequence_length,
@@ -373,9 +390,21 @@ class MineStudioLMDBDataset(Dataset):
         )
         decoded_images, source_size = self._decode_images(image_chunks)
         images = decoded_images[image_bias:image_bias + self.sequence_length]
-        metadata = self._decode_metadata(
-            metadata_chunks, metadata_bias, self.sequence_length, source_size,
-        )
+        metadata = {}
+        if self.include_metadata_targets:
+            if (
+                location.metadata_database is None
+                or location.metadata_episode_index is None
+                or location.metadata_chunk_size is None
+            ):
+                raise RuntimeError("启用 meta_info 目标但 episode 缺少元数据位置")
+            metadata_chunks, metadata_bias = self._read_chunks(
+                location.metadata_database, location.metadata_episode_index,
+                location.metadata_chunk_size, start, self.sequence_length,
+            )
+            metadata = self._decode_metadata(
+                metadata_chunks, metadata_bias, self.sequence_length, source_size,
+            )
         raw_actions = self._decode_actions(action_chunks)
         actions = minestudio_action_vector(
             {key: value[action_bias:action_bias + self.sequence_length - 1]

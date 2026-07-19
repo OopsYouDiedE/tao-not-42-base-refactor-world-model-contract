@@ -48,13 +48,8 @@ def _write_database(
     stream.close()
 
 
-def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
-    frame_count = 4
-    _write_database(
-        tmp_path / "image" / "part-0",
-        _video_chunk(frame_count),
-        frame_count,
-    )
+def _action_chunk(frame_count: int) -> bytes:
+    """返回覆盖 VPT 键位的测试动作 pickle。"""
     action = {
         "camera": np.tile(np.array([[1.0, 2.0]], dtype=np.float32), (frame_count, 1)),
         "attack": np.zeros(frame_count, dtype=np.uint8),
@@ -71,9 +66,19 @@ def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
         **{f"hotbar.{index}": np.zeros(frame_count, dtype=np.uint8)
            for index in range(1, 10)},
     }
+    return pickle.dumps(action)
+
+
+def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
+    frame_count = 4
+    _write_database(
+        tmp_path / "image" / "part-0",
+        _video_chunk(frame_count),
+        frame_count,
+    )
     _write_database(
         tmp_path / "action" / "part-9",
-        pickle.dumps(action),
+        _action_chunk(frame_count),
         frame_count,
     )
     _write_database(
@@ -95,6 +100,7 @@ def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
         tmp_path, sequence_length=3, image_size=(16, 16),
         task_text="test task", camera_max_degrees=18.0,
         split="all",
+        include_metadata_targets=True,
     )
     sample = dataset[0]
 
@@ -110,3 +116,29 @@ def test_minestudio_dataset_reads_aligned_window(tmp_path: Path):
     assert np.isclose(float(sample["cursor_target_xy"][1, 0]), 8.0 / 15.0)
     assert np.isclose(float(sample["cursor_target_xy"][1, 1]), 4.0 / 15.0)
     assert sample["cursor_target_xy"][2].tolist() == [1.0, 1.0]
+
+
+def test_minestudio_dataset_does_not_require_metadata_by_default(tmp_path: Path):
+    frame_count = 4
+    _write_database(
+        tmp_path / "image" / "part-0",
+        _video_chunk(frame_count),
+        frame_count,
+    )
+    _write_database(
+        tmp_path / "action" / "part-9",
+        _action_chunk(frame_count),
+        frame_count,
+    )
+
+    dataset = MineStudioLMDBDataset(
+        tmp_path, sequence_length=3, image_size=(16, 16),
+        task_text="test task", camera_max_degrees=18.0,
+        split="all",
+    )
+    sample = dataset[0]
+
+    assert sample["img"].shape == (3, 3, 16, 16)
+    assert sample["act_agg"].shape == (2, 22)
+    assert "cursor_target_xy" not in sample
+    assert dataset.metadata_shards == ()

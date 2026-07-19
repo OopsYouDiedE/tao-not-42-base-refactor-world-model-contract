@@ -70,6 +70,12 @@ def test_shard_selection_keeps_all_actions_and_one_image_database():
     assert selection.image_shard == "image/part-11"
     assert selection.image_shard_count == 2
     assert selection.allow_patterns == (
+        "action/**", "image/part-11/**",
+    )
+    metadata_selection = select_stage_shard(
+        files, image_shard_index=1, include_metadata_targets=True,
+    )
+    assert metadata_selection.allow_patterns == (
         "action/**", "meta_info/**", "image/part-11/**",
     )
 

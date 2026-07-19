@@ -1,4 +1,4 @@
-"""按课程阶段全量下载动作/元数据库，并只轮换图像 LMDB 分片。"""
+"""按课程阶段下载必需动作库、可选元数据库和图像 LMDB 分片。"""
 
 from __future__ import annotations
 
@@ -141,11 +141,16 @@ def select_stage_modalities(
 def select_stage_shard(
     repository_files: list[str],
     image_shard_index: int,
+    include_metadata_targets: bool = False,
 ) -> MineStudioShardSelection:
-    """选择全部动作/元数据文件和一个图像 LMDB，不假设分片编号对齐。"""
+    """选择全部动作文件、可选元数据文件和一个图像 LMDB。"""
+    modalities = (
+        ("action", "meta_info", "image")
+        if include_metadata_targets else ("action", "image")
+    )
     selection = select_stage_modalities(
         repository_files,
-        modalities=("action", "meta_info", "image"),
+        modalities=modalities,
         image_shard_indices=(image_shard_index,),
     )
     image_shard = selection.image_shards[0]
@@ -223,12 +228,17 @@ def prepare_stage_shard(
     image_shard_index: int,
     maximum_workers: int = 4,
     replace_image_shards: bool = False,
+    include_metadata_targets: bool = False,
 ) -> tuple[Path, MineStudioShardSelection]:
-    """全量下载阶段动作/元数据库并下载一个图像分片，支持断点续传。"""
+    """下载阶段动作库、可选元数据库和一个图像分片，支持断点续传。"""
+    modalities = (
+        ("action", "meta_info", "image")
+        if include_metadata_targets else ("action", "image")
+    )
     destination, download_selection = prepare_stage_modalities(
         stage_name=stage_name,
         data_root=data_root,
-        modalities=("action", "meta_info", "image"),
+        modalities=modalities,
         image_shard_indices=(image_shard_index,),
         maximum_workers=maximum_workers,
         replace_image_shards=replace_image_shards,
@@ -290,7 +300,7 @@ def main() -> None:
     parser.add_argument("--data-root", default="runs/data/minestudio")
     parser.add_argument(
         "--modalities", nargs="+", choices=MINESTUDIO_MODALITIES,
-        default=["action", "meta_info", "image"],
+        default=["action", "image"],
     )
     parser.add_argument("--image-shard-index", type=int, nargs="+")
     parser.add_argument("--all-image-shards", action="store_true")
@@ -299,7 +309,7 @@ def main() -> None:
     parser.add_argument("--maximum-workers", type=int, default=4)
     parser.add_argument(
         "--replace-image-shards", action="store_true",
-        help="新分片完整下载后删除本阶段旧图像分片；动作库不会删除",
+        help="新分片完整下载后删除本阶段旧图像分片；非图像模态不会删除",
     )
     arguments = parser.parse_args()
     image_shard_indices = (

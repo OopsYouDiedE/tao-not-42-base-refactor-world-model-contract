@@ -35,6 +35,8 @@ from train.minecraft.world_model_training import (
 
 def _image_tensor(image: np.ndarray | torch.Tensor, image_size: tuple[int, int]) -> torch.Tensor:
     """把 CraftGround HWC 观测变为一个经过缩放的 ``[3,H,W]`` uint8 帧。"""
+    if isinstance(image, np.ndarray):
+        image = np.ascontiguousarray(image)
     frame = torch.as_tensor(image)
     if frame.ndim != 3 or frame.shape[-1] != 3:
         raise RuntimeError("CraftGround RGB 观测必须为 [H,W,3]")

@@ -1,5 +1,0 @@
-# Minecraft 数据处理依赖
--r base.txt
-
-minerl
-pillow

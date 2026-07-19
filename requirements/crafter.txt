@@ -1,5 +1,0 @@
-# Crafter 环境依赖
--r base.txt
-
-crafter
-ray[tune]>=2.0

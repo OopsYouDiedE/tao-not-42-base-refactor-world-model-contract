@@ -2,7 +2,7 @@
 
 Godot 引擎侧的元学习强化学习采集环境。当前任务是**聚光灯瞄准**（spotlight aiming）：在随机时刻点亮房间内某个目标物体，agent 通过离散键位控制相机云台对准它。一次运行 40 个并行环境，通过共享内存与 Python 侧的训练循环 lock-step 通信。
 
-本子系统与主项目（世界模型基座）相对独立，只因服务于同一目标而放在同一仓库联合维护。
+本仓库当前只保留该 Godot 环境及其 Python 训练管线。
 
 ---
 
@@ -21,7 +21,7 @@ Godot 引擎侧的元学习强化学习采集环境。当前任务是**聚光灯
 Python 侧已按仓库分层规范迁出本文件夹：
 
 - **可复用基础设施 → `utils/godot_rl/`**：`shared_mem_env.py`（共享内存驱动 `GodotTrainEnv` + 布局常量）、`launch.py`（`launch_godot`/`kill_godot`）、`ppo_factory.py`（`build_model`/`make_buffer` 等）。
-- **不可复用的对接桥 → `train/godot_meta_rl/`**：`vec_env.py`（`GodotVecEnv` SB3 适配 + `RolloutProgress`）。
+- **训练层 → `train/godot_meta_rl/`**：`vec_env.py` 提供 SB3 适配，`train_ppo.py` 是 PPO 训练入口。
 
 方法级说明见 [code_analysis.md](code_analysis.md)。
 
@@ -54,4 +54,4 @@ wait_obs()  ->  read_images() / read_meta()  ->  send_action(cont, disc)
 - **Windows**：直接运行，可回读到非零像素。
 - **Linux 无头**：需 Xvfb + GPU 或软件 Vulkan（lavapipe）渲染才能回读到非零像素；`--headless` 哑渲染器不产出像素。
 
-训练入口在 Python 侧（`train/godot_meta_rl/` + `utils/godot_rl/`）：由 `launch_godot` 启动 Godot 进程，`GodotVecEnv` 作为 SB3 `VecEnv` 驱动 PPO 训练。
+设置 `GODOT_EXE` 后运行 `train-godot-ppo`。入口由 `launch_godot` 启动 Godot，`GodotVecEnv` 作为 SB3 `VecEnv` 驱动 PPO。Python 与 Godot 通过文件映射通信，不使用 `godot-python`。

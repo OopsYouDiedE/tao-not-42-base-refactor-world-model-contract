@@ -1,7 +1,7 @@
 """把 40 个锁步 Godot 环境暴露为 SB3 VecEnv（聚光灯瞄准·离散控制专用，不可复用 → 属 train 层）。
 
 对外接口：GodotVecEnv（SB3 VecEnv 适配器）、RolloutProgress（每 rollout 打一行进度回调）、
-N_STACK / N_BUTTONS（本任务的帧堆叠数与离散按钮数）。
+N_BUTTONS（本任务的离散按钮数）。
 
 观测 = Dict{ image:(128,128,3)uint8, sim_dt:(1,)float32 }；动作 = MultiBinary(4)（通用离散接口前 4 槽 上/下/左/右）。
 40 个子环境锁步推进，天然是 num_envs=40 的向量化环境，且无丢帧。
@@ -17,7 +17,6 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 from utils.godot_rl import shared_mem_env as E
 
-N_STACK = 4    # 帧堆叠帧数：单帧看不见角速度，连续 4 帧让 CNN 能推出"正在以多快转"
 N_BUTTONS = 4  # disc[0..3] = 上/下/左/右
 
 

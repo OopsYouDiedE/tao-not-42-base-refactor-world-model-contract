@@ -4,178 +4,42 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tao-not-42"
-version = "0.1.0"
-description = "World model and RL training framework"
-authors = [{name = "OopsYouDiedE", email = "oopsyoudied88@gmail.com"}]
+version = "0.2.0"
+description = "Godot 元学习强化学习训练环境"
 readme = "readme.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-
-# 核心依赖
 dependencies = [
     "numpy",
-    "torch>=2.0",
-    "torchvision",
-    "opencv-python",
-    "matplotlib",
-    "transformers>=4.30",
-    "wandb",
-    "requests",
-    "pyyaml",
+    "gymnasium",
+    "stable-baselines3",
 ]
 
 [project.optional-dependencies]
-# ────────────────────────────────────────────────────────────────
-# 可选模块（按需安装）
-# ────────────────────────────────────────────────────────────────
+dev = ["pytest>=7.0"]
 
-crafter = [
-    "crafter",
-    "ray",  # 子进程并行向量环境（可选）
-]
+[project.scripts]
+train-godot-ppo = "train.godot_meta_rl.train_ppo:main"
 
-ppo-ad = [
-    "crafter",
-    "pot",
-    "scikit-optimize",
-]
+[tool.setuptools.packages.find]
+include = ["train*", "utils*"]
 
-dreamer = [
-    "crafter",
-    "tensorflow",  # 仅用于比对基线（可选）
-]
-
-craftground = [
-    "craftground",  # Minecraft RL 环境
-    # 需要 Java 21（系统依赖，见 install_env.py）
-]
-
-minecraft = [
-    "minerl",
-    "pillow",
-]
-
-rl = [
-    "gymnasium",  # 标准 RL 环境接口
-    "envpool",
-]
-
-# ────────────────────────────────────────────────────────────────
-# 虚拟显示（Headless 环境 - 自动检测/添加）
-# ────────────────────────────────────────────────────────────────
-
-headless = [
-    "pyvirtualdisplay",  # 用于 Colab / 无图形界面的服务器
-]
-
-# ────────────────────────────────────────────────────────────────
-# Godot RL 环境
-# ────────────────────────────────────────────────────────────────
-
-godot = [
-    # godot-python 包存在于 GitHub 但 PyPI 包名/版本待确认
-    # 当前方案：Godot 4 使用 C# + Mono（系统依赖），Python binding 可选
-    # "godot-python>=0.5.0",  # TODO: 确认实际的 PyPI 包名和版本
-]
-
-# ────────────────────────────────────────────────────────────────
-# 开发工具
-# ────────────────────────────────────────────────────────────────
-
-dev = [
-    "pytest>=7.0",
-    "pytest-cov",
-    "black",
-    "isort",
-    "flake8",
-    "mypy",
-]
-
-# ────────────────────────────────────────────────────────────────
-# 完整安装（所有模块 + 工具）
-# 注：不需要平台特定的组合分组（如 colab-ppo-ad）
-# install_env.py 脚本会根据检测到的平台自动组合依赖
-# ────────────────────────────────────────────────────────────────
-
-all = [
-    # Crafter
-    "crafter",
-    "ray[tune]>=2.0",
-    # PPO+AD
-    "pot",
-    "scikit-optimize",
-    # DreamerV3
-    "tensorflow>=2.13",
-    # Craftground
-    "craftground>=0.1.0",
-    # Minecraft
-    "minerl",
-    "pillow>=9.0",
-    # RL
-    "gymnasium>=0.29",
-    "envpool",
-    # Godot
-    "godot-python>=0.5.0",
-    # Headless（虚拟显示）
-    "pyvirtualdisplay",
-    # Dev
-    "pytest>=7.0",
-    "pytest-cov",
-    "black",
-    "isort",
-    "flake8",
-    "mypy",
-]
-
-[project.urls]
-Homepage = "https://github.com/OopsYouDiedE/tao-not-42"
-Documentation = "https://github.com/OopsYouDiedE/tao-not-42#快速安装"
-
-
-# ────────────────────────────────────────────────────────────────
-# Tool: pytest（测试配置）
-# ────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "-v --tb=short"
+addopts = "-q --tb=short"
 
-# ────────────────────────────────────────────────────────────────
-# Tool: black（代码格式化）
-# ────────────────────────────────────────────────────────────────
 [tool.black]
 line-length = 100
 target-version = ["py311"]
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # 目录
-  \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-  | runs
-)/
-'''
 
-# ────────────────────────────────────────────────────────────────
-# Tool: isort（import 排序）
-# ────────────────────────────────────────────────────────────────
 [tool.isort]
 profile = "black"
 line_length = 100
-skip_gitignore = true
-known_first_party = ["blocks", "net", "train", "utils"]
+known_first_party = ["train", "utils"]
 
-# ────────────────────────────────────────────────────────────────
-# Tool: mypy（类型检查）
-# ────────────────────────────────────────────────────────────────
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false  # 可选：改为 true 启用严格类型检查
 ignore_missing_imports = true

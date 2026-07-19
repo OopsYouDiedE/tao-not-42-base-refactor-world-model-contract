@@ -1,4 +1,0 @@
-# DreamerV3 世界模型依赖
--r crafter.txt
-
-tensorflow>=2.13

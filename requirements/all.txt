@@ -1,6 +1,0 @@
-# 全部依赖（包含所有可选模块）
--r ppo-ad.txt
--r dreamer.txt
--r minecraft.txt
--r rl.txt
--r dev.txt

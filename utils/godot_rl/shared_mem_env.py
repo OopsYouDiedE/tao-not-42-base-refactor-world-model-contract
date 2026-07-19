@@ -33,11 +33,7 @@ IS_WINDOWS = sys.platform == "win32"
 # 仓库根：utils/godot_rl/ 向上两级。Godot 工程默认在 assets/godot_meta_rl，可用 RL_PROJECT_DIR 覆盖。
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-GODOT_EXE = os.environ.get(
-    "GODOT_EXE",
-    r"C:\Users\iii\Desktop\Godot_v4.6.1-stable_mono_win64\Godot_v4.6.1-stable_mono_win64.exe"
-    if IS_WINDOWS else "godot",
-)
+GODOT_EXE = os.environ.get("GODOT_EXE", "godot")
 PROJECT_DIR = os.environ.get("RL_PROJECT_DIR", os.path.join(_REPO_ROOT, "assets", "godot_meta_rl"))
 TRAIN_SCENE = "res://train_main.tscn"
 

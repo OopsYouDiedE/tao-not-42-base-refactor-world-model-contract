@@ -29,33 +29,72 @@ Linux 可在 PATH 中提供 godot，也可同样显式指定。
 
     python -m train.minecraft.behavior_cloning_warm_start --help
 
-新的初版训练入口联合训练约 100M 时空 VLA 快塔和训练期 Dreamer-lite 潜状态
-世界模型。冻结 DINOv3-S 与 MiniLM 会从 Hugging Face 下载到其标准缓存：
+新的初版训练入口联合训练约 97M 时空 VLA 快塔和约 114M 训练期
+Dreamer-lite 潜状态世界模型。冻结 DINOv3-S 与 MiniLM 会从 Hugging Face 下载到
+其标准缓存。主课程不一次下载五组 1.55 TB 数据，而采用三个阶段：
+
+1. `foundation / 7xx`：通用早期生存、移动、采集和合成；
+2. `construction / 9xx`：方块放置、hotbar 与局部空间控制；
+3. `long_horizon / 10xx`：钻石镐任务的长程采集和技术树顺序。
+
+`6xx` 的记录器版本更杂，`8xx` 的从零建屋与 `9xx` 重叠，二者暂不进入主课程，
+保留作后续消融。这个顺序参考了 OpenAI VPT 的“基础 BC 后再按 house / early-game
+数据专门化”训练结构，而不是把不同任务数据等权混洗。
+
+先下载当前阶段的全部动作/元数据 LMDB 和一个图像 LMDB 分片：
+
+    python -m datasets.vpt.minestudio_download \
+        --stage foundation \
+        --image-shard-index 0 \
+        --data-root runs/data/minestudio
+
+动作加元数据库常驻约 14–64 GB，单个图像分片通常为几十 GB，三个阶段的典型
+峰值分别约为 95 / 72 / 38 GB。元数据只用于排除无法由当前动作契约解释的 GUI
+窗口。切换分片时加入
+`--replace-image-shards`，会在新分片完整下载后只删除本阶段的旧图像 LMDB；因此本地
+不需要容纳整组数据。该删除不可从本项目恢复，但 Hugging Face 下载可重新执行。
+当前远端结构中 `7xx / 9xx / 10xx` 分别有 `12 / 4 / 4` 个图像分片；训练日志和
+checkpoint 都会记录本轮实际读取的分片名。
+
+然后训练当前阶段：
 
     python -m train.minecraft.world_model_warm_start \
-        --data runs/data/vpt_stream \
-        --data-manifest /path/to/vpt_manifest.jsonl \
-        --stream-cache-gib 80
+        --data-root runs/data/minestudio \
+        --stage foundation \
+        --steps 100000
 
-AutoDL 中断后使用同一配置精确续训：
+同阶段下一图像分片或下一课程都从同一个 v2 checkpoint 续训；`--steps` 是累计
+优化步数。例如先准备 `construction` 的图像分片，再执行：
 
     python -m train.minecraft.world_model_warm_start \
-        --data runs/data/vpt_stream \
-        --data-manifest /path/to/vpt_manifest.jsonl \
+        --data-root runs/data/minestudio \
+        --stage construction \
+        --steps 150000 \
         --resume runs/checkpoints/minecraft_dreamer_lite/last.pt
 
 世界模型负责动作条件化的下一视觉 latent 预测与离散 KL；奖励、继续概率、事件和
 物品栏头已定义，但只有 CraftGround 回放提供对应真值后才应加入损失。训练 checkpoint
-显式标记为 `minecraft_dreamer_lite_v1`，不与 PixelTower 或旧 v2 checkpoint 部分加载。
+显式标记为 `minecraft_dreamer_lite_v2`，不与 PixelTower、旧 v2 或 v1 世界模型
+checkpoint 静默部分加载。旧 PixelTower BC 入口仍读取原始 `mp4 + jsonl`；新的联合
+训练入口直接读取 MineStudio v1.1 的 `image + action + meta_info` LMDB，不安装
+MineStudio 本体及其模拟器依赖；约 400 GB segmentation 以及当前没有监督头的
+event/motion 都不会下载。
 
-流式清单可以是本地文件或 HTTP(S) URL，每行格式如下。下载器先写 `.part`，校验
-可选 SHA256 后原子发布完整的 `mp4 + jsonl` 文件对，并按 `--stream-cache-gib`
-滚动淘汰旧段；私有 Hugging Face 文件可通过 `HF_TOKEN` 环境变量授权。
+## 模型规模依据
 
-    {"name":"clip_0001","video_url":"https://.../clip.mp4","action_url":"https://.../clip.jsonl","video_sha256":"可选","action_sha256":"可选"}
+主课程三组图像约 642.5 GB，占五组 MineStudio 图像 901.6 GB 的约 71.3%。按 VPT
+论文约 2,000 小时承包商数据作比例估计，主课程约 1,425 小时、1.026 亿个 20 Hz
+帧。视觉 patch 高度相关，不能把每帧 576 patch 机械当成 576 个独立文本 token；
+代码将每帧折算为 40 个有效多模态 token，再用 `有效 token ≈ 20 × 参数` 作为选档
+启发式，得到约 205M 可训练参数。当前快塔加世界模型约 211M，与数据侧档位一致，
+所以不继续放大到 300M+。冻结编码器不计入这个可训练参数预算。
 
-数据目录只使用 `VPTStreamDataset` 的 clip 级 uint8 缓存，不再保留全量预载数据集、
-废弃的窗口复用缓存或静默缓存参数旁路。
+这个公式只用于在 100M / 210M / 320M 档位间选择，不宣称是视觉控制的普适缩放律。
+每个已下载 LMDB 的实际帧数会在训练启动时打印；最终是否增减模型，应以 AutoDL 的
+吞吐、验证 BC loss 和固定 seed 的 CraftGround 闭环成功率共同决定。
+
+数据与任务说明来源：[OpenAI VPT contractor demonstrations](https://github.com/openai/Video-Pre-Training#contractor-demonstrations)、
+[MineStudio v1.1 数据接口](https://github.com/CraftJarvis/MineStudio/tree/v1.1.4/minestudio/data/minecraft)。
 
 ## 快塔 v2
 

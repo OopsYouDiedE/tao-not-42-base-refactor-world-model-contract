@@ -1,4 +1,4 @@
-"""以流式 VPT 数据联合暖启动时空快塔和 Dreamer-lite 世界模型。"""
+"""以分阶段 MineStudio 数据联合暖启动时空快塔和 Dreamer-lite 世界模型。"""
 
 from __future__ import annotations
 
@@ -13,8 +13,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel, AutoTokenizer
 
-from datasets.vpt.rolling_download import RollingVPTDownloadManager
-from datasets.vpt.video_dataset import VPTStreamDataset
+from datasets.vpt.minestudio_curriculum import (
+    curriculum_stage_names,
+    estimate_main_curriculum_model_scale,
+    get_curriculum_stage,
+)
+from datasets.vpt.minestudio_dataset import MineStudioLMDBDataset
 from net.latent_world_model import (
     LatentWorldModelConfiguration,
     balanced_categorical_kl_loss,
@@ -26,11 +30,12 @@ from net.spatiotemporal_fast_tower import (
 )
 from train.minecraft.action_supervision import (
     CAMERA_SCALE,
+    DEGREES_PER_MOUSE_PIXEL,
     encode_targets,
     structured_action_loss,
 )
 
-CHECKPOINT_VERSION = "minecraft_dreamer_lite_v1"
+CHECKPOINT_VERSION = "minecraft_dreamer_lite_v2"
 DEFAULT_VISION_MODEL = "facebook/dinov3-vits16-pretrain-lvd1689m"
 DEFAULT_TEXT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -178,6 +183,8 @@ def _save_checkpoint(
     world_configuration: LatentWorldModelConfiguration,
     optimizer: torch.optim.Optimizer,
     step: int,
+    curriculum_stage: str,
+    image_shards: tuple[str, ...],
 ) -> None:
     """原子保存显式版本化的训练状态。"""
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -189,6 +196,8 @@ def _save_checkpoint(
         "world_model_configuration": asdict(world_configuration),
         "optimizer": optimizer.state_dict(),
         "step": step,
+        "curriculum_stage": curriculum_stage,
+        "image_shards": image_shards,
     }, temporary)
     temporary.replace(path)
 
@@ -196,11 +205,11 @@ def _save_checkpoint(
 def main() -> None:
     """运行联合行为克隆和潜动力学暖启动。"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="runs/data/vpt_stream")
-    parser.add_argument("--data-manifest", default="",
-                        help="可选 JSON/JSONL 路径或 URL；启用有界滚动下载")
-    parser.add_argument("--stream-cache-gib", type=float, default=80.0)
-    parser.add_argument("--stream-ready-pairs", type=int, default=4)
+    parser.add_argument("--data-root", default="runs/data/minestudio")
+    parser.add_argument(
+        "--stage", choices=curriculum_stage_names(), default="foundation",
+        help="foundation(7xx) -> construction(9xx) -> long_horizon(10xx)",
+    )
     parser.add_argument("--output", default="runs/checkpoints/minecraft_dreamer_lite")
     parser.add_argument("--resume", default="", help="从同版本 last.pt 精确续训")
     parser.add_argument("--vision-model", default=DEFAULT_VISION_MODEL)
@@ -208,6 +217,9 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=100000)
     parser.add_argument("--batch", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--window-stride", type=int, default=0,
+                        help="0 表示使用不重叠窗口")
+    parser.add_argument("--validation-fraction", type=float, default=0.02)
     parser.add_argument("--history", type=int, default=4)
     parser.add_argument("--action-horizon", type=int, default=4)
     parser.add_argument("--image-height", type=int, default=288)
@@ -228,133 +240,134 @@ def main() -> None:
     torch.manual_seed(arguments.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
     device = torch.device("cuda")
-    data_directory = Path(arguments.data)
-    data_directory.mkdir(parents=True, exist_ok=True)
+    curriculum_stage = get_curriculum_stage(arguments.stage)
+    data_directory = Path(arguments.data_root) / curriculum_stage.dataset_group
     output_directory = Path(arguments.output)
     output_directory.mkdir(parents=True, exist_ok=True)
-    downloader = None
-    if arguments.data_manifest:
-        downloader = RollingVPTDownloadManager(
-            arguments.data_manifest,
-            data_directory,
-            maximum_cache_bytes=int(arguments.stream_cache_gib * 1024 ** 3),
-            minimum_ready_pairs=arguments.stream_ready_pairs,
-            seed=arguments.seed,
-        ).start()
-
-    try:
-        encoders = FrozenFeatureEncoders(
-            arguments.vision_model, arguments.text_model, device,
-        )
-        tower_configuration, world_configuration = _configurations(
-            encoders, arguments.image_height, arguments.image_width,
-            arguments.action_horizon, arguments.small,
-        )
-        tower = build_spatiotemporal_fast_tower(tower_configuration).to(device)
-        world_model = build_latent_world_model(world_configuration).to(device)
-        trainable = list(tower.parameters()) + list(world_model.parameters())
-        optimizer = torch.optim.AdamW(trainable, lr=arguments.learning_rate)
-        first_step = 1
-        if arguments.resume:
-            checkpoint = torch.load(arguments.resume, map_location=device, weights_only=True)
-            if checkpoint.get("version") != CHECKPOINT_VERSION:
-                raise RuntimeError("checkpoint 版本不兼容，拒绝静默部分加载")
-            if checkpoint.get("tower_configuration") != asdict(tower_configuration):
-                raise RuntimeError("checkpoint 快塔配置与本次配置不一致")
-            if checkpoint.get("world_model_configuration") != asdict(world_configuration):
-                raise RuntimeError("checkpoint 世界模型配置与本次配置不一致")
-            tower.load_state_dict(checkpoint["tower"], strict=True)
-            world_model.load_state_dict(checkpoint["world_model"], strict=True)
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            first_step = int(checkpoint["step"]) + 1
-        sequence_length = arguments.history + arguments.action_horizon + 1
-        dataset = VPTStreamDataset(
-            str(data_directory), seq_len=sequence_length,
-            img_size=(arguments.image_height, arguments.image_width),
-            camera_scale=CAMERA_SCALE, frame_skip=1, split=None,
-            clip_cache=2, clip_refresh=128, seed=arguments.seed,
-        )
-        loader = DataLoader(
-            dataset, batch_size=arguments.batch, num_workers=arguments.workers,
-            pin_memory=True, persistent_workers=arguments.workers > 0,
-            prefetch_factor=2 if arguments.workers else None,
-        )
-        iterator = iter(loader)
-        tower_parameters = sum(parameter.numel() for parameter in tower.parameters())
-        world_parameters = sum(parameter.numel() for parameter in world_model.parameters())
-        print(
-            f"tower={tower_parameters / 1e6:.1f}M "
-            f"world_model={world_parameters / 1e6:.1f}M",
-            flush=True,
-        )
-        started = time.time()
-        for step in range(first_step, arguments.steps + 1):
-            if downloader is not None:
-                downloader.check()
+    encoders = FrozenFeatureEncoders(
+        arguments.vision_model, arguments.text_model, device,
+    )
+    tower_configuration, world_configuration = _configurations(
+        encoders, arguments.image_height, arguments.image_width,
+        arguments.action_horizon, arguments.small,
+    )
+    tower = build_spatiotemporal_fast_tower(tower_configuration).to(device)
+    world_model = build_latent_world_model(world_configuration).to(device)
+    trainable = list(tower.parameters()) + list(world_model.parameters())
+    optimizer = torch.optim.AdamW(trainable, lr=arguments.learning_rate)
+    first_step = 1
+    if arguments.resume:
+        checkpoint = torch.load(arguments.resume, map_location=device, weights_only=True)
+        if checkpoint.get("version") != CHECKPOINT_VERSION:
+            raise RuntimeError("checkpoint 版本不兼容，拒绝静默部分加载")
+        if checkpoint.get("tower_configuration") != asdict(tower_configuration):
+            raise RuntimeError("checkpoint 快塔配置与本次配置不一致")
+        if checkpoint.get("world_model_configuration") != asdict(world_configuration):
+            raise RuntimeError("checkpoint 世界模型配置与本次配置不一致")
+        tower.load_state_dict(checkpoint["tower"], strict=True)
+        world_model.load_state_dict(checkpoint["world_model"], strict=True)
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        first_step = int(checkpoint["step"]) + 1
+    sequence_length = arguments.history + arguments.action_horizon + 1
+    dataset = MineStudioLMDBDataset(
+        data_directory=data_directory,
+        sequence_length=sequence_length,
+        image_size=(arguments.image_height, arguments.image_width),
+        task_text=curriculum_stage.task_text,
+        camera_max_degrees=CAMERA_SCALE * DEGREES_PER_MOUSE_PIXEL,
+        stride=arguments.window_stride or sequence_length,
+        split="train",
+        validation_fraction=arguments.validation_fraction,
+        seed=arguments.seed,
+    )
+    loader = DataLoader(
+        dataset, batch_size=arguments.batch, shuffle=True, drop_last=True,
+        num_workers=arguments.workers, pin_memory=True,
+        persistent_workers=arguments.workers > 0,
+        prefetch_factor=2 if arguments.workers else None,
+    )
+    iterator = iter(loader)
+    tower_parameters = sum(parameter.numel() for parameter in tower.parameters())
+    world_parameters = sum(parameter.numel() for parameter in world_model.parameters())
+    scale = estimate_main_curriculum_model_scale()
+    print(
+        f"stage={curriculum_stage.name}/{curriculum_stage.dataset_group} "
+        f"image_shards={','.join(dataset.image_shards)} "
+        f"local_frames={dataset.total_frames} windows={len(dataset)} "
+        f"tower={tower_parameters / 1e6:.1f}M "
+        f"world_model={world_parameters / 1e6:.1f}M "
+        f"data_scale_target={scale.recommended_parameters / 1e6:.1f}M",
+        flush=True,
+    )
+    started = time.time()
+    for step in range(first_step, arguments.steps + 1):
+        try:
             batch = next(iterator)
-            patches = encoders.encode_images(
-                batch["img"], tower_configuration.grid_hw,
+        except StopIteration:
+            iterator = iter(loader)
+            batch = next(iterator)
+        patches = encoders.encode_images(
+            batch["img"], tower_configuration.grid_hw,
+        )
+        text_tokens, text_mask = encoders.encode_text(
+            list(batch["task_text"]), tower_configuration.max_text_tokens,
+        )
+        past_actions, past_dt, camera_bins, keys, target_actions = _prepare_context(
+            batch["act_agg"], batch["dt"], arguments.history,
+            arguments.action_horizon, device,
+        )
+        aim_xy = torch.zeros(arguments.batch, 2, device=device)
+        aim_valid = torch.zeros(arguments.batch, dtype=torch.bool, device=device)
+        tower.train()
+        world_model.train()
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            action_output, _ = tower.forward_with_state(
+                current_patches=patches[:, arguments.history],
+                history_patches=patches[:, :arguments.history],
+                text_tokens=text_tokens,
+                text_mask=text_mask,
+                past_actions=past_actions,
+                dt=past_dt,
+                aim_xy=aim_xy,
+                aim_valid=aim_valid,
             )
-            text_tokens, text_mask = encoders.encode_text(
-                list(batch["task_text"]), tower_configuration.max_text_tokens,
+            action_loss = structured_action_loss(action_output, camera_bins, keys)
+            observation = patches[
+                :, arguments.history:arguments.history + arguments.action_horizon + 1
+            ].float().mean(dim=2)
+            future_dt = (
+                batch["dt"][:, arguments.history:arguments.history + arguments.action_horizon]
+                .to(device)[:, :, None] / 20.0
             )
-            past_actions, past_dt, camera_bins, keys, target_actions = _prepare_context(
-                batch["act_agg"], batch["dt"], arguments.history,
-                arguments.action_horizon, device,
+            latent_loss, kl_loss = _world_model_loss(
+                world_model, observation, target_actions, future_dt,
             )
-            aim_xy = torch.zeros(arguments.batch, 2, device=device)
-            aim_valid = torch.zeros(arguments.batch, dtype=torch.bool, device=device)
-            tower.train()
-            world_model.train()
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                action_output, _ = tower.forward_with_state(
-                    current_patches=patches[:, arguments.history],
-                    history_patches=patches[:, :arguments.history],
-                    text_tokens=text_tokens,
-                    text_mask=text_mask,
-                    past_actions=past_actions,
-                    dt=past_dt,
-                    aim_xy=aim_xy,
-                    aim_valid=aim_valid,
-                )
-                action_loss = structured_action_loss(action_output, camera_bins, keys)
-                observation = patches[
-                    :, arguments.history:arguments.history + arguments.action_horizon + 1
-                ].float().mean(dim=2)
-                future_dt = (
-                    batch["dt"][:, arguments.history:arguments.history + arguments.action_horizon]
-                    .to(device)[:, :, None] / 20.0
-                )
-                latent_loss, kl_loss = _world_model_loss(
-                    world_model, observation, target_actions, future_dt,
-                )
-                loss = (
-                    action_loss
-                    + arguments.world_weight * latent_loss
-                    + arguments.kl_weight * kl_loss
-                )
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
-            optimizer.step()
-            if step % 20 == 0:
-                elapsed = max(time.time() - started, 1e-4)
-                print(json.dumps({
-                    "step": step,
-                    "loss": round(float(loss), 5),
-                    "action": round(float(action_loss), 5),
-                    "latent": round(float(latent_loss), 5),
-                    "kl": round(float(kl_loss), 5),
-                    "steps_per_second": round((step - first_step + 1) / elapsed, 3),
-                }), flush=True)
-            if step % arguments.save_every == 0 or step == arguments.steps:
-                _save_checkpoint(
-                    output_directory / "last.pt", tower, world_model,
-                    tower_configuration, world_configuration, optimizer, step,
-                )
-    finally:
-        if downloader is not None:
-            downloader.stop()
+            loss = (
+                action_loss
+                + arguments.world_weight * latent_loss
+                + arguments.kl_weight * kl_loss
+            )
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+        optimizer.step()
+        if step % 20 == 0:
+            elapsed = max(time.time() - started, 1e-4)
+            print(json.dumps({
+                "step": step,
+                "loss": round(float(loss), 5),
+                "action": round(float(action_loss), 5),
+                "latent": round(float(latent_loss), 5),
+                "kl": round(float(kl_loss), 5),
+                "steps_per_second": round((step - first_step + 1) / elapsed, 3),
+            }), flush=True)
+        if step % arguments.save_every == 0 or step == arguments.steps:
+            _save_checkpoint(
+                output_directory / "last.pt", tower, world_model,
+                tower_configuration, world_configuration, optimizer, step,
+                curriculum_stage.name,
+                dataset.image_shards,
+            )
 
 
 if __name__ == "__main__":

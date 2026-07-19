@@ -1,24 +1,27 @@
-"""以分阶段 MineStudio 数据联合暖启动时空快塔和 Dreamer-lite 世界模型。"""
+"""完整下载 MineStudio 数据并无限训练时空快塔和 Dreamer-lite 世界模型。"""
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import gc
+import itertools
 import json
 from pathlib import Path
 import time
+from typing import Iterator
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, default_collate
 from transformers import AutoModel, AutoTokenizer
 
-from datasets.vpt.minestudio_curriculum import (
-    curriculum_stage_names,
-    estimate_main_curriculum_model_scale,
-    get_curriculum_stage,
+from datasets.minestudio.groups import (
+    MINESTUDIO_DATASET_GROUPS,
+    get_dataset_group,
 )
-from datasets.vpt.minestudio_dataset import MineStudioLMDBDataset
+from datasets.minestudio.dataset import MineStudioLMDBDataset
+from datasets.minestudio.download import prepare_dataset_group
 from net.latent_world_model import (
     LatentWorldModelConfiguration,
     balanced_categorical_kl_loss,
@@ -35,7 +38,7 @@ from train.minecraft.action_supervision import (
     structured_action_loss,
 )
 
-CHECKPOINT_VERSION = "minecraft_dreamer_lite_v4"
+CHECKPOINT_VERSION = "minecraft_dreamer_lite_v5"
 DEFAULT_VISION_MODEL = "facebook/dinov3-vits16-pretrain-lvd1689m"
 DEFAULT_TEXT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -75,6 +78,7 @@ class FrozenFeatureEncoders:
         self.image_standard_deviation = torch.tensor(
             standard_deviation, device=device,
         ).view(1, 3, 1, 1).clamp(min=1e-4)
+        self._text_cache: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
 
     @torch.no_grad()
     def encode_images(self, images: torch.Tensor, grid_hw: tuple[int, int]) -> torch.Tensor:
@@ -97,6 +101,22 @@ class FrozenFeatureEncoders:
     @torch.no_grad()
     def encode_text(self, texts: list[str], maximum_tokens: int) -> tuple[torch.Tensor, torch.Tensor]:
         """把任务文本编码为完整 token 和布尔有效位。"""
+        if texts and len(set(texts)) == 1:
+            task_text = texts[0]
+            cached = self._text_cache.get(task_text)
+            if cached is None:
+                cached = self._encode_text_batch([task_text], maximum_tokens)
+                self._text_cache[task_text] = cached
+            tokens, mask = cached
+            return tokens.expand(len(texts), -1, -1), mask.expand(len(texts), -1)
+        return self._encode_text_batch(texts, maximum_tokens)
+
+    def _encode_text_batch(
+        self,
+        texts: list[str],
+        maximum_tokens: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """编码一个不可变文本批次，供同任务批次缓存复用。"""
         encoded = self.tokenizer(
             texts, padding=True, truncation=True, max_length=maximum_tokens,
             return_tensors="pt",
@@ -245,6 +265,7 @@ def _data_loader(
     workers: int,
     shuffle: bool,
     drop_last: bool,
+    prefetch_factor: int,
     generator: torch.Generator | None = None,
 ) -> DataLoader:
     """构造适合本地 LMDB 和 CUDA pin-memory 的 DataLoader。"""
@@ -259,8 +280,54 @@ def _data_loader(
         "generator": generator,
     }
     if workers > 0:
-        arguments["prefetch_factor"] = 2
+        arguments["prefetch_factor"] = prefetch_factor
     return DataLoader(**arguments)
+
+
+def _cycle_batches(loader: DataLoader) -> Iterator[dict[str, object]]:
+    """无限轮转 DataLoader，让 CUDA 预取跨 epoch 保持连续。"""
+    while True:
+        yield from loader
+
+
+class _CUDABatchPrefetcher:
+    """用独立 CUDA stream 把下一批张量提前搬入显存。"""
+
+    def __init__(
+        self,
+        batches: Iterator[dict[str, object]],
+        device: torch.device,
+    ):
+        self.batches = batches
+        self.device = device
+        self.stream = torch.cuda.Stream(device=device)
+        self.next_batch: dict[str, object] | None = None
+        self._preload()
+
+    def _preload(self) -> None:
+        batch = next(self.batches)
+        with torch.cuda.stream(self.stream):
+            self.next_batch = {
+                name: (
+                    value.to(self.device, non_blocking=True)
+                    if isinstance(value, torch.Tensor) else value
+                )
+                for name, value in batch.items()
+            }
+
+    def __iter__(self) -> "_CUDABatchPrefetcher":
+        return self
+
+    def __next__(self) -> dict[str, object]:
+        torch.cuda.current_stream(self.device).wait_stream(self.stream)
+        batch = self.next_batch
+        if batch is None:
+            raise StopIteration
+        for value in batch.values():
+            if isinstance(value, torch.Tensor):
+                value.record_stream(torch.cuda.current_stream(self.device))
+        self._preload()
+        return batch
 
 
 @torch.no_grad()
@@ -305,7 +372,7 @@ def _save_checkpoint(
     world_configuration: LatentWorldModelConfiguration,
     optimizer: torch.optim.Optimizer,
     step: int,
-    curriculum_stage: str,
+    dataset_group: str,
     image_shards: tuple[str, ...],
 ) -> None:
     """原子保存显式版本化的训练状态。"""
@@ -318,7 +385,7 @@ def _save_checkpoint(
         "world_model_configuration": asdict(world_configuration),
         "optimizer": optimizer.state_dict(),
         "step": step,
-        "curriculum_stage": curriculum_stage,
+        "dataset_group": dataset_group,
         "image_shards": image_shards,
     }
     torch.save(payload, temporary)
@@ -329,7 +396,7 @@ def _save_checkpoint(
     metadata_temporary.write_text(json.dumps({
         "version": CHECKPOINT_VERSION,
         "step": step,
-        "curriculum_stage": curriculum_stage,
+        "dataset_group": dataset_group,
         "image_shards": list(image_shards),
         "checkpoint_size": checkpoint_status.st_size,
         "checkpoint_modified_ns": checkpoint_status.st_mtime_ns,
@@ -337,26 +404,143 @@ def _save_checkpoint(
     metadata_temporary.replace(metadata_path)
 
 
+def _batch_tensor_bytes(batch: dict[str, object]) -> int:
+    """计算一个 CPU 批次中张量的总字节数。"""
+    return sum(
+        value.numel() * value.element_size()
+        for value in batch.values()
+        if isinstance(value, torch.Tensor)
+    )
+
+
+def _measure_training_batch(
+    batch: dict[str, object],
+    encoders: FrozenFeatureEncoders,
+    tower: torch.nn.Module,
+    world_model: torch.nn.Module,
+    tower_configuration: SpatiotemporalFastTowerConfiguration,
+    optimizer: torch.optim.Optimizer,
+    trainable: list[torch.nn.Parameter],
+    arguments: argparse.Namespace,
+    device: torch.device,
+    initialize_optimizer: bool,
+) -> int:
+    """执行真实前反向并返回含下一批预取余量的峰值显存字节数。"""
+    optimizer.zero_grad(set_to_none=True)
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+    losses = _batch_losses(
+        batch, encoders, tower, world_model, tower_configuration,
+        arguments.history, arguments.action_horizon,
+        arguments.world_weight, arguments.kl_weight, device,
+    )
+    losses.total.backward()
+    if initialize_optimizer:
+        torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+        optimizer.step()
+    torch.cuda.synchronize(device)
+    peak_bytes = torch.cuda.max_memory_reserved(device)
+    optimizer.zero_grad(set_to_none=True)
+    return peak_bytes + _batch_tensor_bytes(batch)
+
+
+def _automatic_batch_size(
+    dataset: MineStudioLMDBDataset,
+    encoders: FrozenFeatureEncoders,
+    tower: torch.nn.Module,
+    world_model: torch.nn.Module,
+    tower_configuration: SpatiotemporalFastTowerConfiguration,
+    optimizer: torch.optim.Optimizer,
+    trainable: list[torch.nn.Parameter],
+    arguments: argparse.Namespace,
+    device: torch.device,
+    optimizer_is_initialized: bool,
+) -> tuple[int, int, int]:
+    """实测并返回不超过目标显存比例的最大 batch、估计峰值和校准 step 数。"""
+    target_bytes = int(
+        torch.cuda.get_device_properties(device).total_memory
+        * arguments.target_memory_fraction
+    )
+    maximum_batch_size = min(arguments.maximum_auto_batch, len(dataset))
+    sample = dataset[0]
+    measurements: dict[int, int | None] = {}
+    calibration_steps = 0
+
+    def measure(batch_size: int, initialize_optimizer: bool = False) -> int | None:
+        if batch_size in measurements:
+            return measurements[batch_size]
+        try:
+            batch = default_collate([sample] * batch_size)
+            peak_bytes = _measure_training_batch(
+                batch, encoders, tower, world_model, tower_configuration,
+                optimizer, trainable, arguments, device, initialize_optimizer,
+            )
+        except torch.cuda.OutOfMemoryError:
+            optimizer.zero_grad(set_to_none=True)
+            gc.collect()
+            torch.cuda.empty_cache()
+            peak_bytes = None
+        measurements[batch_size] = peak_bytes
+        return peak_bytes
+
+    first_peak = measure(1, initialize_optimizer=not optimizer_is_initialized)
+    if not optimizer_is_initialized:
+        calibration_steps = 1
+    if first_peak is None:
+        raise RuntimeError("batch=1 仍然 CUDA OOM，当前模型无法在该 GPU 上训练")
+    if first_peak > target_bytes:
+        return 1, first_peak, calibration_steps
+
+    lower = 1
+    upper = 2
+    while upper <= maximum_batch_size:
+        peak = measure(upper)
+        if peak is None or peak > target_bytes:
+            break
+        lower = upper
+        upper *= 2
+    upper = min(upper, maximum_batch_size)
+    if lower == maximum_batch_size:
+        return lower, int(measurements[lower]), calibration_steps
+    while lower + 1 <= upper:
+        candidate = (lower + upper + 1) // 2
+        peak = measure(candidate)
+        if peak is not None and peak <= target_bytes:
+            lower = candidate
+        else:
+            upper = candidate - 1
+    return lower, int(measurements[lower]), calibration_steps
+
+
 def main() -> None:
-    """运行联合行为克隆和潜动力学暖启动。"""
+    """完整下载指定 MineStudio 范围后无限联合训练。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="runs/data/minestudio")
     parser.add_argument(
-        "--stage", choices=curriculum_stage_names(), default="foundation",
-        help="foundation(7xx) -> construction(9xx) -> long_horizon(10xx)",
+        "--dataset-group",
+        choices=[configuration.dataset_group for configuration in MINESTUDIO_DATASET_GROUPS],
+        default="10xx",
     )
+    parser.add_argument(
+        "--modalities", nargs="+", default=["image", "action"],
+        choices=("action", "meta_info", "image", "event", "motion", "segmentation"),
+    )
+    parser.add_argument("--revision", default=None)
+    parser.add_argument("--download-workers", type=int, default=8)
     parser.add_argument("--output", default="runs/checkpoints/minecraft_dreamer_lite")
-    parser.add_argument("--resume", default="", help="从同版本 last.pt 严格恢复模型与优化器")
+    parser.add_argument(
+        "--resume", default="auto",
+        help="auto 自动恢复 output/last.pt；空串从头训练；也可给定 checkpoint",
+    )
     parser.add_argument("--vision-model", default=DEFAULT_VISION_MODEL)
     parser.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--prefetch-factor", type=int, default=4)
     parser.add_argument(
-        "--include-metadata-targets", action="store_true",
-        help="读取 meta_info 辅助目标；当前只随 batch 返回，不计入 loss",
+        "--target-memory-fraction", type=float, default=0.75,
+        help="自动 batch 的目标峰值显存比例",
     )
-    parser.add_argument("--steps", type=int, default=100000)
-    parser.add_argument("--batch", type=int, default=2)
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--maximum-auto-batch", type=int, default=64)
     parser.add_argument("--window-stride", type=int, default=0,
                         help="0 表示使用不重叠窗口")
     parser.add_argument("--validation-fraction", type=float, default=0.02)
@@ -379,14 +563,24 @@ def main() -> None:
     parser.add_argument("--small", action="store_true",
                         help="结构与损失冒烟用小模型；checkpoint 与正式模型不兼容")
     arguments = parser.parse_args()
+    required_modalities = {"image", "action"}
+    if not required_modalities.issubset(arguments.modalities):
+        raise ValueError("无限训练必须同时下载 image 和 action")
+    if len(set(arguments.modalities)) != len(arguments.modalities):
+        raise ValueError("modalities 不能重复")
     if not torch.cuda.is_available():
-        raise RuntimeError("该训练入口需要 CUDA；CPU 单测不代表 AutoDL 训练可运行")
+        raise RuntimeError("该训练入口需要 CUDA")
+    if not torch.cuda.is_bf16_supported():
+        raise RuntimeError("当前 GPU/PyTorch 不支持 BF16")
     if arguments.history < 1 or arguments.action_horizon < 1:
         raise ValueError("history 和 action_horizon 必须大于零")
-    if arguments.gradient_accumulation_steps < 1:
-        raise ValueError("gradient-accumulation-steps 必须大于零")
-    if arguments.batch < 1 or arguments.workers < 0 or arguments.steps < 1:
-        raise ValueError("batch/steps 必须大于零且 workers 不能为负")
+    if (
+        arguments.workers < 0 or arguments.prefetch_factor < 1
+        or arguments.download_workers < 1 or arguments.maximum_auto_batch < 1
+    ):
+        raise ValueError("worker、预取和自动 batch 上限参数非法")
+    if not 0.0 < arguments.target_memory_fraction < 1.0:
+        raise ValueError("target-memory-fraction 必须位于 (0,1)")
     if arguments.learning_rate <= 0.0:
         raise ValueError("learning-rate 必须大于零")
     if arguments.world_weight < 0.0 or arguments.kl_weight < 0.0:
@@ -398,9 +592,25 @@ def main() -> None:
 
     torch.manual_seed(arguments.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision("high")
     device = torch.device("cuda")
-    curriculum_stage = get_curriculum_stage(arguments.stage)
-    data_directory = Path(arguments.data_root) / curriculum_stage.dataset_group
+    dataset_configuration = get_dataset_group(arguments.dataset_group)
+    data_directory, download_selection = prepare_dataset_group(
+        dataset_group=dataset_configuration.dataset_group,
+        data_root=arguments.data_root,
+        modalities=tuple(arguments.modalities),
+        maximum_workers=arguments.download_workers,
+        revision=arguments.revision,
+    )
+    print(json.dumps({
+        "event": "dataset_ready",
+        "dataset_group": dataset_configuration.dataset_group,
+        "modalities": list(download_selection.modalities),
+        "image_shards": list(download_selection.image_shards),
+        "data_directory": str(data_directory),
+    }, ensure_ascii=False), flush=True)
     output_directory = Path(arguments.output)
     output_directory.mkdir(parents=True, exist_ok=True)
     encoders = FrozenFeatureEncoders(
@@ -416,44 +626,63 @@ def main() -> None:
     optimizer = torch.optim.AdamW(
         trainable, lr=arguments.learning_rate, fused=arguments.fused_optimizer,
     )
+    resume_path = (
+        output_directory / "last.pt"
+        if arguments.resume == "auto" else Path(arguments.resume)
+    )
+    if arguments.resume not in {"", "auto"} and not resume_path.is_file():
+        raise FileNotFoundError(f"checkpoint 不存在: {resume_path}")
+    resume = bool(arguments.resume) and resume_path.is_file()
     first_step = 1
-    if arguments.resume:
-        checkpoint = torch.load(arguments.resume, map_location=device, weights_only=True)
+    if resume:
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=True)
         if checkpoint.get("version") != CHECKPOINT_VERSION:
             raise RuntimeError("checkpoint 版本不兼容，拒绝静默部分加载")
         if checkpoint.get("tower_configuration") != asdict(tower_configuration):
             raise RuntimeError("checkpoint 快塔配置与本次配置不一致")
         if checkpoint.get("world_model_configuration") != asdict(world_configuration):
             raise RuntimeError("checkpoint 世界模型配置与本次配置不一致")
+        if checkpoint.get("dataset_group") != dataset_configuration.dataset_group:
+            raise RuntimeError("checkpoint 数据范围与本次 dataset-group 不一致")
         tower.load_state_dict(checkpoint["tower"], strict=True)
         world_model.load_state_dict(checkpoint["world_model"], strict=True)
         optimizer.load_state_dict(checkpoint["optimizer"])
         for parameter_group in optimizer.param_groups:
             parameter_group["lr"] = arguments.learning_rate
         first_step = int(checkpoint["step"]) + 1
-    if arguments.steps < first_step:
-        raise ValueError(
-            f"目标 steps={arguments.steps} 小于 checkpoint 下一步 {first_step}",
-        )
     sequence_length = arguments.history + arguments.action_horizon + 1
+    include_metadata_targets = "meta_info" in arguments.modalities
     dataset = MineStudioLMDBDataset(
         data_directory=data_directory,
         sequence_length=sequence_length,
         image_size=(arguments.image_height, arguments.image_width),
-        task_text=curriculum_stage.task_text,
+        task_text=dataset_configuration.task_text,
         camera_max_degrees=CAMERA_SCALE * DEGREES_PER_MOUSE_PIXEL,
         stride=arguments.window_stride or sequence_length,
         split="train",
         validation_fraction=arguments.validation_fraction,
         seed=arguments.seed,
-        include_metadata_targets=arguments.include_metadata_targets,
+        include_metadata_targets=include_metadata_targets,
     )
-    if len(dataset) < arguments.batch:
-        raise RuntimeError("训练窗口数小于 batch，无法形成一个完整训练批次")
+    batch_size, peak_bytes, calibration_steps = _automatic_batch_size(
+        dataset, encoders, tower, world_model, tower_configuration,
+        optimizer, trainable, arguments, device, optimizer_is_initialized=resume,
+    )
+    first_step += calibration_steps
+    total_memory = torch.cuda.get_device_properties(device).total_memory
+    print(json.dumps({
+        "event": "automatic_batch",
+        "batch_size": batch_size,
+        "estimated_peak_gib": round(peak_bytes / 1024**3, 2),
+        "total_memory_gib": round(total_memory / 1024**3, 2),
+        "estimated_fraction": round(peak_bytes / total_memory, 4),
+        "target_fraction": arguments.target_memory_fraction,
+    }), flush=True)
     data_generator = torch.Generator().manual_seed(arguments.seed)
     loader = _data_loader(
-        dataset, arguments.batch, arguments.workers,
-        shuffle=True, drop_last=True, generator=data_generator,
+        dataset, batch_size, arguments.workers,
+        shuffle=True, drop_last=True, prefetch_factor=arguments.prefetch_factor,
+        generator=data_generator,
     )
     validation_loader = None
     if arguments.validation_fraction > 0.0:
@@ -462,17 +691,18 @@ def main() -> None:
                 data_directory=data_directory,
                 sequence_length=sequence_length,
                 image_size=(arguments.image_height, arguments.image_width),
-                task_text=curriculum_stage.task_text,
+                task_text=dataset_configuration.task_text,
                 camera_max_degrees=CAMERA_SCALE * DEGREES_PER_MOUSE_PIXEL,
                 stride=arguments.window_stride or sequence_length,
                 split="validation",
                 validation_fraction=arguments.validation_fraction,
                 seed=arguments.seed,
-                include_metadata_targets=arguments.include_metadata_targets,
+                include_metadata_targets=include_metadata_targets,
             )
             validation_loader = _data_loader(
-                validation_dataset, arguments.batch, arguments.workers,
+                validation_dataset, batch_size, arguments.workers,
                 shuffle=False, drop_last=False,
+                prefetch_factor=arguments.prefetch_factor,
             )
         except RuntimeError as error:
             if "没有可用于该 split 的共同 episode" not in str(error):
@@ -481,77 +711,74 @@ def main() -> None:
                 "event": "validation_disabled",
                 "reason": str(error),
             }, ensure_ascii=False), flush=True)
-    iterator = iter(loader)
+    iterator = _CUDABatchPrefetcher(_cycle_batches(loader), device)
     tower_parameters = sum(parameter.numel() for parameter in tower.parameters())
     world_parameters = sum(parameter.numel() for parameter in world_model.parameters())
-    scale = estimate_main_curriculum_model_scale()
     print(
-        f"stage={curriculum_stage.name}/{curriculum_stage.dataset_group} "
+        f"dataset_group={dataset_configuration.dataset_group} "
         f"image_shards={','.join(dataset.image_shards)} "
         f"local_frames={dataset.total_frames} windows={len(dataset)} "
         f"tower={tower_parameters / 1e6:.1f}M "
         f"world_model={world_parameters / 1e6:.1f}M "
-        f"data_scale_target={scale.recommended_parameters / 1e6:.1f}M "
-        f"effective_batch={arguments.batch * arguments.gradient_accumulation_steps}",
+        f"batch={batch_size}",
         flush=True,
     )
     started = time.time()
-    for step in range(first_step, arguments.steps + 1):
-        tower.train()
-        world_model.train()
-        optimizer.zero_grad(set_to_none=True)
-        accumulated = {"total": 0.0, "action": 0.0, "latent": 0.0, "kl": 0.0}
-        for _ in range(arguments.gradient_accumulation_steps):
-            try:
-                batch = next(iterator)
-            except StopIteration:
-                iterator = iter(loader)
-                batch = next(iterator)
+    last_step = first_step - 1
+    try:
+        for step in itertools.count(first_step):
+            tower.train()
+            world_model.train()
+            optimizer.zero_grad(set_to_none=True)
+            batch = next(iterator)
             losses = _batch_losses(
                 batch, encoders, tower, world_model, tower_configuration,
                 arguments.history, arguments.action_horizon,
                 arguments.world_weight, arguments.kl_weight, device,
             )
-            (losses.total / arguments.gradient_accumulation_steps).backward()
-            for name in accumulated:
-                accumulated[name] += float(getattr(losses, name).detach())
-        torch.nn.utils.clip_grad_norm_(trainable, 1.0)
-        optimizer.step()
-        for name in accumulated:
-            accumulated[name] /= arguments.gradient_accumulation_steps
-        if step % arguments.log_every == 0:
-            elapsed = max(time.time() - started, 1e-4)
-            print(json.dumps({
-                "split": "train",
-                "step": step,
-                "loss": round(accumulated["total"], 5),
-                "action": round(accumulated["action"], 5),
-                "latent": round(accumulated["latent"], 5),
-                "kl": round(accumulated["kl"], 5),
-                "learning_rate": optimizer.param_groups[0]["lr"],
-                "steps_per_second": round((step - first_step + 1) / elapsed, 3),
-            }), flush=True)
-        if validation_loader is not None and (
-            step % arguments.validate_every == 0 or step == arguments.steps
-        ):
-            validation = _evaluate(
-                validation_loader, arguments.validation_batches,
-                encoders, tower, world_model, tower_configuration,
-                arguments.history, arguments.action_horizon,
-                arguments.world_weight, arguments.kl_weight, device,
-            )
-            print(json.dumps({
-                "split": "validation",
-                "step": step,
-                **{name: round(value, 5) for name, value in validation.items()},
-            }), flush=True)
-        if step % arguments.save_every == 0 or step == arguments.steps:
+            losses.total.backward()
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+            optimizer.step()
+            last_step = step
+            if step % arguments.log_every == 0:
+                elapsed = max(time.time() - started, 1e-4)
+                print(json.dumps({
+                    "split": "train",
+                    "step": step,
+                    "loss": round(float(losses.total.detach()), 5),
+                    "action": round(float(losses.action.detach()), 5),
+                    "latent": round(float(losses.latent.detach()), 5),
+                    "kl": round(float(losses.kl.detach()), 5),
+                    "learning_rate": optimizer.param_groups[0]["lr"],
+                    "steps_per_second": round((step - first_step + 1) / elapsed, 3),
+                }), flush=True)
+            if validation_loader is not None and step % arguments.validate_every == 0:
+                validation = _evaluate(
+                    validation_loader, arguments.validation_batches,
+                    encoders, tower, world_model, tower_configuration,
+                    arguments.history, arguments.action_horizon,
+                    arguments.world_weight, arguments.kl_weight, device,
+                )
+                print(json.dumps({
+                    "split": "validation",
+                    "step": step,
+                    **{name: round(value, 5) for name, value in validation.items()},
+                }), flush=True)
+            if step % arguments.save_every == 0:
+                _save_checkpoint(
+                    output_directory / "last.pt", tower, world_model,
+                    tower_configuration, world_configuration, optimizer, step,
+                    dataset_configuration.dataset_group, dataset.image_shards,
+                )
+    except KeyboardInterrupt:
+        if last_step >= first_step:
             _save_checkpoint(
                 output_directory / "last.pt", tower, world_model,
-                tower_configuration, world_configuration, optimizer, step,
-                curriculum_stage.name,
+                tower_configuration, world_configuration, optimizer, last_step,
+                dataset_configuration.dataset_group,
                 dataset.image_shards,
             )
+        print(json.dumps({"event": "training_interrupted", "step": last_step}), flush=True)
 
 
 if __name__ == "__main__":

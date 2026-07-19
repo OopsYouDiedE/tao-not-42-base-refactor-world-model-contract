@@ -7,7 +7,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from datasets.vpt.video_dataset import VPT_KEYS
+from datasets.minestudio.dataset import VPT_KEYS
 from net.spatiotemporal_fast_tower import StructuredActionOutput
 from rl_training_environments.craftground.action_contract import (
     CAM_BINS,

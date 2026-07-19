@@ -1,1 +1,1 @@
-"""Minecraft VPT 行为克隆训练域。"""
+"""MineStudio 时空快塔与潜状态世界模型训练域。"""

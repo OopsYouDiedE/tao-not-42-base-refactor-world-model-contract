@@ -17,7 +17,10 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from datasets.vpt.video_dataset import VPT_KEYS
+VPT_KEYS = [
+    "key_w", "key_a", "key_s", "key_d", "key_space", "key_sneak",
+    "key_sprint", "key_attack", "key_use", "key_drop", "key_inventory",
+] + [f"key_hotbar.{index}" for index in range(1, 10)]
 
 
 _MINESTUDIO_OF_VPT = {
@@ -132,7 +135,7 @@ def minestudio_action_vector(
 class MineStudioLMDBDataset(Dataset):
     """从一个课程阶段的本地图像/动作 LMDB 返回固定连续窗口。
 
-    默认只按图像与全部动作库求 episode 交集。可选元数据启用后再加入交集，其中
+    默认只按全部图像与全部动作库求 episode 交集。可选元数据启用后再加入交集，其中
     GUI 状态和绝对光标位置只作为辅助监督目标，不得作为策略输入；GUI 中的相对
     光标移动仍由 ``camera`` 两轴动作监督。各模态不要求分片编号对齐。LMDB 句柄在
     DataLoader worker 内惰性打开，不跨进程序列化。

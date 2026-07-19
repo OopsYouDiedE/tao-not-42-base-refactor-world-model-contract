@@ -9,10 +9,11 @@
 
 - Godot 强化学习环境及其共享内存、SB3 适配与 PPO 入口；
 - CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照；
-- Minecraft VPT 视频数据集与行为克隆暖启动；
-- `PixelTower`、`SpatiotemporalFastTower` 与训练期 Dreamer-lite 潜状态世界模型。
+- MineStudio 完整数据下载、LMDB 读取与无限循环训练；
+- `SpatiotemporalFastTower` 与训练期 Dreamer-lite 潜状态世界模型。
 
-VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO 地图快塔和 `godot-python` 不属于
+VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO
+地图快塔和 `godot-python` 不属于
 当前范围。新增这些能力必须由用户明确要求，不能根据历史文件名自行恢复。
 
 ## 2. 目录职责
@@ -21,14 +22,13 @@ VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO 地图快塔和 `godot-p
 
 | 目录 | 职责 |
 |---|---|
-| `blocks/` | 与任务无关的可复用神经网络算子 |
 | `net/` | 模型结构与纯配置对象，不读取文件，不启动环境 |
 | `datasets/` | 可跨训练流程复用的数据读取与原始数据契约 |
-| `datasets/vpt/` | VPT `mp4 + jsonl` 流式读取、滚动下载和 VPT 原始动作编码 |
+| `datasets/minestudio/` | MineStudio 完整下载、LMDB 读取与原始动作编码 |
 | `rl_training_environments/godot/` | Godot 通信、进程管理、SB3 适配与训练入口 |
 | `rl_training_environments/godot/engine/` | Godot 4.6.1 .NET 工程与场景 |
 | `rl_training_environments/craftground/` | CraftGround 在线环境及运行状态管理 |
-| `train/minecraft/` | Minecraft 行为克隆、潜动力学优化循环与训练装配 |
+| `train/minecraft/` | MineStudio 无限行为克隆与潜动力学联合训练 |
 | `tests/unit/` | 不启动真实环境的纯单元测试 |
 | `tests/integration/` | 跨模块契约与离线回放测试 |
 | `runs/` | 数据、日志与 checkpoint，必须保持 Git ignored |
@@ -36,7 +36,7 @@ VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO 地图快塔和 `godot-p
 依赖方向：
 
 ```text
-blocks ← net ← train
+net ← train
 datasets ← train
 rl_training_environments ← train
 tests 依赖上述模块，但生产代码不得 import tests
@@ -76,9 +76,9 @@ tests 依赖上述模块，但生产代码不得 import tests
 
 ## 6. 数据与训练边界
 
-- 原始 VPT 数据文件存放在 `runs/data/`，不得提交视频、标签池或 checkpoint。
-- `datasets/vpt/` 只负责读取和原始动作编码，不包含优化器、训练循环或环境启动。
-- 行为克隆与潜动力学训练属于 `train/minecraft/`，CraftGround 执行动作契约属于
+- 原始 MineStudio 数据文件存放在 `runs/data/`，不得提交 LMDB 或 checkpoint。
+- `datasets/minestudio/` 只负责完整下载、读取和原始动作编码，不包含优化器或环境启动。
+- 行为克隆与潜动力学无限训练属于 `train/minecraft/`，CraftGround 执行动作契约属于
   `rl_training_environments/craftground/`。
 - 离线 loss 和准确率不是闭环能力结论。闭环结论必须报告固定 seed、样本量和成功指标。
 - checkpoint 结构不兼容时必须显式升级名称或版本，禁止静默部分加载。
@@ -106,7 +106,7 @@ tests 依赖上述模块，但生产代码不得 import tests
 
 ```bash
 python -m pytest
-python -m compileall -q blocks datasets net rl_training_environments train tests
+python -m compileall -q datasets net rl_training_environments train tests
 ```
 
 涉及 Godot 工程时还要执行：

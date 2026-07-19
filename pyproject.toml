@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tao-not-42"
 version = "0.2.0"
-description = "Godot、CraftGround 与 Minecraft 行为克隆训练环境"
+description = "Godot、CraftGround 与 MineStudio 世界模型训练环境"
 readme = "readme.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -27,13 +27,11 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
-train-minecraft-bc = "train.minecraft.behavior_cloning_warm_start:main"
-train-minecraft-world-model = "train.minecraft.world_model_warm_start:main"
-train-minecraft-autodl = "train.minecraft.autodl_curriculum:main"
-prepare-minestudio-stage = "datasets.vpt.minestudio_download:main"
+train-minecraft-world-model = "train.minecraft.world_model_training:main"
+prepare-minestudio-data = "datasets.minestudio.download:main"
 
 [tool.setuptools.packages.find]
-include = ["blocks*", "datasets*", "net*", "rl_training_environments*", "train*", "utils*"]
+include = ["datasets*", "net*", "rl_training_environments*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -47,7 +45,7 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["train", "utils"]
+known_first_party = ["datasets", "net", "rl_training_environments", "train"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -6,7 +6,7 @@ import torch
 
 from net.latent_world_model import LatentWorldModelConfiguration
 from net.spatiotemporal_fast_tower import SpatiotemporalFastTowerConfiguration
-from train.minecraft.world_model_warm_start import (
+from train.minecraft.world_model_training import (
     CHECKPOINT_VERSION,
     _save_checkpoint,
 )
@@ -34,7 +34,7 @@ def test_checkpoint_publishes_matching_json_sidecar(tmp_path):
         ),
         optimizer,
         step=17,
-        curriculum_stage="foundation",
+        dataset_group="10xx",
         image_shards=("part-0",),
     )
 
@@ -42,7 +42,7 @@ def test_checkpoint_publishes_matching_json_sidecar(tmp_path):
     assert checkpoint_path.is_file()
     assert metadata["version"] == CHECKPOINT_VERSION
     assert metadata["step"] == 17
-    assert metadata["curriculum_stage"] == "foundation"
+    assert metadata["dataset_group"] == "10xx"
     assert metadata["image_shards"] == ["part-0"]
     assert metadata["checkpoint_size"] == checkpoint_path.stat().st_size
     assert metadata["checkpoint_modified_ns"] == checkpoint_path.stat().st_mtime_ns

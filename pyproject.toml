@@ -12,7 +12,9 @@ license = {text = "MIT"}
 dependencies = [
     "numpy",
     "gymnasium",
+    "opencv-python",
     "stable-baselines3",
+    "torch",
 ]
 
 [project.optional-dependencies]
@@ -20,9 +22,10 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 train-godot-ppo = "train.godot_meta_rl.train_ppo:main"
+train-minecraft-bc = "train.minecraft.bc_warmstart:main"
 
 [tool.setuptools.packages.find]
-include = ["train*", "utils*"]
+include = ["blocks*", "net*", "train*", "utils*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

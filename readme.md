@@ -1,6 +1,7 @@
-# Godot 元学习强化学习训练项目
+# Godot 强化学习与 Minecraft BC 训练项目
 
-本仓库只保留 Godot 环境、跨进程共享内存通信、SB3 向量环境适配与 PPO 训练入口。
+本仓库保留 Godot 环境、跨进程共享内存通信、SB3 PPO 训练，以及 Minecraft VPT
+行为克隆暖启动和对应的像素快塔。
 当前任务是聚光灯瞄准：40 个 Godot 子环境锁步运行，Python 通过文件后端 mmap
 读取图像与元数据并发送动作。
 
@@ -9,7 +10,7 @@
 - Python 3.11+
 - Godot 4.6.1 .NET 版
 - .NET 8 SDK
-- Python 包：numpy、gymnasium、stable-baselines3
+- Python 包：numpy、gymnasium、opencv-python、stable-baselines3、torch
 
 Python 与 Godot 通过 mmap 通信，不使用也不需要 godot-python。
 
@@ -21,6 +22,13 @@ Linux 可在 PATH 中提供 godot，也可同样显式指定。
 
     export GODOT_EXE=/path/to/godot
     python -m train.godot_meta_rl.train_ppo --total-timesteps 100000
+
+Minecraft BC 使用成对的 VPT `mp4 + jsonl` 数据。先查看数据参数：
+
+    python -m train.minecraft.bc_warmstart --help
+
+该路径只包含 VPT 数据解析、动作契约、PixelTower 和 BC 训练，不包含 Minecraft
+在线环境、VPT 教师、GRPO、慢塔或旧 DINO 地图快塔。
 
 Windows PowerShell：
 

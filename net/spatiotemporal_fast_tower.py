@@ -12,6 +12,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from blocks.attention import PreNormalizationCrossAttention
+from blocks.modulation import FeatureWiseLinearModulation
+from blocks.transformer import PreNormalizationTransformerEncoder
+
 
 @dataclass(frozen=True)
 class SpatiotemporalFastTowerConfiguration:
@@ -163,23 +167,6 @@ class StructuredActionOutput:
         return camera, keys
 
 
-class _Encoder(nn.Module):
-    """Pre-LN Transformer 编码器。"""
-
-    def __init__(self, d: int, heads: int, layers: int, dropout: float):
-        super().__init__()
-        layer = nn.TransformerEncoderLayer(
-            d, heads, dim_feedforward=4 * d, dropout=dropout,
-            activation="gelu", batch_first=True, norm_first=True,
-        )
-        self.body = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
-        self.norm = nn.LayerNorm(d)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """编码 token 序列 ``[B,L,d]``，保持 Shape 与 Dtype。"""
-        return self.norm(self.body(x))
-
-
 class SpatiotemporalFastTower(nn.Module):
     """时空视觉、文本、动作历史到结构化动作分布的快塔。"""
 
@@ -201,21 +188,28 @@ class SpatiotemporalFastTower(nn.Module):
         self.visual_in = nn.Linear(configuration.visual_dim, configuration.d)
         self.text_in = nn.Linear(configuration.text_dim, configuration.d)
         self.action_in = nn.Linear(configuration.action_dim + 1, configuration.d)
-        self.goal_scale = nn.Linear(configuration.d, configuration.d)
-        self.goal_bias = nn.Linear(configuration.d, configuration.d)
+        self.goal_modulation = FeatureWiseLinearModulation(configuration.d)
         self.spatial_pos = nn.Parameter(torch.zeros(1, gh * gw, configuration.d))
         self.history_pos = nn.Parameter(torch.zeros(1, configuration.max_history, configuration.d))
         self.text_pos = nn.Parameter(torch.zeros(1, configuration.max_text_tokens, configuration.d))
-        self.spatial = _Encoder(configuration.d, configuration.heads, configuration.spatial_layers, configuration.dropout)
-        self.temporal = _Encoder(configuration.d, configuration.heads, configuration.temporal_layers, configuration.dropout)
-        self.action_history = _Encoder(configuration.d, configuration.heads, 1, configuration.dropout)
+        self.spatial = PreNormalizationTransformerEncoder(
+            configuration.d, configuration.heads,
+            configuration.spatial_layers, configuration.dropout,
+        )
+        self.temporal = PreNormalizationTransformerEncoder(
+            configuration.d, configuration.heads,
+            configuration.temporal_layers, configuration.dropout,
+        )
+        self.action_history = PreNormalizationTransformerEncoder(
+            configuration.d, configuration.heads, 1, configuration.dropout,
+        )
         self.action_queries = nn.Parameter(
             torch.empty(1, configuration.action_horizon, 6, configuration.d),
         )
         self.state_query = nn.Parameter(torch.empty(1, 1, configuration.d))
-        self.cross_norm_q = nn.LayerNorm(configuration.d)
-        self.cross_norm_kv = nn.LayerNorm(configuration.d)
-        self.cross = nn.MultiheadAttention(configuration.d, configuration.heads, batch_first=True, dropout=configuration.dropout)
+        self.cross = PreNormalizationCrossAttention(
+            configuration.d, configuration.heads, configuration.dropout,
+        )
         self.camera_head = nn.Linear(configuration.d, 2 * configuration.camera_bins)
         self.move_fb_head = nn.Linear(configuration.d, 3)
         self.move_lr_head = nn.Linear(configuration.d, 3)
@@ -303,17 +297,16 @@ class SpatiotemporalFastTower(nn.Module):
         if dt.shape != (b, h + 1, 1):
             raise ValueError("dt 必须为 [B,H+1,1]")
         text, goal = self._text(text_tokens, text_mask)
-        current = self.visual_in(current_patches) + self.spatial_pos
-        current = current * (1.0 + torch.tanh(self.goal_scale(goal))[:, None])
-        current = current + self.goal_bias(goal)[:, None]
+        current = self.goal_modulation(
+            self.visual_in(current_patches) + self.spatial_pos, goal,
+        )
         current = self.spatial(current)
 
         pooled_current = current.reshape(b, gh, gw, self.configuration.d)
         pooled_current = pooled_current.reshape(b, gh // 2, 2, gw // 2, 2, self.configuration.d)
         pooled_current = pooled_current.mean(dim=(2, 4)).flatten(1, 2)
         history = self.visual_in(self._pool_history(history_patches))
-        history = history * (1.0 + torch.tanh(self.goal_scale(goal))[:, None, None])
-        history = history + self.goal_bias(goal)[:, None, None]
+        history = self.goal_modulation(history, goal)
         frames = torch.cat([history, pooled_current[:, None]], dim=1)
         frames = frames + self.history_pos[:, :h + 1, None]
         _, t, p, d = frames.shape
@@ -343,17 +336,11 @@ class SpatiotemporalFastTower(nn.Module):
         b = current_patches.shape[0]
         query = self.action_queries.expand(b, -1, -1, -1) + goal[:, None, None]
         query = query.flatten(1, 2)
-        attended, _ = self.cross(
-            self.cross_norm_q(query), self.cross_norm_kv(kv), self.cross_norm_kv(kv),
-            need_weights=False,
+        query = self.cross(query, kv).reshape(
+            b, self.configuration.action_horizon, 6, -1,
         )
-        query = (query + attended).reshape(b, self.configuration.action_horizon, 6, -1)
         state_query = self.state_query.expand(b, -1, -1) + goal[:, None]
-        state_attended, _ = self.cross(
-            self.cross_norm_q(state_query), self.cross_norm_kv(kv), self.cross_norm_kv(kv),
-            need_weights=False,
-        )
-        state = (state_query + state_attended)[:, 0]
+        state = self.cross(state_query, kv)[:, 0]
         output = StructuredActionOutput(
             camera_logits=self.camera_head(query[:, :, 0]).reshape(
                 b, self.configuration.action_horizon, 2, self.configuration.camera_bins,

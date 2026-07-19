@@ -31,7 +31,7 @@ train-minecraft-world-model = "train.minecraft.world_model_training:main"
 prepare-minestudio-data = "datasets.minestudio.download:main"
 
 [tool.setuptools.packages.find]
-include = ["datasets*", "net*", "rl_training_environments*", "train*"]
+include = ["blocks*", "datasets*", "net*", "rl_training_environments*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -45,7 +45,7 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["datasets", "net", "rl_training_environments", "train"]
+known_first_party = ["blocks", "datasets", "net", "rl_training_environments", "train"]
 
 [tool.mypy]
 python_version = "3.11"

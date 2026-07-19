@@ -38,7 +38,7 @@ from train.minecraft.action_supervision import (
     structured_action_loss,
 )
 
-CHECKPOINT_VERSION = "minecraft_dreamer_lite_v5"
+CHECKPOINT_VERSION = "minecraft_dreamer_lite_v6"
 DEFAULT_VISION_MODEL = "facebook/dinov3-vits16-pretrain-lvd1689m"
 DEFAULT_TEXT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 

@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from blocks.residual import ResidualFeedForwardBlock
+
 
 @dataclass(frozen=True)
 class LatentWorldModelConfiguration:
@@ -48,23 +50,6 @@ class LatentWorldModelPrediction:
     inventory_delta: torch.Tensor | None
 
 
-class _ResidualDynamicsBlock(nn.Module):
-    """Pre-LN 潜状态残差前馈块。"""
-
-    def __init__(self, d: int):
-        super().__init__()
-        self.normalization = nn.LayerNorm(d)
-        self.layers = nn.Sequential(
-            nn.Linear(d, 4 * d),
-            nn.GELU(),
-            nn.Linear(4 * d, d),
-        )
-
-    def forward(self, value: torch.Tensor) -> torch.Tensor:
-        """变换 ``[B,d]`` 潜状态并保持 Shape。"""
-        return value + self.layers(self.normalization(value))
-
-
 class LatentWorldModel(nn.Module):
     """以冻结视觉特征为观测、以结构化动作为条件的离散 RSSM。"""
 
@@ -82,7 +67,7 @@ class LatentWorldModel(nn.Module):
         self.action_in = nn.Linear(configuration.action_dim + 1, configuration.d)
         self.recurrent = nn.GRUCell(configuration.d + stochastic_dim, configuration.d)
         self.dynamics = nn.Sequential(*[
-            _ResidualDynamicsBlock(configuration.d)
+            ResidualFeedForwardBlock(configuration.d)
             for _ in range(configuration.dynamics_layers)
         ])
         self.prior = nn.Linear(configuration.d, stochastic_dim)

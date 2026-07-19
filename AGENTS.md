@@ -22,6 +22,7 @@ VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、
 
 | 目录 | 职责 |
 |---|---|
+| `blocks/` | 与任务无关的可复用神经网络算子 |
 | `net/` | 模型结构与纯配置对象，不读取文件，不启动环境 |
 | `datasets/` | 可跨训练流程复用的数据读取与原始数据契约 |
 | `datasets/minestudio/` | MineStudio 完整下载、LMDB 读取与原始动作编码 |
@@ -36,7 +37,7 @@ VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、
 依赖方向：
 
 ```text
-net ← train
+blocks ← net ← train
 datasets ← train
 rl_training_environments ← train
 tests 依赖上述模块，但生产代码不得 import tests
@@ -106,7 +107,7 @@ tests 依赖上述模块，但生产代码不得 import tests
 
 ```bash
 python -m pytest
-python -m compileall -q datasets net rl_training_environments train tests
+python -m compileall -q blocks datasets net rl_training_environments train tests
 ```
 
 涉及 Godot 工程时还要执行：

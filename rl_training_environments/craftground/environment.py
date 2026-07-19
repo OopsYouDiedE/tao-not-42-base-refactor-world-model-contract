@@ -90,9 +90,9 @@ class MinecraftCraftGroundEnvironment:
         # 检查 DISPLAY 环境变量
         if 'DISPLAY' not in os.environ:
             raise RuntimeError(
-                "No DISPLAY environment variable found! \\n"
-                "To run with GPU headless rendering or Xvfb, please use the gpu_run.sh wrapper:\\n"
-                "    ./scripts/gpu_run.sh python your_script.py"
+                "未找到 DISPLAY 环境变量。无头服务器请使用 xvfb-run 启动：\n"
+                "    xvfb-run -a python -m your_module\n"
+                "完整的系统依赖安装请参阅 rl_training_environments/craftground/README.md"
             )
 
         config = InitialEnvironmentConfig(

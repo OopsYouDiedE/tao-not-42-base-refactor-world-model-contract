@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 from bisect import bisect_right
 from dataclasses import dataclass
 import hashlib
 import io
+import os
 from pathlib import Path
 import pickle
 from typing import Any
@@ -37,6 +39,45 @@ _MINESTUDIO_OF_VPT = {
     "key_inventory": "inventory",
     **{f"key_hotbar.{index}": f"hotbar.{index}" for index in range(1, 10)},
 }
+
+_STREAM_PROCESS_ID = os.getpid()
+_PROCESS_STREAMS: dict[Path, lmdb.Environment] = {}
+
+
+def _open_readonly_stream(path: Path) -> lmdb.Environment:
+    """打开参数完全一致的只读 LMDB environment。"""
+    return lmdb.open(
+        str(path), readonly=True, lock=False, readahead=False,
+        max_readers=128, subdir=True,
+    )
+
+
+def _close_process_streams() -> None:
+    """关闭当前进程实际使用的共享 LMDB environment。"""
+    global _STREAM_PROCESS_ID
+    for stream in _PROCESS_STREAMS.values():
+        stream.close()
+    _PROCESS_STREAMS.clear()
+    _STREAM_PROCESS_ID = os.getpid()
+
+
+def _ensure_current_process_streams() -> None:
+    """fork 后丢弃继承句柄，保证每个 DataLoader worker 独立打开 LMDB。"""
+    if _STREAM_PROCESS_ID != os.getpid():
+        _close_process_streams()
+
+
+def _shared_stream(path: Path) -> lmdb.Environment:
+    """返回当前进程内同一路径唯一的只读 LMDB environment。"""
+    _ensure_current_process_streams()
+    stream = _PROCESS_STREAMS.get(path)
+    if stream is None:
+        stream = _open_readonly_stream(path)
+        _PROCESS_STREAMS[path] = stream
+    return stream
+
+
+atexit.register(_close_process_streams)
 
 
 @dataclass(frozen=True)
@@ -83,10 +124,11 @@ def _load_pickle(transaction: lmdb.Transaction, key: str) -> Any:
 def _scan_modality(modality_directory: Path) -> dict[str, _ModalityEpisode]:
     episodes: dict[str, _ModalityEpisode] = {}
     for database in _database_directories(modality_directory):
-        stream = lmdb.open(
-            str(database), readonly=True, lock=False, readahead=False,
-            max_readers=128, subdir=True,
-        )
+        _ensure_current_process_streams()
+        stream = _PROCESS_STREAMS.get(database)
+        temporary_stream = stream is None
+        if stream is None:
+            stream = _open_readonly_stream(database)
         try:
             with stream.begin() as transaction:
                 chunk_size = int(_load_pickle(transaction, "__chunk_size__"))
@@ -104,7 +146,8 @@ def _scan_modality(modality_directory: Path) -> dict[str, _ModalityEpisode]:
                     num_frames=int(information["num_frames"]),
                 )
         finally:
-            stream.close()
+            if temporary_stream:
+                stream.close()
     return episodes
 
 
@@ -251,25 +294,14 @@ class MineStudioLMDBDataset(Dataset):
             self.total_frames += image.num_frames
         if not self.episodes:
             raise RuntimeError("图像与动作 LMDB 没有可用于该 split 的共同 episode")
-        self._streams: dict[Path, lmdb.Environment] = {}
-
     def __len__(self) -> int:
         return self.cumulative_windows[-1]
 
     def __getstate__(self) -> dict[str, Any]:
-        state = self.__dict__.copy()
-        state["_streams"] = {}
-        return state
+        return self.__dict__.copy()
 
     def _stream(self, path: Path) -> lmdb.Environment:
-        stream = self._streams.get(path)
-        if stream is None:
-            stream = lmdb.open(
-                str(path), readonly=True, lock=False, readahead=False,
-                max_readers=128, subdir=True,
-            )
-            self._streams[path] = stream
-        return stream
+        return _shared_stream(path)
 
     def _read_chunks(
         self,

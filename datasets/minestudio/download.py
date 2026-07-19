@@ -96,12 +96,13 @@ def prepare_dataset_group(
     modalities: tuple[str, ...] = ("image", "action"),
     maximum_workers: int = 8,
     revision: str | None = None,
+    cache_directory: str | Path | None = None,
 ) -> tuple[Path, MineStudioDownloadSelection]:
     """完整下载范围内选定模态，保留所有已经下载的数据。"""
     if maximum_workers < 1:
         raise ValueError("maximum_workers 必须大于零")
     configuration = get_dataset_group(dataset_group)
-    repository_files = HfApi().list_repo_files(
+    repository_files = HfApi(token=True).list_repo_files(
         repo_id=configuration.repository_id,
         repo_type="dataset",
         revision=revision,
@@ -116,8 +117,10 @@ def prepare_dataset_group(
         repo_type="dataset",
         revision=revision,
         local_dir=destination,
+        cache_dir=cache_directory,
         allow_patterns=list(selection.allow_patterns),
         max_workers=maximum_workers,
+        token=True,
     )
     return destination, selection
 
@@ -136,6 +139,7 @@ def main() -> None:
         default=["image", "action"],
     )
     parser.add_argument("--revision", default=None)
+    parser.add_argument("--cache-directory", default=None)
     parser.add_argument("--maximum-workers", type=int, default=8)
     arguments = parser.parse_args()
     destination, selection = prepare_dataset_group(
@@ -144,6 +148,7 @@ def main() -> None:
         modalities=tuple(arguments.modalities),
         maximum_workers=arguments.maximum_workers,
         revision=arguments.revision,
+        cache_directory=arguments.cache_directory,
     )
     print(json.dumps({
         "dataset_group": selection.dataset_group,

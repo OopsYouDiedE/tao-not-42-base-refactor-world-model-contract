@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import Future
 from dataclasses import asdict, dataclass
 import gc
 import itertools
 import json
+import os
 from pathlib import Path
+import shutil
 import time
 from typing import Iterator
 
 import torch
 import torch.nn.functional as F
+from huggingface_hub import HfApi
 from torch.utils.data import DataLoader, default_collate
 from transformers import AutoModel, AutoTokenizer
 
@@ -56,14 +60,24 @@ class TrainingLosses:
 class FrozenFeatureEncoders:
     """运行冻结的 DINOv3-S 和文本编码器，不进入 checkpoint 优化参数。"""
 
-    def __init__(self, vision_model_name: str, text_model_name: str, device: torch.device):
+    def __init__(
+        self,
+        vision_model_name: str,
+        text_model_name: str,
+        device: torch.device,
+        cache_directory: str | Path | None,
+    ):
         self.device = device
         self.vision = AutoModel.from_pretrained(
             vision_model_name, torch_dtype=torch.bfloat16,
+            cache_dir=cache_directory, token=True,
         ).to(device).eval()
-        self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            text_model_name, cache_dir=cache_directory, token=True,
+        )
         self.text = AutoModel.from_pretrained(
             text_model_name, torch_dtype=torch.bfloat16,
+            cache_dir=cache_directory, token=True,
         ).to(device).eval()
         for model in (self.vision, self.text):
             for parameter in model.parameters():
@@ -404,6 +418,72 @@ def _save_checkpoint(
     metadata_temporary.replace(metadata_path)
 
 
+class PublicHubCheckpointUploader:
+    """把本地原子 checkpoint 快照异步提交到公开 Hugging Face 模型仓库。"""
+
+    def __init__(self, repository_id: str, output_directory: Path):
+        self.repository_id = repository_id
+        self.output_directory = output_directory
+        self.snapshot_root = output_directory / ".hub_uploads"
+        self.snapshot_root.mkdir(parents=True, exist_ok=True)
+        self.api = HfApi(token=True)
+        self.api.create_repo(
+            repo_id=repository_id,
+            repo_type="model",
+            private=False,
+            exist_ok=True,
+        )
+        repository = self.api.repo_info(
+            repo_id=repository_id, repo_type="model", token=True,
+        )
+        if repository.private:
+            raise RuntimeError(
+                f"Hugging Face 仓库 {repository_id} 已存在但仍是私有仓库；"
+                "请改用新的公开仓库或先手动公开它",
+            )
+        self.futures: list[Future[object]] = []
+
+    def publish(self, checkpoint_path: Path, step: int) -> None:
+        """创建不随后续保存变化的硬链接，并在后台上传为远端 last checkpoint。"""
+        self._raise_finished_failures()
+        snapshot_directory = self.snapshot_root / f"step-{step}-{time.time_ns()}"
+        snapshot_directory.mkdir()
+        metadata_path = checkpoint_path.with_suffix(".json")
+        os.link(checkpoint_path, snapshot_directory / "last.pt")
+        os.link(metadata_path, snapshot_directory / "last.json")
+        future = self.api.upload_folder(
+            repo_id=self.repository_id,
+            repo_type="model",
+            folder_path=snapshot_directory,
+            path_in_repo="",
+            commit_message=f"上传训练 checkpoint step {step}",
+            token=True,
+            run_as_future=True,
+        )
+        future.add_done_callback(
+            lambda _completed, directory=snapshot_directory: shutil.rmtree(
+                directory, ignore_errors=True,
+            ),
+        )
+        self.futures.append(future)
+
+    def close(self) -> None:
+        """等待已排队上传结束，并传播后台上传错误。"""
+        for future in self.futures:
+            future.result()
+        shutil.rmtree(self.snapshot_root, ignore_errors=True)
+        self.futures.clear()
+
+    def _raise_finished_failures(self) -> None:
+        unfinished: list[Future[object]] = []
+        for future in self.futures:
+            if future.done():
+                future.result()
+            else:
+                unfinished.append(future)
+        self.futures = unfinished
+
+
 def _batch_tensor_bytes(batch: dict[str, object]) -> int:
     """计算一个 CPU 批次中张量的总字节数。"""
     return sum(
@@ -527,7 +607,15 @@ def main() -> None:
     )
     parser.add_argument("--revision", default=None)
     parser.add_argument("--download-workers", type=int, default=8)
+    parser.add_argument(
+        "--cache-directory", default=None,
+        help="DINOv3、文本模型与 Hugging Face 下载缓存目录",
+    )
     parser.add_argument("--output", default="runs/checkpoints/minecraft_dreamer_lite")
+    parser.add_argument(
+        "--hub-repo-id", required=True,
+        help="持续上传 last.pt 的公开 Hugging Face 模型仓库，例如 user/model",
+    )
     parser.add_argument(
         "--resume", default="auto",
         help="auto 自动恢复 output/last.pt；空串从头训练；也可给定 checkpoint",
@@ -603,6 +691,7 @@ def main() -> None:
         modalities=tuple(arguments.modalities),
         maximum_workers=arguments.download_workers,
         revision=arguments.revision,
+        cache_directory=arguments.cache_directory,
     )
     print(json.dumps({
         "event": "dataset_ready",
@@ -613,8 +702,12 @@ def main() -> None:
     }, ensure_ascii=False), flush=True)
     output_directory = Path(arguments.output)
     output_directory.mkdir(parents=True, exist_ok=True)
+    checkpoint_uploader = PublicHubCheckpointUploader(
+        arguments.hub_repo_id, output_directory,
+    )
     encoders = FrozenFeatureEncoders(
         arguments.vision_model, arguments.text_model, device,
+        arguments.cache_directory,
     )
     tower_configuration, world_configuration = _configurations(
         encoders, arguments.image_height, arguments.image_width,
@@ -765,20 +858,26 @@ def main() -> None:
                     **{name: round(value, 5) for name, value in validation.items()},
                 }), flush=True)
             if step % arguments.save_every == 0:
+                checkpoint_path = output_directory / "last.pt"
                 _save_checkpoint(
-                    output_directory / "last.pt", tower, world_model,
+                    checkpoint_path, tower, world_model,
                     tower_configuration, world_configuration, optimizer, step,
                     dataset_configuration.dataset_group, dataset.image_shards,
                 )
+                checkpoint_uploader.publish(checkpoint_path, step)
     except KeyboardInterrupt:
         if last_step >= first_step:
+            checkpoint_path = output_directory / "last.pt"
             _save_checkpoint(
-                output_directory / "last.pt", tower, world_model,
+                checkpoint_path, tower, world_model,
                 tower_configuration, world_configuration, optimizer, last_step,
                 dataset_configuration.dataset_group,
                 dataset.image_shards,
             )
+            checkpoint_uploader.publish(checkpoint_path, last_step)
         print(json.dumps({"event": "training_interrupted", "step": last_step}), flush=True)
+    finally:
+        checkpoint_uploader.close()
 
 
 if __name__ == "__main__":

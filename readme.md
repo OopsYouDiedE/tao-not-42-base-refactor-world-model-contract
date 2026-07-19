@@ -17,11 +17,15 @@
 
     export TAO_STORAGE_ROOT=/root/autodl-tmp/tao-training
     export HF_HOME=$TAO_STORAGE_ROOT/huggingface
+    export HF_REPO_ID=你的用户名/minecraft-dreamer-lite-10xx
+    hf auth whoami >/dev/null 2>&1 || hf auth login
     python -m train.minecraft.world_model_training \
         --dataset-group 10xx \
         --modalities image action \
         --data-root $TAO_STORAGE_ROOT/minestudio \
-        --output $TAO_STORAGE_ROOT/checkpoints
+        --cache-directory $HF_HOME/hub \
+        --output $TAO_STORAGE_ROOT/checkpoints \
+        --hub-repo-id $HF_REPO_ID
 
 入口按固定顺序执行：
 
@@ -30,7 +34,16 @@
 2. 加载冻结 DINOv3-S、MiniLM、时空快塔和潜状态世界模型。
 3. 用真实训练前向、反向和 fused AdamW 状态探测 batch；在计入下一批 CUDA 预取余量后，
    选择估计峰值不超过总显存 75% 的最大 batch。
-4. 在全部本地图像分片上无限循环训练，每 1,000 step 验证并原子保存 checkpoint。
+4. 在全部本地图像分片上无限循环训练，每 1,000 step 验证并原子保存 checkpoint；
+   `last.pt` 和 `last.json` 随后在后台上传到指定的公开 Hugging Face 模型仓库。
+
+运行前需要在 DINOv3 模型页接受访问条款，并用具有写权限的 token 执行 `hf auth login`。
+代码使用登录态认证，不把 token 放入命令参数。若 `--hub-repo-id` 不存在，入口会创建公开
+模型仓库；若同名仓库已经是私有仓库，入口会拒绝上传，避免继续占用私有仓库额度。
+
+数据正文位于 `$TAO_STORAGE_ROOT/minestudio/10xx`，数据续传元数据位于该目录内的
+`.cache/huggingface`。DINOv3 与 MiniLM 的共享缓存由 `--cache-directory` 指定，上例为
+`$HF_HOME/hub`。本地 checkpoint 位于 `$TAO_STORAGE_ROOT/checkpoints`。
 
 `--target-memory-fraction` 可修改 0.75 目标，`--maximum-auto-batch` 限制探测上界。
 `--resume auto` 是默认值，会自动恢复输出目录中的 `last.pt`。按 Ctrl+C 时会保存最近完成

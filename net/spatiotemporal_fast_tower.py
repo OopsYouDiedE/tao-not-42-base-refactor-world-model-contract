@@ -29,17 +29,20 @@ class SpatiotemporalFastTowerConfiguration:
         快塔内部通道数。
     grid_hw : tuple[int, int]
         当前帧 patch 网格高宽，默认 18×32。
+    action_horizon : int
+        一次预测的未来动作步数，部署只执行前 1–2 步后重规划。
     """
 
-    visual_dim: int = 768
+    visual_dim: int = 384
     text_dim: int = 384
     action_dim: int = 22
-    d: int = 256
-    heads: int = 8
-    spatial_layers: int = 2
-    temporal_layers: int = 2
+    d: int = 768
+    heads: int = 12
+    spatial_layers: int = 4
+    temporal_layers: int = 8
     grid_hw: tuple[int, int] = (18, 32)
     camera_bins: int = 11
+    action_horizon: int = 4
     max_history: int = 16
     max_text_tokens: int = 64
     dropout: float = 0.0
@@ -86,7 +89,7 @@ class NullMemory(MemoryProvider):
 
 @dataclass
 class StructuredActionOutput:
-    """互斥结构化动作分布的 logits。"""
+    """互斥结构化动作分布的 logits，前导维为 ``[B,K]``。"""
 
     camera_logits: torch.Tensor
     move_fb_logits: torch.Tensor
@@ -101,7 +104,7 @@ class StructuredActionOutput:
         Returns
         -------
         torch.Tensor
-            Shape ``[B, 20]``，Dtype float32。键序为 CraftGround V2_KEYS。
+            Shape ``[B,K,20]``，Dtype float32。键序为 CraftGround V2_KEYS。
         """
         fb = F.softmax(self.move_fb_logits.float(), dim=-1)
         lr = F.softmax(self.move_lr_logits.float(), dim=-1)
@@ -109,8 +112,9 @@ class StructuredActionOutput:
         hotbar = F.softmax(self.hotbar_logits.float(), dim=-1)
         buttons = torch.sigmoid(self.button_logits.float())
         return torch.cat(
-            [fb[:, 2:3], fb[:, 0:1], lr[:, 0:1], lr[:, 2:3], buttons[:, 0:1],
-             stance[:, 1:2], stance[:, 2:3], buttons[:, 1:5], hotbar[:, 1:]],
+            [fb[..., 2:3], fb[..., 0:1], lr[..., 0:1], lr[..., 2:3],
+             buttons[..., 0:1], stance[..., 1:2], stance[..., 2:3],
+             buttons[..., 1:5], hotbar[..., 1:]],
             dim=-1,
         )
 
@@ -125,7 +129,7 @@ class StructuredActionOutput:
         Returns
         -------
         tuple[torch.Tensor, torch.Tensor]
-            相机 Shape ``[B,2]``、Dtype int64；按键 Shape ``[B,20]``、Dtype int32。
+            相机 Shape ``[B,K,2]``、Dtype int64；按键 Shape ``[B,K,20]``、Dtype int32。
             前后、左右、姿态和 hotbar 各组构造上互斥。
         """
         def categorical(logits: torch.Tensor) -> torch.Tensor:
@@ -133,10 +137,11 @@ class StructuredActionOutput:
             if deterministic:
                 return logits.argmax(dim=-1)
             p = F.softmax(logits.float(), dim=-1)
-            return torch.multinomial(p, 1).squeeze(-1)
+            sampled = torch.multinomial(p.reshape(-1, p.shape[-1]), 1)
+            return sampled.reshape(p.shape[:-1])
 
         camera = self.camera_logits.argmax(dim=-1) if deterministic else torch.stack(
-            [categorical(self.camera_logits[:, axis]) for axis in range(2)], dim=-1,
+            [categorical(self.camera_logits[..., axis, :]) for axis in range(2)], dim=-1,
         )
         fb = categorical(self.move_fb_logits)
         lr = categorical(self.move_lr_logits)
@@ -146,19 +151,15 @@ class StructuredActionOutput:
             events = self.button_logits >= 0
         else:
             events = torch.bernoulli(torch.sigmoid(self.button_logits.float())).bool()
-        keys = torch.zeros(self.button_logits.shape[0], 20, dtype=torch.int32,
-                           device=self.button_logits.device)
-        keys[:, 0] = (fb == 2).int()
-        keys[:, 1] = (fb == 0).int()
-        keys[:, 2] = (lr == 0).int()
-        keys[:, 3] = (lr == 2).int()
-        keys[:, 4] = events[:, 0].int()
-        keys[:, 5] = (stance == 1).int()
-        keys[:, 6] = (stance == 2).int()
-        keys[:, 7:11] = events[:, 1:5].int()
-        active_hotbar = hotbar > 0
-        rows = torch.arange(keys.shape[0], device=keys.device)[active_hotbar]
-        keys[rows, hotbar[active_hotbar] + 10] = 1
+        hotbar_keys = F.one_hot((hotbar - 1).clamp(min=0), num_classes=9)
+        hotbar_keys = hotbar_keys * (hotbar > 0).unsqueeze(-1)
+        keys = torch.cat(
+            [(fb == 2).unsqueeze(-1), (fb == 0).unsqueeze(-1),
+             (lr == 0).unsqueeze(-1), (lr == 2).unsqueeze(-1),
+             events[..., 0:1], (stance == 1).unsqueeze(-1),
+             (stance == 2).unsqueeze(-1), events[..., 1:5], hotbar_keys.bool()],
+            dim=-1,
+        ).to(dtype=torch.int32)
         return camera, keys
 
 
@@ -190,6 +191,8 @@ class SpatiotemporalFastTower(nn.Module):
         super().__init__()
         if configuration.d % configuration.heads:
             raise ValueError("d 必须能被 heads 整除")
+        if configuration.action_horizon < 1:
+            raise ValueError("action_horizon 必须大于零")
         gh, gw = configuration.grid_hw
         if gh % 2 or gw % 2:
             raise ValueError("grid_hw 必须能被 2×2 历史池化整除")
@@ -207,7 +210,10 @@ class SpatiotemporalFastTower(nn.Module):
         self.spatial = _Encoder(configuration.d, configuration.heads, configuration.spatial_layers, configuration.dropout)
         self.temporal = _Encoder(configuration.d, configuration.heads, configuration.temporal_layers, configuration.dropout)
         self.action_history = _Encoder(configuration.d, configuration.heads, 1, configuration.dropout)
-        self.action_queries = nn.Parameter(torch.empty(1, 6, configuration.d))
+        self.action_queries = nn.Parameter(
+            torch.empty(1, configuration.action_horizon, 6, configuration.d),
+        )
+        self.state_query = nn.Parameter(torch.empty(1, 1, configuration.d))
         self.cross_norm_q = nn.LayerNorm(configuration.d)
         self.cross_norm_kv = nn.LayerNorm(configuration.d)
         self.cross = nn.MultiheadAttention(configuration.d, configuration.heads, batch_first=True, dropout=configuration.dropout)
@@ -225,6 +231,7 @@ class SpatiotemporalFastTower(nn.Module):
         nn.init.trunc_normal_(self.history_pos, std=0.02)
         nn.init.trunc_normal_(self.text_pos, std=0.02)
         nn.init.trunc_normal_(self.action_queries, std=0.02)
+        nn.init.trunc_normal_(self.state_query, std=0.02)
 
     def _text(self, tokens: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """投影文本 token 并计算有掩码汇总。
@@ -256,7 +263,7 @@ class SpatiotemporalFastTower(nn.Module):
         x = history.reshape(b, h, gh // 2, 2, gw // 2, 2, d)
         return x.mean(dim=(3, 5)).reshape(b, h, (gh // 2) * (gw // 2), d)
 
-    def forward(
+    def _encode_context(
         self,
         current_patches: torch.Tensor,
         history_patches: torch.Tensor,
@@ -266,8 +273,8 @@ class SpatiotemporalFastTower(nn.Module):
         dt: torch.Tensor,
         aim_xy: torch.Tensor,
         aim_valid: torch.Tensor,
-    ) -> StructuredActionOutput:
-        """计算下一步结构化动作 logits。
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """将完整空间网格、连续历史、文本和已执行动作编码为注意力上下文。
 
         Parameters
         ----------
@@ -290,9 +297,8 @@ class SpatiotemporalFastTower(nn.Module):
 
         Returns
         -------
-        StructuredActionOutput
-            相机 ``[B,2,11]``；移动/姿态 ``[B,3]``；hotbar ``[B,10]``；
-            事件按钮 ``[B,5]``，logits Dtype 与模型计算 dtype 一致。
+        tuple[torch.Tensor, torch.Tensor]
+            上下文 token ``[B,N,d]`` 与任务汇总 ``[B,d]``。
         """
         b, n, _ = current_patches.shape
         gh, gw = self.configuration.grid_hw
@@ -301,6 +307,12 @@ class SpatiotemporalFastTower(nn.Module):
         h = history_patches.shape[1]
         if h > self.configuration.max_history - 1:
             raise ValueError("历史帧数超过 max_history-1")
+        if history_patches.shape[2] != gh * gw:
+            raise ValueError(f"历史 patch 数必须为 {gh * gw}")
+        if past_actions.shape[:2] != (b, h + 1):
+            raise ValueError("past_actions 必须与历史帧对齐且不包含当前待预测动作")
+        if dt.shape != (b, h + 1, 1):
+            raise ValueError("dt 必须为 [B,H+1,1]")
         text, goal = self._text(text_tokens, text_mask)
         current = self.visual_in(current_patches) + self.spatial_pos
         current = current * (1.0 + torch.tanh(self.goal_scale(goal))[:, None])
@@ -327,20 +339,67 @@ class SpatiotemporalFastTower(nn.Module):
         action = self.action_history(action.to(current.dtype))
         memory = self.memory(b, current.device).to(dtype=current.dtype)
         kv = torch.cat([current, temporal, text, action, memory], dim=1)
-        query = self.action_queries.expand(b, -1, -1) + goal[:, None]
+        return kv, goal
+
+    def forward_with_state(
+        self,
+        current_patches: torch.Tensor,
+        history_patches: torch.Tensor,
+        text_tokens: torch.Tensor,
+        text_mask: torch.Tensor,
+        past_actions: torch.Tensor,
+        dt: torch.Tensor,
+        aim_xy: torch.Tensor,
+        aim_valid: torch.Tensor,
+    ) -> tuple[StructuredActionOutput, torch.Tensor]:
+        """计算动作块和供价值学习使用的策略状态。"""
+        kv, goal = self._encode_context(
+            current_patches, history_patches, text_tokens, text_mask,
+            past_actions, dt, aim_xy, aim_valid,
+        )
+        b = current_patches.shape[0]
+        query = self.action_queries.expand(b, -1, -1, -1) + goal[:, None, None]
+        query = query.flatten(1, 2)
         attended, _ = self.cross(
             self.cross_norm_q(query), self.cross_norm_kv(kv), self.cross_norm_kv(kv),
             need_weights=False,
         )
-        query = query + attended
-        return StructuredActionOutput(
-            camera_logits=self.camera_head(query[:, 0]).reshape(b, 2, self.configuration.camera_bins),
-            move_fb_logits=self.move_fb_head(query[:, 1]),
-            move_lr_logits=self.move_lr_head(query[:, 2]),
-            stance_logits=self.stance_head(query[:, 3]),
-            hotbar_logits=self.hotbar_head(query[:, 4]),
-            button_logits=self.button_head(query[:, 5]),
+        query = (query + attended).reshape(b, self.configuration.action_horizon, 6, -1)
+        state_query = self.state_query.expand(b, -1, -1) + goal[:, None]
+        state_attended, _ = self.cross(
+            self.cross_norm_q(state_query), self.cross_norm_kv(kv), self.cross_norm_kv(kv),
+            need_weights=False,
         )
+        state = (state_query + state_attended)[:, 0]
+        output = StructuredActionOutput(
+            camera_logits=self.camera_head(query[:, :, 0]).reshape(
+                b, self.configuration.action_horizon, 2, self.configuration.camera_bins,
+            ),
+            move_fb_logits=self.move_fb_head(query[:, :, 1]),
+            move_lr_logits=self.move_lr_head(query[:, :, 2]),
+            stance_logits=self.stance_head(query[:, :, 3]),
+            hotbar_logits=self.hotbar_head(query[:, :, 4]),
+            button_logits=self.button_head(query[:, :, 5]),
+        )
+        return output, state
+
+    def forward(
+        self,
+        current_patches: torch.Tensor,
+        history_patches: torch.Tensor,
+        text_tokens: torch.Tensor,
+        text_mask: torch.Tensor,
+        past_actions: torch.Tensor,
+        dt: torch.Tensor,
+        aim_xy: torch.Tensor,
+        aim_valid: torch.Tensor,
+    ) -> StructuredActionOutput:
+        """计算未来 ``action_horizon`` 步的结构化动作 logits。"""
+        output, _ = self.forward_with_state(
+            current_patches, history_patches, text_tokens, text_mask,
+            past_actions, dt, aim_xy, aim_valid,
+        )
+        return output
 
 
 def build_spatiotemporal_fast_tower(

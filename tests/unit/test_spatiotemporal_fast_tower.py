@@ -14,10 +14,10 @@ def test_spatiotemporal_fast_tower_shapes_and_legacy_keys():
     configuration = SpatiotemporalFastTowerConfiguration(
         visual_dim=24, text_dim=12, d=32, heads=4,
         spatial_layers=1, temporal_layers=1, grid_hw=(4, 6),
-        max_history=4, max_text_tokens=8,
+        max_history=4, max_text_tokens=8, action_horizon=3,
     )
     model = build_spatiotemporal_fast_tower(configuration)
-    output = model(
+    output, state = model.forward_with_state(
         current_patches=torch.zeros(2, 24, 24),
         history_patches=torch.zeros(2, 2, 24, 24),
         text_tokens=torch.zeros(2, 5, 12),
@@ -27,19 +27,20 @@ def test_spatiotemporal_fast_tower_shapes_and_legacy_keys():
         aim_xy=torch.tensor([[0.5, 0.5], [0.0, 0.0]]),
         aim_valid=torch.tensor([True, False]),
     )
-    assert output.camera_logits.shape == (2, 2, 11)
-    assert output.move_fb_logits.shape == (2, 3)
-    assert output.move_lr_logits.shape == (2, 3)
-    assert output.stance_logits.shape == (2, 3)
-    assert output.hotbar_logits.shape == (2, 10)
-    assert output.button_logits.shape == (2, 5)
-    assert output.legacy_key_probabilities().shape == (2, 20)
+    assert output.camera_logits.shape == (2, 3, 2, 11)
+    assert output.move_fb_logits.shape == (2, 3, 3)
+    assert output.move_lr_logits.shape == (2, 3, 3)
+    assert output.stance_logits.shape == (2, 3, 3)
+    assert output.hotbar_logits.shape == (2, 3, 10)
+    assert output.button_logits.shape == (2, 3, 5)
+    assert state.shape == (2, 32)
+    assert output.legacy_key_probabilities().shape == (2, 3, 20)
     camera, keys = output.sample_legacy(deterministic=True)
-    assert camera.shape == (2, 2)
-    assert keys.shape == (2, 20)
-    assert not torch.any((keys[:, 0] > 0) & (keys[:, 1] > 0))
-    assert not torch.any((keys[:, 2] > 0) & (keys[:, 3] > 0))
-    assert torch.all(keys[:, 11:20].sum(dim=-1) <= 1)
+    assert camera.shape == (2, 3, 2)
+    assert keys.shape == (2, 3, 20)
+    assert not torch.any((keys[..., 0] > 0) & (keys[..., 1] > 0))
+    assert not torch.any((keys[..., 2] > 0) & (keys[..., 3] > 0))
+    assert torch.all(keys[..., 11:20].sum(dim=-1) <= 1)
 
 
 def test_null_memory_is_empty():
@@ -49,7 +50,8 @@ def test_null_memory_is_empty():
 
 
 def test_default_trainable_parameter_budget():
-    """验证默认快塔核心处于 4–6M 可训练参数预算。"""
-    model = build_spatiotemporal_fast_tower(SpatiotemporalFastTowerConfiguration())
+    """验证默认快塔核心处于约 100M 可训练参数预算。"""
+    with torch.device("meta"):
+        model = build_spatiotemporal_fast_tower(SpatiotemporalFastTowerConfiguration())
     count = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
-    assert 4_000_000 <= count <= 6_000_000
+    assert 90_000_000 <= count <= 120_000_000

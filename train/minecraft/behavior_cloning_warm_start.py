@@ -43,59 +43,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from net.pixel_tower import PixelTowerConfiguration, build_pixel_tower  # noqa: E402
 from rl_training_environments.craftground.action_contract import (  # noqa: E402
-    CAM_BINS, CAM_MAX_DEG, CAM_MU,
-                                               V2_KEYS, stack_frames)
-from datasets.vpt.video_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
+    CAM_BINS, V2_KEYS, stack_frames)
+from datasets.vpt.video_dataset import (VPTStreamDataset,  # noqa: E402
                                          _pair_list, assemble_goal)
+from train.minecraft.action_supervision import (  # noqa: E402
+    CAMERA_SCALE,
+    DEGREES_PER_MOUSE_PIXEL as DEG_PER_MOUSE_PX,
+    VPT_TO_V2,
+    bin_centers as bin_center_t,
+    camera_to_bins as deg_to_bins_t,
+    encode_targets,
+)
 
 IMG_HW = (90, 160)
-DEG_PER_MOUSE_PX = 0.15                 # VPT 数据集格式常量(见文件头)
-CAMERA_SCALE = CAM_MAX_DEG / DEG_PER_MOUSE_PX   # =120 px:_action_vec 归一后恰为 deg/18
-
-# VPT 键名 → V2 键名(语义同名,仅 wasd 命名不同)
-_V2_OF_VPT = {"key_w": "forward", "key_s": "back", "key_a": "left", "key_d": "right",
-              "key_space": "jump", "key_sneak": "sneak", "key_sprint": "sprint",
-              "key_attack": "attack", "key_use": "use", "key_drop": "drop",
-              "key_inventory": "inventory",
-              **{f"key_hotbar.{i}": f"hotbar.{i}" for i in range(1, 10)}}
-# 置换索引:keys_v2 = keys_vpt[..., VPT_TO_V2]
-VPT_TO_V2 = [VPT_KEYS.index(vk) for v2 in V2_KEYS
-             for vk, tgt in _V2_OF_VPT.items() if tgt == v2]
-assert len(VPT_TO_V2) == len(V2_KEYS) == 20
-
-
-def deg_to_bins_t(v: torch.Tensor) -> torch.Tensor:
-    """归一相机值 [-1,1] → mu-law bin。[...]float → [...]long。与 numpy 契约同式(单测锚定)。"""
-    v = v.float().clamp(-1.0, 1.0)                               # I4:危险算子 fp32
-    x = torch.sign(v) * torch.log1p(CAM_MU * v.abs()) / math.log1p(CAM_MU)
-    return torch.round((x + 1) / 2 * (CAM_BINS - 1)).long()
-
-
-def bin_center_t(b: torch.Tensor) -> torch.Tensor:
-    """bin → 归一相机值(bin 中心,即 bins_to_deg/CAM_MAX_DEG)。[...]long → [...]float32。"""
-    x = b.float() / (CAM_BINS - 1) * 2 - 1
-    return torch.sign(x) * (torch.pow(1 + CAM_MU, x.abs()) - 1) / CAM_MU
-
-
-def encode_targets(act: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """数据契约动作 → 训练目标。
-
-    Parameters
-    ----------
-    act : [*, 22] float32(vpt_video_dataset._action_vec 布局:归一 dx,dy ⊕ VPT 键序 20)
-
-    Returns
-    -------
-    bins : [*, 2] long — mu-law 相机目标
-    keys : [*, 20] float32 — V2 键序目标
-    prev : [*, 22] float32 — 作 prev 输入用的 [bin中心 2 ⊕ V2 键 20]
-        prev=concat([deg/CAM_MAX_DEG, kp])，相机分量使用过量化-反量化结果：
-        相机分量过量化-反量化,与采样端"prev 来自已采样 bin"分布一致)
-    """
-    bins = deg_to_bins_t(act[..., :2])
-    keys = act[..., 2:][..., VPT_TO_V2].float()
-    prev = torch.cat([bin_center_t(bins), keys], dim=-1)
-    return bins, keys, prev
 
 
 def _window_batch(img_u8: torch.Tensor, act: torch.Tensor, goal_seq, s: int, device,

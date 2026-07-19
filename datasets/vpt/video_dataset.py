@@ -8,7 +8,7 @@ import time
 
 import cv2
 import torch
-from torch.utils.data import Dataset, IterableDataset, get_worker_info
+from torch.utils.data import IterableDataset, get_worker_info
 import numpy as np
 
 from datasets.vpt.action_contract import CAMERA_SCALE, N_MOUSE
@@ -30,7 +30,7 @@ def _action_vec(act_dict, camera_scale=CAMERA_SCALE):
     """
     mouse = act_dict.get("mouse", {"dx": 0.0, "dy": 0.0})
     kb = act_dict.get("keyboard", {})
-    s = max(float(camera_scale), 1e-6)
+    s = max(float(camera_scale), 1e-4)
     dx = max(-1.0, min(1.0, mouse["dx"] / s))
     dy = max(-1.0, min(1.0, mouse["dy"] / s))
     return torch.tensor([dx, dy] + [float(kb.get(k, 0)) for k in VPT_KEYS],
@@ -73,82 +73,6 @@ def _pair_list(data_dir):
     return pairs
 
 
-def _decode_clip(mp4_path, jsonl_path, seq_len):
-    """解码一段 mp4+jsonl -> {"img":[T,3,H,W], "action":[T,22], "task":str};太短返回 None。"""
-    cap = cv2.VideoCapture(mp4_path)
-    frames = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames.append(torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0)
-    cap.release()
-    if len(frames) < seq_len:
-        return None
-    imgs = torch.stack(frames, dim=0)
-    actions, task = [], ""
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        for t, line in enumerate(f):
-            a = json.loads(line)
-            if t == 0 and "task" in a:
-                task = a["task"]
-            actions.append(_action_vec(a))
-    n = min(imgs.shape[0], len(actions))
-    if n < seq_len:
-        return None
-    return {"img": imgs[:n], "action": torch.stack(actions[:n], dim=0), "task": task}
-
-
-class VPTDataset(Dataset):
-    """
-    轻量化的纯离线 VPT/BASALT 数据集加载器。
-    无需依赖 minerl 环境，直接读取 .mp4 和 .jsonl 裸数据。
-    """
-    def __init__(self, data_dir, seq_len=60, fps=20):
-        super().__init__()
-        self.data_dir = data_dir
-        self.seq_len = seq_len
-        self.fps = fps
-        self.videos = []
-        
-        # 全量预载到内存(小数据集/局部过拟合测试用;大数据集请用 VPTStreamDataset)
-        vid_paths = _pair_list(data_dir)
-        print(f"[VPTDataset] Found {len(vid_paths)} video clips. Pre-loading into RAM...")
-        for vid_path, json_path in vid_paths:
-            clip = _decode_clip(vid_path, json_path, self.seq_len)
-            if clip is not None:
-                self.videos.append(clip)
-
-    def __len__(self):
-        # 局部过拟合测试，虚拟扩大 epoch 的长度
-        return len(self.videos) * 20
-
-    def __getitem__(self, idx):
-        data = self.videos[idx % len(self.videos)]
-        imgs_full = data["img"]
-        actions_full = data["action"]
-        
-        # 1. 随机找一个起始点
-        total_frames = imgs_full.shape[0]
-        start_frame = random.randint(0, total_frames - self.seq_len)
-        
-        imgs = imgs_full[start_frame:start_frame+self.seq_len]
-        actions = actions_full[start_frame:start_frame+self.seq_len]
-        
-        # 4. 随机时间偏移（破解时序过拟合）
-        time_offset = random.uniform(0.0, 10000.0)
-        time_steps = torch.arange(self.seq_len, dtype=torch.float32) / self.fps
-        t_vec = time_steps + time_offset # [T]
-        
-        return {
-            "img": imgs,          # [T, 3, H, W]
-            "action": actions,    # [T, A_dim]
-            "task_text": data["task"],
-            "t_vec": t_vec        # [T] 绝对时间戳
-        }
-
-
 class VPTStreamDataset(IterableDataset):
     """流式 VPT 加载器(随机窗口按需解码;真 BASALT 长视频可用)。
 
@@ -164,7 +88,7 @@ class VPTStreamDataset(IterableDataset):
         数据多样性由刷新供给,吞吐与解码彻底解耦 ⇒ GPU-bound。
     帧以 uint8 缓存/返回(归一化推迟到 GPU 上做,内存与 PCIe 流量都降 4×)。
     ⚠ img_size=None(原生分辨率)时整段缓存很大(360×640 ≈ 4GB/段),训练请务必
-    设 img_size。cache_size/refresh_every 已废弃(并入 clip 缓存),仅保留 CLI 兼容。
+    设 img_size。
     本身无限迭代,训练侧用固定 steps_per_epoch 截断。
 
     frame_skip:**可变时间跨度的上限**。每个转移独立采样间隔 Δt ~ U{1..frame_skip}
@@ -200,13 +124,10 @@ class VPTStreamDataset(IterableDataset):
     窗口的时间, 一段解码时长 ~20s);下载/解码慢只影响数据新鲜度,不影响吞吐。
     唯一允许阻塞的时刻是冷启动(缓存全空,必须同步解第一段)。
 
-    buffer_size/buffer_reuse:窗口级滚动缓存(0/1=关闭,v2 时代的吞吐杠杆,
-    clip 缓存落地后窗口切片已免费,保留仅为兼容,正常不需要开)。
     """
 
-    def __init__(self, data_dir, seq_len=60, fps=20, cache_size=32, refresh_every=64,
-                 seed=0, img_size=None, camera_scale=CAMERA_SCALE, frame_skip=1,
-                 split=None, holdout_n=1, buffer_size=0, buffer_reuse=1,
+    def __init__(self, data_dir, seq_len=60, fps=20, seed=0, img_size=None,
+                 camera_scale=CAMERA_SCALE, frame_skip=1, split=None, holdout_n=1,
                  clip_cache=4, clip_refresh=256, motion_sample=1, clip_max_frames=0,
                  goal_vocab=None):
         super().__init__()
@@ -222,13 +143,10 @@ class VPTStreamDataset(IterableDataset):
         # 有偏是有意的课程,评估侧(holdout)不开启即可保持口径公正。
         self.motion_sample = max(1, int(motion_sample))
         self.seq_len, self.fps = seq_len, fps
-        self.cache_size = max(1, cache_size)
         self.seed = seed
         self.img_size = img_size
         self.camera_scale = camera_scale
         self.frame_skip = max(1, int(frame_skip))
-        self.buffer_size = max(0, int(buffer_size))
-        self.buffer_reuse = max(1, int(buffer_reuse))
         self.clip_cache = max(1, int(clip_cache))
         self.clip_refresh = max(1, int(clip_refresh))
         # 超长段(如 gaming500 的 30 分钟录屏)整段缓存会爆内存:>0 时每次换段只解码
@@ -365,10 +283,6 @@ class VPTStreamDataset(IterableDataset):
             # 会把 vCPU 超订成上下文切换,窗口解码吞吐反而下降。
             cv2.setNumThreads(0)
         rng = random.Random(self.seed + (wi.id if wi is not None else 0))
-        # 窗口级滚动缓存(兼容遗留,正常关闭;quota=0 表示关闭)
-        n_w = wi.num_workers if wi is not None else 1
-        quota = max(1, self.buffer_size // n_w) if self.buffer_size > 0 else 0
-        buf, ptr = [], 0
         clips, served, fails = {}, 0, 0     # clip 级内存缓存:mp4 -> _load_clip 条目
         pend, ldr = [], [None]              # 后台解码:结果槽 + 在途线程
 
@@ -484,14 +398,4 @@ class VPTStreamDataset(IterableDataset):
                 for key, vec in m["gt"].items():
                     sample[key] = vec[fidx]
                 sample["reach_id"] = sample["reach_state_id"]
-            if quota == 0:
-                yield sample
-                continue
-            # 窗口级滚动缓存(兼容遗留:clip 缓存落地后窗口切片已免费,正常不开)
-            if len(buf) < quota:
-                buf.append(sample)
-            else:
-                buf[ptr] = sample
-                ptr = (ptr + 1) % quota
-            for _ in range(self.buffer_reuse):
-                yield buf[rng.randrange(len(buf))]
+            yield sample

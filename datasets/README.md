@@ -13,6 +13,9 @@
 MineStudio 每个课程阶段全量下载 `action/**` 与 `meta_info/**`，只允许
 `image/**` 按 LMDB 分片轮换。三种模态的分片编号没有配对含义；
 `minestudio_dataset.py` 扫描各自 episode 索引后按 episode 和帧数对齐。
+`minestudio_download.py` 不依赖 CUDA，支持通过 `--data-root` 定位挂载数据盘、
+`--modalities` 选择顶层模态、`--image-shard-index` 预取多个图像分片，或使用
+`--all-image-shards` 下载该阶段全部图像。相同 revision 与目标目录可安全重复执行。
 
 行为克隆优化循环属于 `train/minecraft/`，CraftGround 执行动作契约属于
 `rl_training_environments/craftground/`。

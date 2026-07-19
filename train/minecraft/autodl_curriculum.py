@@ -14,6 +14,7 @@ import torch
 from datasets.vpt.minestudio_curriculum import curriculum_stage_names
 from datasets.vpt.minestudio_download import (
     list_stage_image_shards,
+    local_complete_image_shards,
     prepare_stage_shard,
     prune_completed_stage,
 )
@@ -351,6 +352,16 @@ def main() -> None:
     _persist_or_validate_schedule(schedule_path, payload)
     checkpoint_path = output_directory / "last.pt"
     completed_step = int(training_state["step"]) if training_state else 0
+    prefetched_stages = {
+        stage
+        for stage in stages
+        if len(local_complete_image_shards(arguments.data_root, stage)) > 1
+    }
+    if prefetched_stages:
+        print(json.dumps({
+            "event": "preserve_prefetched_images",
+            "stages": sorted(prefetched_stages),
+        }, ensure_ascii=False), flush=True)
     previous_target = 0
     final_stage = stages[-1]
     for entry in schedule:
@@ -381,7 +392,10 @@ def main() -> None:
             data_root=arguments.data_root,
             image_shard_index=entry.image_shard_index,
             maximum_workers=arguments.download_workers,
-            replace_image_shards=arguments.replace_image_shards,
+            replace_image_shards=(
+                arguments.replace_image_shards
+                and entry.stage not in prefetched_stages
+            ),
         )
         if selection.image_shard != entry.image_shard:
             raise RuntimeError("远端图像分片列表在课程创建后发生变化，请使用新输出目录重建课程")

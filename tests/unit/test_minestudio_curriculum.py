@@ -9,8 +9,11 @@ from datasets.vpt.minestudio_curriculum import (
 )
 from datasets.vpt.minestudio_download import (
     image_shards_from_repository_files,
+    local_complete_image_shards,
     prune_completed_stage,
     prune_other_image_shards,
+    prune_unselected_image_shards,
+    select_stage_modalities,
     select_stage_shard,
 )
 from net.latent_world_model import (
@@ -82,6 +85,35 @@ def test_repository_image_shards_have_numeric_stable_order():
     )
 
 
+def test_modality_selection_supports_full_metadata_and_multiple_images():
+    files = [
+        "action/part-3/data.mdb",
+        "meta_info/part-8/data.mdb",
+        "image/part-2/data.mdb",
+        "image/part-11/data.mdb",
+        "event/data.mdb",
+        "motion/data.mdb",
+        "segmentation/part-2/data.mdb",
+    ]
+    selection = select_stage_modalities(
+        files,
+        modalities=("image", "action", "meta_info"),
+        image_shard_indices=(0, 1),
+    )
+    assert selection.modalities == ("action", "meta_info", "image")
+    assert selection.image_shards == ("image/part-2", "image/part-11")
+    assert selection.allow_patterns == (
+        "action/**", "meta_info/**", "image/part-2/**", "image/part-11/**",
+    )
+
+    metadata_only = select_stage_modalities(
+        files,
+        modalities=("action", "meta_info"),
+    )
+    assert metadata_only.image_shards == ()
+    assert metadata_only.allow_patterns == ("action/**", "meta_info/**")
+
+
 def test_autodl_schedule_covers_every_shard_and_has_exact_targets():
     allocations = distribute_updates(10, 3)
     assert allocations == (4, 3, 3)
@@ -117,6 +149,37 @@ def test_pruning_only_removes_complete_unselected_image_databases(tmp_path):
     assert not (image_root / "part-1").exists()
     assert (image_root / "part-2" / "data.mdb").is_file()
     assert (partial / "data.mdb.part").is_file()
+
+
+def test_pruning_can_keep_multiple_prefetched_image_shards(tmp_path):
+    image_root = tmp_path / "image"
+    for name in ("part-1", "part-2", "part-3"):
+        directory = image_root / name
+        directory.mkdir(parents=True)
+        (directory / "data.mdb").write_bytes(b"database")
+
+    removed = prune_unselected_image_shards(
+        tmp_path, ("image/part-1", "image/part-3"),
+    )
+
+    assert removed == ["part-2"]
+    assert (image_root / "part-1").is_dir()
+    assert (image_root / "part-3").is_dir()
+
+
+def test_local_complete_image_shards_ignore_partial_downloads(tmp_path):
+    image_root = tmp_path / "7xx" / "image"
+    for name in ("part-11", "part-2"):
+        directory = image_root / name
+        directory.mkdir(parents=True)
+        (directory / "data.mdb").write_bytes(b"database")
+    partial = image_root / "part-3"
+    partial.mkdir()
+    (partial / "data.mdb.part").write_bytes(b"partial")
+
+    assert local_complete_image_shards(tmp_path, "foundation") == (
+        "image/part-2", "image/part-11",
+    )
 
 
 def test_completed_stage_pruning_stays_inside_data_root(tmp_path):

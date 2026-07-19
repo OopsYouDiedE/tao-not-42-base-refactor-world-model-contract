@@ -1,9 +1,9 @@
-"""VPT 动作 ↔ 张量 的统一动作契约(动作条件世界模型用)。
+"""VPT 动作与张量之间的统一动作契约。
 
-契约(全仓库唯一布局,与 vpt_dataset/train_minecraft 的 N_MOUSE=2 切片严格一致):
+契约（全仓库唯一布局，与 vpt_video_dataset 的 N_MOUSE=2 切片严格一致）：
     动作向量 = [相机 dx, 相机 dy(归一化)] ⊕ multi-hot 二值键(VPT_KEYS) = ACTION_DIM 维。
     ⚠️ 鼠标在前(索引 0,1)、键在后(索引 2..21)。历史版本曾是键在前/相机在后,
-    与 vpt_dataset._action_vec 互相矛盾——任何混用会把鼠标和前两个键静默对调。
+    与 vpt_video_dataset._action_vec 互相矛盾会把鼠标和前两个键静默对调。
   - Colab 端:`encode_vpt_jsonl` 从 VPT `.jsonl` 单帧解析(schema 假设见注释,需按真文件校准)。
 模型只认 ACTION_DIM 维向量,两端共用 → 本机验证过的模型/编码器在 Colab 原样可用。
 

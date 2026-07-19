@@ -1,4 +1,4 @@
-class_name ModelBase
+class_name EnvironmentModelBase
 extends Node
 ##
 ## 所有采集环境的【基础模型类】。

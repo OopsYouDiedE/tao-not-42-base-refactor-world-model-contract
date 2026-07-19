@@ -2,7 +2,7 @@
 
 import torch
 
-from net.pixel_tower import PixelTowerConfig, build_pixel_tower
+from net.pixel_tower import PixelTowerConfiguration, build_pixel_tower
 
 
 def test_pixel_tower_forward_shapes():
@@ -13,11 +13,11 @@ def test_pixel_tower_forward_shapes():
     None
         前向输出满足契约时无返回值。
     """
-    cfg = PixelTowerConfig(
+    configuration = PixelTowerConfiguration(
         img_hw=(32, 32), d=32, heads=2, layers=1, goal_dim=16,
         max_len=8, frame_stack=4,
     )
-    model = build_pixel_tower(cfg)
+    model = build_pixel_tower(configuration)
     image = torch.zeros(2, 3, 12, 32, 32, dtype=torch.float32)
     goal = torch.zeros(2, 16, dtype=torch.float32)
     previous_action = torch.zeros(2, 3, 22, dtype=torch.float32)

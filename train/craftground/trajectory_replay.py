@@ -1,4 +1,4 @@
-"""CraftGround 世界快照与可校验动作重放。
+"""CraftGround 可校验动作轨迹重放。
 
 对外接口：WorldSnapshotStore、TrajectoryRecorder、ReplayTrajectory、replay_trajectory、
 capture_running_world、restore_and_replay、state_fingerprint、ReplayDivergence。

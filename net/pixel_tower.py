@@ -15,7 +15,7 @@
                                   → cam_head [B,T,k,n_mouse,camera_bins]  mu-law 分箱
                                   → key_head [B,T,k,n_keys]               独立二值
 
-相机头用分箱 + CE 而非回归:MSE 下"恒预测 0"是平凡解(见 train/minecraft/vpt_action.py)。
+相机头用分箱 + CE 而非回归:MSE 下"恒预测 0"是平凡解（见 vpt_action_contract.py）。
 与 TrackNavTower 的动作头口径逐字一致(camera_bins=11 / n_keys=20 / chunk_k),
 故 StudentPolicy._decode 可直接复用;差别只在**输入端换成像素**。
 
@@ -30,7 +30,7 @@ from blocks.attention import MHABlock
 
 
 @dataclass
-class PixelTowerConfig:
+class PixelTowerConfiguration:
     """PixelTower 结构超参(纯 dataclass)。
 
     Attributes:
@@ -117,41 +117,61 @@ class PixelTower(nn.Module):
     (`g = torch.zeros(1,1)`、`prev[1:,0]=0`),导致慢塔指示根本不进梯度。
     """
 
-    def __init__(self, cfg: PixelTowerConfig):
+    def __init__(self, configuration: PixelTowerConfiguration):
         super().__init__()
-        self.cfg = cfg
-        d = cfg.d
-        self.stem = _ConvStem(d, cfg.img_hw, in_ch=3 * cfg.frame_stack)
-        self.goal_q = nn.Linear(cfg.goal_dim, d)
-        self.goal_bias = nn.Linear(cfg.goal_dim, d)
-        self.act_embed = nn.Linear(cfg.n_mouse + cfg.n_keys, d)
-        self.pos = nn.Parameter(torch.zeros(1, cfg.max_len, d))
+        self.configuration = configuration
+        d = configuration.d
+        self.stem = _ConvStem(d, configuration.img_hw, in_ch=3 * configuration.frame_stack)
+        self.goal_q = nn.Linear(configuration.goal_dim, d)
+        self.goal_bias = nn.Linear(configuration.goal_dim, d)
+        self.act_embed = nn.Linear(configuration.n_mouse + configuration.n_keys, d)
+        self.pos = nn.Parameter(torch.zeros(1, configuration.max_len, d))
         nn.init.trunc_normal_(self.pos, std=0.02)
         self.blocks = nn.ModuleList()
-        for _ in range(cfg.layers):
-            self.blocks.append(MHABlock(d, cfg.heads, dropout=cfg.dropout, causal=True))
-            self.blocks.append(_FFN(d, dropout=cfg.dropout))
+        for _ in range(configuration.layers):
+            self.blocks.append(MHABlock(d, configuration.heads, dropout=configuration.dropout, causal=True))
+            self.blocks.append(_FFN(d, dropout=configuration.dropout))
         self.norm = nn.LayerNorm(d)
-        self.cam_head = nn.Linear(d, cfg.chunk_k * cfg.n_mouse * cfg.camera_bins)
-        self.key_head = nn.Linear(d, cfg.chunk_k * cfg.n_keys)
-        with torch.no_grad():  # 按键先验注入(见 PixelTowerConfig.key_prior)
-            p = cfg.key_prior
+        self.cam_head = nn.Linear(d, configuration.chunk_k * configuration.n_mouse * configuration.camera_bins)
+        self.key_head = nn.Linear(d, configuration.chunk_k * configuration.n_keys)
+        with torch.no_grad():  # 按键先验注入（见 PixelTowerConfiguration.key_prior）
+            p = configuration.key_prior
             self.key_head.bias.fill_(float(torch.log(torch.tensor(p / (1 - p)))))
 
-    def forward(self, img: torch.Tensor, goal: torch.Tensor, prev: torch.Tensor):
-        B, T = img.shape[:2]
-        c = self.cfg
-        x = self.stem(img.reshape(B * T, *img.shape[2:])).reshape(B, T, c.d)
-        x = x * (1.0 + self.goal_q(goal)[:, None]) + self.goal_bias(goal)[:, None]  # FiLM
-        x = x + self.act_embed(prev) + self.pos[:, :T]
-        for blk in self.blocks:
-            x = blk(x)
-        x = self.norm(x)
-        k = c.chunk_k
-        cam = self.cam_head(x).view(B, T, k, c.n_mouse, c.camera_bins)
-        key = self.key_head(x).view(B, T, k, c.n_keys)
-        return cam, key
+    def forward(
+        self,
+        images: torch.Tensor,
+        goals: torch.Tensor,
+        previous_actions: torch.Tensor,
+    ):
+        batch_size, sequence_length = images.shape[:2]
+        configuration = self.configuration
+        hidden_states = self.stem(
+            images.reshape(batch_size * sequence_length, *images.shape[2:]),
+        ).reshape(batch_size, sequence_length, configuration.d)
+        hidden_states = (
+            hidden_states * (1.0 + self.goal_q(goals)[:, None])
+            + self.goal_bias(goals)[:, None]
+        )
+        hidden_states = (
+            hidden_states + self.act_embed(previous_actions)
+            + self.pos[:, :sequence_length]
+        )
+        for block in self.blocks:
+            hidden_states = block(hidden_states)
+        hidden_states = self.norm(hidden_states)
+        camera_logits = self.cam_head(hidden_states).view(
+            batch_size,
+            sequence_length,
+            configuration.chunk_k,
+            configuration.n_mouse,
+            configuration.camera_bins,
+        )
+        key_logits = self.key_head(hidden_states).view(
+            batch_size, sequence_length, configuration.chunk_k, configuration.n_keys,
+        )
+        return camera_logits, key_logits
 
 
-def build_pixel_tower(cfg: PixelTowerConfig) -> PixelTower:
-    return PixelTower(cfg)
+def build_pixel_tower(configuration: PixelTowerConfiguration) -> PixelTower:
+    return PixelTower(configuration)

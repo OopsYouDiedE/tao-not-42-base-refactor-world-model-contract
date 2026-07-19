@@ -1,4 +1,4 @@
-"""Minecraft RL 环境的观测、动作、成就空间定义。
+"""Minecraft RL 环境的观测、动作和成就空间定义。
 
 定义了：
   - ObservationSpace: (C=3, H=360, W=640) RGB 图像（Craftground 原生分辨率）

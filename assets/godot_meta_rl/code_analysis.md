@@ -4,15 +4,15 @@
 
     train_ppo.main
       ├─ launch_godot
-      ├─ GodotVecEnv
-      │    └─ GodotTrainEnv
+      ├─ GodotVectorizedEnvironment
+      │    └─ GodotTrainingEnvironment
       │         ├─ wait_obs
       │         ├─ read_images / read_meta
       │         └─ send_action
       └─ stable_baselines3.PPO.learn
 
-Godot 侧 Main.cs 创建 40 个环境并使用文件后端 MemoryMappedFile 发布观测。
-Python 侧 shared_mem_env.py 打开同一个文件。
+Godot 侧 TrainingCoordinator.cs 创建 40 个环境并使用文件后端 MemoryMappedFile 发布观测。
+Python 侧 shared_memory_environment.py 打开同一个文件。
 
 ## 锁步协议
 
@@ -27,7 +27,7 @@ Python 侧 shared_mem_env.py 打开同一个文件。
 
 ## 训练装配
 
-GodotVecEnv 将共享内存协议适配为 SB3 VecEnv：
+GodotVectorizedEnvironment 将共享内存协议适配为 SB3 VecEnv：
 
 - 图像：[40, 128, 128, 3]，uint8。
 - 时间：[40, 1]，float32，单位为秒。

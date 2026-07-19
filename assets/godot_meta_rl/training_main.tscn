@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bxmjduro5qvjc"]
+
+[ext_resource type="Script" path="res://TrainingCoordinator.cs" id="1_training_coordinator"]
+
+[node name="TrainingCoordinator" type="Node"]
+script = ExtResource("1_training_coordinator")

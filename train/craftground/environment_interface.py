@@ -1,4 +1,4 @@
-"""Craftground 环境接口 - 支持地形检测和种子控制。
+"""支持地形检测和种子控制的 CraftGround 环境接口。
 
 功能：
   1. 固定种子启动（用于验证）
@@ -13,11 +13,14 @@ import torch.nn.functional as F
 from collections import deque
 from typing import Tuple, Dict, Optional
 from craftground.screen_encoding_modes import ScreenEncodingMode
-from train.craftground.env import MinecraftCraftgroundEnv, CraftgroundVecEnv
+from train.craftground.environment import (
+    CraftGroundVectorizedEnvironment,
+    MinecraftCraftGroundEnvironment,
+)
 from train.craftground.achievements import ALL_ACHIEVEMENTS
 
 
-class CraftgroundEnvWithTerrainCheck(MinecraftCraftgroundEnv):
+class CraftGroundEnvironmentWithTerrainCheck(MinecraftCraftGroundEnvironment):
     """添加地形检测的单环境。
 
     初始化时自动检测地形，如果不利就重新启动。
@@ -88,7 +91,7 @@ class CraftgroundEnvWithTerrainCheck(MinecraftCraftgroundEnv):
         return not is_ocean
 
 
-class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
+class CraftGroundVectorizedEnvironmentWithInterface(CraftGroundVectorizedEnvironment):
     """向量化环境 + 清晰的接口。
 
     关键接口：
@@ -121,10 +124,11 @@ class CraftgroundVecEnvWithInterface(CraftgroundVecEnv):
         self.seed = seed
 
         # 创建环境
-        env_class = CraftgroundEnvWithTerrainCheck if use_terrain_check else MinecraftCraftgroundEnv
+        environment_class = (CraftGroundEnvironmentWithTerrainCheck
+                             if use_terrain_check else MinecraftCraftGroundEnvironment)
 
         self.envs = [
-            env_class(seed=seed + i if seed is not None else i, max_steps=max_episode_steps,
+            environment_class(seed=seed + i if seed is not None else i, max_steps=max_episode_steps,
                       screen_encoding_mode=screen_encoding_mode)
             for i in range(nproc)
         ]

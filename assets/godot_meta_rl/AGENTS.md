@@ -11,7 +11,7 @@
 - **引擎侧资产**（C# / GDScript / 场景 / 工程配置）留在本文件夹 `assets/godot_meta_rl/`。
 - **Python 可复用基础设施**（共享内存驱动、启停、工厂）放 `utils/godot_rl/`。
 - **不可复用的对接桥**（SB3 `VecEnv` 适配）放 `train/godot_meta_rl/`。
-- 新增环境任务继承 `model_base.gd`（`ModelBase`），放 `mata_envs/`；通用逻辑（相机云台、物理步进、契约）下沉到基类，任务专属逻辑用基类的虚函数（`_setup`/`_angular_accel`/`_task_physics`/`_compute_reward`/`_is_done` 等）实现。
+- 新增环境任务继承 `environment_model_base.gd`（`EnvironmentModelBase`），放入 `meta_environments/`；通用逻辑下沉到基类，任务专属逻辑通过基类虚函数实现。
 
 ## 2. 通信契约不变量
 

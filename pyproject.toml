@@ -23,7 +23,7 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 train-godot-ppo = "train.godot_meta_rl.train_ppo:main"
-train-minecraft-bc = "train.minecraft.bc_warmstart:main"
+train-minecraft-bc = "train.minecraft.behavior_cloning_warm_start:main"
 
 [tool.setuptools.packages.find]
 include = ["blocks*", "net*", "train*", "utils*"]

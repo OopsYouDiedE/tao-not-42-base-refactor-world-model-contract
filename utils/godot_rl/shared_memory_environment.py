@@ -1,6 +1,6 @@
-"""Godot 40 环境训练管线的跨平台共享内存驱动（与 assets/godot_meta_rl/Main.cs 对应）。
+"""Godot 40 环境训练管线的跨平台共享内存驱动。
 
-对外接口：GodotTrainEnv（连接/握手/收发）、shm_path（后备文件路径工厂）、
+对外接口：GodotTrainingEnvironment（连接/握手/收发）、shared_memory_path（后备文件路径工厂）、
 set_timer_resolution / reset_timer_resolution（Windows 计时器精度，跨平台空操作）、
 以及共享内存布局常量（NUM_ENVS / *_OFFSET / *_DIM / M_* 列索引）。
 
@@ -9,12 +9,12 @@ set_timer_resolution / reset_timer_resolution（Windows 计时器精度，跨平
 "过了几个物理帧 × 步长"，务必喂给模型。
 
 跨平台共享内存（Win/Linux 自动识别）：
-  - 共享内存用【文件后端 mmap】：双方打开同一个文件（shm_path()）；Windows 与 Linux 的
+  - 共享内存用【文件后端 mmap】：双方打开同一个文件（shared_memory_path()）；Windows 与 Linux 的
     mmap/.NET MemoryMappedFile 都支持文件后端，无需命名内核对象（Linux 上 .NET 不支持命名 MMF/事件）。
   - 握手用【共享内存内的轮询计数器】(seqlock)，不依赖 Windows 命名事件：
       ObsSeq(Godot→Python)：Godot 发布一帧观测后 +1。
       ActSeq(Python→Godot)：Python 写完动作后置为它消费的 ObsSeq（应答）。
-    循环：wait_obs(轮询 ObsSeq≠ActSeq) → read_images/read_meta → 策略算动作 → send_action(写 ActSeq 应答)。
+    循环：wait_for_observation → read_image_observations/read_metadata → send_actions。
     Godot 收到应答前绝不步进，故 Python 必然读到每一帧（帧号严格 +1，无丢帧）。
 """
 
@@ -35,7 +35,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")
 
 GODOT_EXE = os.environ.get("GODOT_EXE", "godot")
 PROJECT_DIR = os.environ.get("RL_PROJECT_DIR", os.path.join(_REPO_ROOT, "assets", "godot_meta_rl"))
-TRAIN_SCENE = "res://train_main.tscn"
+TRAIN_SCENE = "res://training_main.tscn"
 
 NUM_ENVS = 40
 IMAGE_WIDTH = 128
@@ -70,7 +70,7 @@ M_REWARD = 3
 M_DONE = 4
 
 
-def shm_path():
+def shared_memory_path():
     """共享内存后备文件的跨平台路径（Win/Linux 自动识别）。
 
     优先 RL_SHM_PATH 环境变量；否则放系统临时目录下的固定文件名，保证 Godot 与 Python 指向同一文件。
@@ -109,8 +109,8 @@ def reset_timer_resolution(ms=1):
         pass
 
 
-class GodotTrainEnv:
-    """连接 Main.cs 编排的 40 环境，文件后端共享内存 + 轮询计数器握手收发。"""
+class GodotTrainingEnvironment:
+    """连接 TrainingCoordinator 编排的 40 环境并通过共享内存收发。"""
 
     def __init__(self, connect_timeout_s=40.0, poll_sleep_s=0.0002):
         self._poll_sleep = poll_sleep_s
@@ -118,14 +118,14 @@ class GodotTrainEnv:
         self._file, self.shm = self._open_shm(deadline)
         if self.shm is None:
             raise RuntimeError("连接 Godot 失败（共享内存文件未就绪）。")
-        # _consumed：Python 侧"已消费到第几帧 ObsSeq"，由 wait_obs 推进（消费一次性，门控测试依赖此语义：
+        # _consumed：Python 侧已消费的 ObsSeq，由 wait_for_observation 推进。
         # 不发动作就不应再返回新帧）。send_action 把它写进 ActSeq 向 Godot 应答。
         # 初值取 ActSeq（已应答进度），保证连接后第一帧待应答观测会被消费，且不重复/不漏。
         self._consumed = self._read_i32(ACT_SEQ_OFFSET)
 
     def _open_shm(self, deadline):
         """轮询等待 Godot 创建并撑满共享内存文件，然后映射。返回 (file, mmap)。"""
-        path = shm_path()
+        path = shared_memory_path()
         while time.time() < deadline:
             try:
                 if os.path.exists(path) and os.path.getsize(path) >= TOTAL_SHM_SIZE:
@@ -143,11 +143,11 @@ class GodotTrainEnv:
     def _write_i32(self, offset, value):
         struct.pack_into("<i", self.shm, offset, value)
 
-    def wait_obs(self, timeout_ms=2000):
+    def wait_for_observation(self, timeout_ms=2000):
         """等一帧【尚未消费】的新观测（消费一次性）。True=拿到；False=超时。
 
         判据：ObsSeq != _consumed 表示出现了一帧 Python 还没消费的观测。锁步下 Godot 收到应答前不步进，
-        ObsSeq 每应答一次才 +1，故不漏帧；不发 send_action 时 ObsSeq 不再增长，wait_obs 必超时（门控语义）。
+        ObsSeq 每应答一次才 +1；不调用 send_actions 时，下一次等待必然超时。
         """
         deadline = time.perf_counter() + timeout_ms / 1000.0
         while True:
@@ -166,31 +166,36 @@ class GodotTrainEnv:
         逐帧收发零动作；用长超时容忍首帧的一次性着色器编译。返回是否成功收到 frames 帧。
         """
         for _ in range(frames):
-            if not self.wait_obs(timeout_ms):
+            if not self.wait_for_observation(timeout_ms):
                 return False
-            self.send_action(np.zeros((NUM_ENVS, CONT_DIM), np.float32),
-                             np.zeros((NUM_ENVS, DISC_DIM), np.int32))
+            self.send_actions(np.zeros((NUM_ENVS, CONT_DIM), np.float32),
+                              np.zeros((NUM_ENVS, DISC_DIM), np.int32))
         return True
 
-    def read_meta(self):
+    def read_metadata(self):
         """返回 (NUM_ENVS, 5) float32：[frameCount, steps, sim_dt, reward, done]。"""
         raw = self.shm[META_OFFSET:META_OFFSET + TOTAL_META_BYTES]
         return np.frombuffer(raw, dtype=np.float32).reshape(NUM_ENVS, META_PER_ENV)
 
-    def read_images(self):
+    def read_image_observations(self):
         """返回 (NUM_ENVS, H, W, 3) uint8。"""
         raw = self.shm[0:TOTAL_IMAGES_BYTES]
         return np.frombuffer(raw, dtype=np.uint8).reshape(NUM_ENVS, IMAGE_HEIGHT, IMAGE_WIDTH, CHANNELS)
 
-    def send_action(self, cont, disc):
+    def send_actions(self, continuous_actions, discrete_actions):
         """写动作并向 Godot 应答（置 ActSeq=已消费的 ObsSeq）。
 
-        cont:(NUM_ENVS,CONT_DIM) float32, disc:(NUM_ENVS,DISC_DIM) int32。
+        continuous_actions:(NUM_ENVS,CONT_DIM) float32，
+        discrete_actions:(NUM_ENVS,DISC_DIM) int32。
         """
-        c = np.ascontiguousarray(cont, dtype=np.float32).reshape(NUM_ENVS, CONT_DIM)
-        d = np.ascontiguousarray(disc, dtype=np.int32).reshape(NUM_ENVS, DISC_DIM)
-        self.shm[CONT_OFFSET:CONT_OFFSET + CONT_BYTES] = c.tobytes()
-        self.shm[DISC_OFFSET:DISC_OFFSET + DISC_BYTES] = d.tobytes()
+        continuous_array = np.ascontiguousarray(
+            continuous_actions, dtype=np.float32,
+        ).reshape(NUM_ENVS, CONT_DIM)
+        discrete_array = np.ascontiguousarray(
+            discrete_actions, dtype=np.int32,
+        ).reshape(NUM_ENVS, DISC_DIM)
+        self.shm[CONT_OFFSET:CONT_OFFSET + CONT_BYTES] = continuous_array.tobytes()
+        self.shm[DISC_OFFSET:DISC_OFFSET + DISC_BYTES] = discrete_array.tobytes()
         # 应答：把 ActSeq 置为已消费帧的 ObsSeq；Godot 轮询 ActSeq==ObsSeq 才推进，
         # 保证它步进所用动作正是对本帧观测算出的。
         self._write_i32(ACT_SEQ_OFFSET, self._consumed)

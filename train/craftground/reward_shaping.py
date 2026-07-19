@@ -1,4 +1,4 @@
-"""从 Craftground 观测构造奖励与成就信号。
+"""从 CraftGround 观测构造奖励与成就信号。
 
 Craftground 基类 `step` 的 reward 恒为 0，info 不含成就。本模块从
 `obs["full"]`（protobuf ObservationSpaceMessage）的库存/统计量自行构造：

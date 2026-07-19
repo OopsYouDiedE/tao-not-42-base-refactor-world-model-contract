@@ -1,4 +1,4 @@
-"""Craftground 向量化环境（PPO+AD 训练用）。
+"""CraftGround 向量化环境。
 
 Craftground 是基于 Minecraft Java 版的 RL 环境。
 本模块提供：
@@ -7,7 +7,7 @@ Craftground 是基于 Minecraft Java 版的 RL 环境。
   3. 观测标准化
 
 对外接口：
-    CraftgroundVecEnv — 向量化环境，返回观测 + 成就向量
+    CraftGroundVectorizedEnvironment — 向量化环境，返回观测与成就向量
 """
 
 import os
@@ -19,7 +19,7 @@ from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
 from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
 from craftground.screen_encoding_modes import ScreenEncodingMode
 
-from train.craftground.reward import RewardShaper
+from train.craftground.reward_shaping import RewardShaper
 
 # ── V2_MINERL_HUMAN 动作空间 ────────────────────────────────────────────────
 # V2 动作是一个 dict：布尔按键 (attack/forward/jump/...) + hotbar.1-9 +
@@ -74,7 +74,7 @@ DISCRETE_TO_V2 = [
 ]
 
 
-class MinecraftCraftgroundEnv:
+class MinecraftCraftGroundEnvironment:
     """单个 Minecraft Craftground 环境，兼容 gym 接口。"""
 
     def __init__(self, seed: int = 0, max_steps: int = 1000, port: int = 8000, screen_encoding_mode: ScreenEncodingMode = ScreenEncodingMode.ZEROCOPY):
@@ -152,7 +152,7 @@ class MinecraftCraftgroundEnv:
         self.env.close()
 
 
-class CraftgroundVecEnv:
+class CraftGroundVectorizedEnvironment:
     """Craftground 向量化环境（子进程并行，兼容 AD 成就追踪）。
 
     Craftground 暴露 Minecraft Java 版的 RGB 观测（图像）和离散动作空间。
@@ -179,7 +179,7 @@ class CraftgroundVecEnv:
         self.max_episode_steps = max_episode_steps
 
         self.envs = [
-            MinecraftCraftgroundEnv(
+            MinecraftCraftGroundEnvironment(
                 seed=i,
                 max_steps=max_episode_steps,
                 port=base_port + i * 10,
@@ -256,4 +256,3 @@ class CraftgroundVecEnv:
             raw = raw[np.newaxis, ...]
         # Craftground 观测格式：(H, W, 3) RGB uint8
         return torch.from_numpy(raw.transpose(0, 3, 1, 2)).cuda().float()
-

@@ -10,13 +10,13 @@ config_version=5
 
 [application]
 
-config/name="元学习任务"
+config/name="Godot Meta Reinforcement Learning"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
 [dotnet]
 
-project/assembly_name="元学习任务"
+project/assembly_name="GodotMetaReinforcementLearning"
 
 [physics]
 

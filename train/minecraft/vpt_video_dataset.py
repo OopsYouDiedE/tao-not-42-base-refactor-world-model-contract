@@ -1,3 +1,5 @@
+"""读取成对的 Minecraft VPT 视频和动作标注。"""
+
 import os
 import json
 import random
@@ -9,10 +11,10 @@ import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
 import numpy as np
 
-from train.minecraft.vpt_action import CAMERA_SCALE, N_MOUSE
+from train.minecraft.vpt_action_contract import CAMERA_SCALE, N_MOUSE
 
 # 动作向量布局(与 download_sample_data / colab 转换脚本严格一致):2 鼠标 + 20 键盘
-# 与 utils/vpt_action.py 的契约一致:鼠标在前(索引 0,1),且按 CAMERA_SCALE 归一化。
+# 与 vpt_action_contract.py 一致：鼠标在前（索引 0,1），并按 CAMERA_SCALE 归一化。
 VPT_KEYS = ["key_w", "key_a", "key_s", "key_d", "key_space", "key_sneak",
             "key_sprint", "key_attack", "key_use", "key_drop", "key_inventory"] \
            + [f"key_hotbar.{i}" for i in range(1, 10)]

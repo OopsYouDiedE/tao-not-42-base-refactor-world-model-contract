@@ -1,7 +1,7 @@
-"""语言条件化的时空视觉快塔 v2。
+"""语言条件化的时空视觉快塔。
 
-对外接口：FastTowerV2Config、MemoryProvider、NullMemory、StructuredActionOutput、
-FastTowerV2、build_fast_tower_v2。
+对外接口：SpatiotemporalFastTowerConfiguration、MemoryProvider、NullMemory、
+StructuredActionOutput、SpatiotemporalFastTower、build_spatiotemporal_fast_tower。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 
 @dataclass(frozen=True)
-class FastTowerV2Config:
+class SpatiotemporalFastTowerConfiguration:
     """快塔结构配置。
 
     Attributes
@@ -179,40 +179,44 @@ class _Encoder(nn.Module):
         return self.norm(self.body(x))
 
 
-class FastTowerV2(nn.Module):
+class SpatiotemporalFastTower(nn.Module):
     """时空视觉、文本、动作历史到结构化动作分布的快塔。"""
 
-    def __init__(self, cfg: FastTowerV2Config, memory: MemoryProvider | None = None):
+    def __init__(
+        self,
+        configuration: SpatiotemporalFastTowerConfiguration,
+        memory: MemoryProvider | None = None,
+    ):
         super().__init__()
-        if cfg.d % cfg.heads:
+        if configuration.d % configuration.heads:
             raise ValueError("d 必须能被 heads 整除")
-        gh, gw = cfg.grid_hw
+        gh, gw = configuration.grid_hw
         if gh % 2 or gw % 2:
             raise ValueError("grid_hw 必须能被 2×2 历史池化整除")
-        self.cfg = cfg
-        self.memory = memory if memory is not None else NullMemory(cfg.d)
-        self.visual_in = nn.Linear(cfg.visual_dim, cfg.d)
-        self.text_in = nn.Linear(cfg.text_dim, cfg.d)
-        self.action_in = nn.Linear(cfg.action_dim + 1, cfg.d)
-        self.goal_scale = nn.Linear(cfg.d, cfg.d)
-        self.goal_bias = nn.Linear(cfg.d, cfg.d)
-        self.aim_in = nn.Linear(1, cfg.d, bias=False)
-        self.spatial_pos = nn.Parameter(torch.zeros(1, gh * gw, cfg.d))
-        self.history_pos = nn.Parameter(torch.zeros(1, cfg.max_history, cfg.d))
-        self.text_pos = nn.Parameter(torch.zeros(1, cfg.max_text_tokens, cfg.d))
-        self.spatial = _Encoder(cfg.d, cfg.heads, cfg.spatial_layers, cfg.dropout)
-        self.temporal = _Encoder(cfg.d, cfg.heads, cfg.temporal_layers, cfg.dropout)
-        self.action_history = _Encoder(cfg.d, cfg.heads, 1, cfg.dropout)
-        self.action_queries = nn.Parameter(torch.empty(1, 6, cfg.d))
-        self.cross_norm_q = nn.LayerNorm(cfg.d)
-        self.cross_norm_kv = nn.LayerNorm(cfg.d)
-        self.cross = nn.MultiheadAttention(cfg.d, cfg.heads, batch_first=True, dropout=cfg.dropout)
-        self.camera_head = nn.Linear(cfg.d, 2 * cfg.camera_bins)
-        self.move_fb_head = nn.Linear(cfg.d, 3)
-        self.move_lr_head = nn.Linear(cfg.d, 3)
-        self.stance_head = nn.Linear(cfg.d, 3)
-        self.hotbar_head = nn.Linear(cfg.d, 10)
-        self.button_head = nn.Linear(cfg.d, 5)
+        self.configuration = configuration
+        self.memory = memory if memory is not None else NullMemory(configuration.d)
+        self.visual_in = nn.Linear(configuration.visual_dim, configuration.d)
+        self.text_in = nn.Linear(configuration.text_dim, configuration.d)
+        self.action_in = nn.Linear(configuration.action_dim + 1, configuration.d)
+        self.goal_scale = nn.Linear(configuration.d, configuration.d)
+        self.goal_bias = nn.Linear(configuration.d, configuration.d)
+        self.aim_in = nn.Linear(1, configuration.d, bias=False)
+        self.spatial_pos = nn.Parameter(torch.zeros(1, gh * gw, configuration.d))
+        self.history_pos = nn.Parameter(torch.zeros(1, configuration.max_history, configuration.d))
+        self.text_pos = nn.Parameter(torch.zeros(1, configuration.max_text_tokens, configuration.d))
+        self.spatial = _Encoder(configuration.d, configuration.heads, configuration.spatial_layers, configuration.dropout)
+        self.temporal = _Encoder(configuration.d, configuration.heads, configuration.temporal_layers, configuration.dropout)
+        self.action_history = _Encoder(configuration.d, configuration.heads, 1, configuration.dropout)
+        self.action_queries = nn.Parameter(torch.empty(1, 6, configuration.d))
+        self.cross_norm_q = nn.LayerNorm(configuration.d)
+        self.cross_norm_kv = nn.LayerNorm(configuration.d)
+        self.cross = nn.MultiheadAttention(configuration.d, configuration.heads, batch_first=True, dropout=configuration.dropout)
+        self.camera_head = nn.Linear(configuration.d, 2 * configuration.camera_bins)
+        self.move_fb_head = nn.Linear(configuration.d, 3)
+        self.move_lr_head = nn.Linear(configuration.d, 3)
+        self.stance_head = nn.Linear(configuration.d, 3)
+        self.hotbar_head = nn.Linear(configuration.d, 10)
+        self.button_head = nn.Linear(configuration.d, 5)
         u = (torch.arange(gw, dtype=torch.float32) + 0.5) / gw
         v = (torch.arange(gh, dtype=torch.float32) + 0.5) / gh
         vv, uu = torch.meshgrid(v, u, indexing="ij")
@@ -230,7 +234,7 @@ class FastTowerV2(nn.Module):
         tuple[torch.Tensor, torch.Tensor]
             token Shape ``[B,L,d]`` 与汇总 Shape ``[B,d]``，Dtype float32/模型 dtype。
         """
-        if tokens.shape[1] > self.cfg.max_text_tokens:
+        if tokens.shape[1] > self.configuration.max_text_tokens:
             raise ValueError("文本 token 数超过 max_text_tokens")
         x = self.text_in(tokens) + self.text_pos[:, :tokens.shape[1]]
         weight = mask.to(dtype=x.dtype).unsqueeze(-1)
@@ -248,7 +252,7 @@ class FastTowerV2(nn.Module):
             Shape ``[B,H,gh/2*gw/2,Dv]``，保持输入 Dtype。
         """
         b, h, _, d = history.shape
-        gh, gw = self.cfg.grid_hw
+        gh, gw = self.configuration.grid_hw
         x = history.reshape(b, h, gh // 2, 2, gw // 2, 2, d)
         return x.mean(dim=(3, 5)).reshape(b, h, (gh // 2) * (gw // 2), d)
 
@@ -291,11 +295,11 @@ class FastTowerV2(nn.Module):
             事件按钮 ``[B,5]``，logits Dtype 与模型计算 dtype 一致。
         """
         b, n, _ = current_patches.shape
-        gh, gw = self.cfg.grid_hw
+        gh, gw = self.configuration.grid_hw
         if n != gh * gw:
             raise ValueError(f"当前 patch 数必须为 {gh * gw}")
         h = history_patches.shape[1]
-        if h > self.cfg.max_history - 1:
+        if h > self.configuration.max_history - 1:
             raise ValueError("历史帧数超过 max_history-1")
         text, goal = self._text(text_tokens, text_mask)
         current = self.visual_in(current_patches) + self.spatial_pos
@@ -307,8 +311,8 @@ class FastTowerV2(nn.Module):
         current = current + self.aim_in(aim_weight.to(current.dtype).unsqueeze(-1))
         current = self.spatial(current)
 
-        pooled_current = current.reshape(b, gh, gw, self.cfg.d)
-        pooled_current = pooled_current.reshape(b, gh // 2, 2, gw // 2, 2, self.cfg.d)
+        pooled_current = current.reshape(b, gh, gw, self.configuration.d)
+        pooled_current = pooled_current.reshape(b, gh // 2, 2, gw // 2, 2, self.configuration.d)
         pooled_current = pooled_current.mean(dim=(2, 4)).flatten(1, 2)
         history = self.visual_in(self._pool_history(history_patches))
         history = history * (1.0 + torch.tanh(self.goal_scale(goal))[:, None, None])
@@ -330,7 +334,7 @@ class FastTowerV2(nn.Module):
         )
         query = query + attended
         return StructuredActionOutput(
-            camera_logits=self.camera_head(query[:, 0]).reshape(b, 2, self.cfg.camera_bins),
+            camera_logits=self.camera_head(query[:, 0]).reshape(b, 2, self.configuration.camera_bins),
             move_fb_logits=self.move_fb_head(query[:, 1]),
             move_lr_logits=self.move_lr_head(query[:, 2]),
             stance_logits=self.stance_head(query[:, 3]),
@@ -339,15 +343,15 @@ class FastTowerV2(nn.Module):
         )
 
 
-def build_fast_tower_v2(
-    cfg: FastTowerV2Config,
+def build_spatiotemporal_fast_tower(
+    configuration: SpatiotemporalFastTowerConfiguration,
     memory: MemoryProvider | None = None,
-) -> FastTowerV2:
+) -> SpatiotemporalFastTower:
     """构造快塔 v2。
 
     Returns
     -------
-    FastTowerV2
+    SpatiotemporalFastTower
         未加载视觉或文本骨干权重的快塔核心。
     """
-    return FastTowerV2(cfg, memory)
+    return SpatiotemporalFastTower(configuration, memory)

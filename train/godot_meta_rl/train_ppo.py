@@ -8,9 +8,9 @@ from pathlib import Path
 
 from stable_baselines3.common.vec_env import VecMonitor, VecTransposeImage
 
-from train.godot_meta_rl.vec_env import GodotVecEnv, RolloutProgress
-from utils.godot_rl.launch import kill_godot, launch_godot
-from utils.godot_rl.ppo_factory import build_model
+from train.godot_meta_rl.vectorized_environment import GodotVectorizedEnvironment, RolloutProgress
+from utils.godot_rl.godot_process import launch_godot, terminate_godot_process
+from utils.godot_rl.ppo_model_factory import build_ppo_model
 
 
 def _parse_args():
@@ -39,22 +39,29 @@ def main():
     None
         无张量返回值；模型保存到 ``--output`` 指定路径。
     """
-    args = _parse_args()
-    proc = None
-    env = None
+    arguments = _parse_args()
+    process = None
+    environment = None
     try:
-        if not args.no_launch:
-            launch_kwargs = {} if args.godot_exe is None else {"godot_exe": args.godot_exe}
-            proc = launch_godot(**launch_kwargs)
-        env = VecTransposeImage(VecMonitor(GodotVecEnv(args.connect_timeout)))
-        model = build_model(env, device=args.device, verbose=1, with_null_logger=False)
-        model.learn(total_timesteps=args.total_timesteps, callback=RolloutProgress())
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        model.save(args.output)
+        if not arguments.no_launch:
+            launch_arguments = (
+                {} if arguments.godot_exe is None
+                else {"godot_exe": arguments.godot_exe}
+            )
+            process = launch_godot(**launch_arguments)
+        environment = VecTransposeImage(
+            VecMonitor(GodotVectorizedEnvironment(arguments.connect_timeout)),
+        )
+        model = build_ppo_model(
+            environment, device=arguments.device, verbose=1, with_null_logger=False,
+        )
+        model.learn(total_timesteps=arguments.total_timesteps, callback=RolloutProgress())
+        arguments.output.parent.mkdir(parents=True, exist_ok=True)
+        model.save(arguments.output)
     finally:
-        if env is not None:
-            env.close()
-        kill_godot(proc)
+        if environment is not None:
+            environment.close()
+        terminate_godot_process(process)
 
 
 if __name__ == "__main__":

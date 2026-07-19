@@ -5,12 +5,12 @@ using System.IO.MemoryMappedFiles;
 using System.Threading;
 using System.Threading.Tasks;
 
-// 训练编排器(Main)：把环境场景(env_spotlight_discrete.tscn)克隆 NumEnvs 份，
+// 训练编排器：把 discrete_spotlight_environment.tscn 克隆为多个并行环境，
 // 用事件握手把 40 个环境的观测(图像+元数据)推给 Python，并把 Python 的动作分发回各环境。
 //
-// 与 GDScript 环境(ModelBase 子类)的契约：
+// 与 GDScript 环境(EnvironmentModelBase 子类)的契约：
 //   set_action(cont[10], disc[30]) -> step_render(steps, dt) -> get_obs(图像) / get_reward_done()
-// 环境只管按动作更新自己；Main 负责加载、握手、回读纹理、写共享内存、分发动作。
+// 环境只负责按动作更新自身；TrainingCoordinator 负责加载、握手、回读纹理和分发动作。
 //
 // 跨平台共享内存(Win/Linux 自动识别)：
 //   - 用【文件后端 MemoryMappedFile】(临时目录下 GodotRL_SharedMem.bin)，不用 Windows 命名内核对象——
@@ -26,10 +26,10 @@ using System.Threading.Tasks;
 //   [Seq]     int32  异步 seqlock 序号
 //   [ObsSeq]  int32  锁步握手：Godot 发布观测计数
 //   [ActSeq]  int32  锁步握手：Python 应答计数
-public partial class Main : Node
+public partial class TrainingCoordinator : Node
 {
     private const string MapFileName = "GodotRL_SharedMem.bin";
-    private const string EnvScenePath = "res://mata_envs/env_spotlight_discrete.tscn";
+    private const string EnvironmentScenePath = "res://meta_environments/discrete_spotlight_environment.tscn";
 
     private const int NumEnvs = 40;
     private const int ImageWidth = 128, ImageHeight = 128, Channels = 3;
@@ -39,7 +39,7 @@ public partial class Main : Node
     private const int MetaPerEnv = 5;                                   // frameCount, steps, sim_dt, reward, done
     private const int TotalMetaSize = NumEnvs * MetaPerEnv * 4;          // 800
 
-    // 通用动作接口(与 ModelBase 一致)：10 连续 + 30 离散。
+    // 通用动作接口（与 EnvironmentModelBase 一致）：10 连续 + 30 离散。
     private const int ContDim = 10, DiscDim = 30;
     private const int ContBytes = NumEnvs * ContDim * 4;                 // 1600
     private const int DiscBytes = NumEnvs * DiscDim * 4;                 // 4800
@@ -137,11 +137,11 @@ public partial class Main : Node
 
         // 克隆 NumEnvs 份环境场景；每份自带 SubViewport(独立 World3D，互不干扰)。
         // 环境实例挂到 atlas 之下 → 其 3D 视口先渲染、atlas 后合成，保证读到的是当前帧(无差 1 帧陈旧)。
-        var packed = GD.Load<PackedScene>(EnvScenePath);
+        var packed = GD.Load<PackedScene>(EnvironmentScenePath);
         for (int i = 0; i < NumEnvs; i++)
         {
             var env = packed.Instantiate();
-            _atlasViewport.AddChild(env);   // 触发环境 _ready：standalone=false → 不自驱动，等 Main 调用
+            _atlasViewport.AddChild(env);   // 触发环境 _ready：standalone=false → 等 TrainingCoordinator 调用
             _envs[i] = env;
             var vp = env.GetNode<SubViewport>("SubViewport");
             _viewports[i] = vp;
@@ -154,7 +154,7 @@ public partial class Main : Node
         }
 
         // 文件后端共享内存(跨平台)：Win/Linux 的 .NET 与 Python mmap 都能映射同一个文件。
-        // 路径优先 RL_SHM_PATH，否则系统临时目录下固定文件名，确保与 Python 的 shm_path() 一致。
+        // 路径优先 RL_SHM_PATH，否则使用系统临时目录，确保与 Python shared_memory_path() 一致。
         var shmPath = EnvGet("RL_SHM_PATH");
         if (string.IsNullOrEmpty(shmPath))
             shmPath = Path.Combine(Path.GetTempPath(), MapFileName);
@@ -168,7 +168,7 @@ public partial class Main : Node
         _accessor.Write(ObsSeqOffset, 0);
         _accessor.Write(ActSeqOffset, 0);
 
-        GD.Print($"[Main] 克隆 {NumEnvs} 个环境 '{EnvScenePath}'。共享内存 {TotalSize}B @ '{shmPath}'。" +
+        GD.Print($"[TrainingCoordinator] 克隆 {NumEnvs} 个环境 '{EnvironmentScenePath}'。共享内存 {TotalSize}B @ '{shmPath}'。" +
                  $" 模式={Mode} Fixed={FixedStepsPerRender} Max={MaxStepsPerRender} dt={_physicsDt:F4}。等待 Python action。");
     }
 
@@ -216,7 +216,7 @@ public partial class Main : Node
             _fpsTimer = 0;
             double rb = _pubCount > 0 ? _readbackMsAccum / _pubCount : 0;
             double wr = _pubCount > 0 ? _writeMsAccum / _pubCount : 0;
-            GD.Print($"[Main] 回合速率={Engine.GetFramesPerSecond():F1}/s 步数/帧={_stepsThisRender} " +
+            GD.Print($"[TrainingCoordinator] 回合速率={Engine.GetFramesPerSecond():F1}/s 步数/帧={_stepsThisRender} " +
                      $"回读(atlas单次)={rb:F2}ms 写图={wr:F2}ms 累计帧={_frameCounts[0]}");
             _readbackMsAccum = 0; _writeMsAccum = 0; _pubCount = 0;
         }
@@ -360,6 +360,6 @@ public partial class Main : Node
         _accessor?.Dispose();
         _mmf?.Dispose();
         _shmFile?.Dispose();
-        GD.Print("[Main] 共享内存已释放。");
+        GD.Print("[TrainingCoordinator] 共享内存已释放。");
     }
 }

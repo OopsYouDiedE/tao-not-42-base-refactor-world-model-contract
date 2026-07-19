@@ -1,7 +1,7 @@
-extends ModelBase
+extends EnvironmentModelBase
 ##
 ## 第一个采集环境：聚光灯瞄准任务 ——【离散控制版】。
-## （用路径继承基础类，避免依赖编辑器才会生成的 class_name 全局缓存；等价于 extends ModelBase。）
+## 继承 EnvironmentModelBase 提供的环境协议与相机控制。
 ##
 ## 任务：模型固定在房间正中央，只能转动视角。回合开始后的随机 0~2 秒（仿真时间）某一刻，
 ## 聚光灯突然照亮场景中的某个物体；模型要【尽快】把相机转到对准该物体。
@@ -227,7 +227,7 @@ func _compute_reward() -> float:
 		return 0.0
 	var err := _aim_error()
 	var prev := _prev_aim_error
-	_prev_aim_error = err              # 注意：本函数每渲染只被调用一次（见 ModelBase）
+	_prev_aim_error = err              # 注意：本函数每渲染只被调用一次（见 EnvironmentModelBase）
 	# 差分项：和上次瞄准角之差。靠近(err变小)给正，远离(err变大)扣分（Σ = 初始视角差 - 最终视角差）。
 	# 稠密项：按【当前误差 × 经过的仿真时间】扣分 = 误差对时间的积分。
 	#   最优(瞬间瞄准并稳住 err≈0)时稠密项≈0 → 总分仍≈初始视角差；越慢/越偏，扣得越多 → 打破"不动=0"。

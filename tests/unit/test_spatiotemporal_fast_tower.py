@@ -1,18 +1,22 @@
-"""验证重新设计的快塔 v2 契约。"""
+"""验证重新设计的时空快塔契约。"""
 
 import torch
 
-from net.fast_tower_v2 import FastTowerV2Config, NullMemory, build_fast_tower_v2
+from net.spatiotemporal_fast_tower import (
+    NullMemory,
+    SpatiotemporalFastTowerConfiguration,
+    build_spatiotemporal_fast_tower,
+)
 
 
-def test_fast_tower_v2_shapes_and_legacy_keys():
+def test_spatiotemporal_fast_tower_shapes_and_legacy_keys():
     """验证时空输入、结构化动作和 20 键展开。"""
-    cfg = FastTowerV2Config(
+    configuration = SpatiotemporalFastTowerConfiguration(
         visual_dim=24, text_dim=12, d=32, heads=4,
         spatial_layers=1, temporal_layers=1, grid_hw=(4, 6),
         max_history=4, max_text_tokens=8,
     )
-    model = build_fast_tower_v2(cfg)
+    model = build_spatiotemporal_fast_tower(configuration)
     output = model(
         current_patches=torch.zeros(2, 24, 24),
         history_patches=torch.zeros(2, 2, 24, 24),
@@ -46,6 +50,6 @@ def test_null_memory_is_empty():
 
 def test_default_trainable_parameter_budget():
     """验证默认快塔核心处于 4–6M 可训练参数预算。"""
-    model = build_fast_tower_v2(FastTowerV2Config())
+    model = build_spatiotemporal_fast_tower(SpatiotemporalFastTowerConfiguration())
     count = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
     assert 4_000_000 <= count <= 6_000_000

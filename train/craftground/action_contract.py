@@ -2,7 +2,7 @@
 """CraftGround V2 动作契约的单一定义:键序 / 相机 mu-law 分箱 / 帧堆叠。
 
 对外接口:
-    V2_KEYS, CAM_BINS, CAM_MAX_DEG — 契约常量(与 net.PixelTowerConfig 的 n_keys/camera_bins
+    V2_KEYS, CAM_BINS, CAM_MAX_DEG — 契约常量（与 PixelTowerConfiguration 对齐）
         由训练端断言一致,AGENTS §8:领域常量归 train/)
     bins_to_deg(b)   — mu-law 分箱 → 度(采样端解码)
     deg_to_bins(deg) — 度 → mu-law 分箱(BC 数据端编码;与 bins_to_deg 互逆,单测锚定)
@@ -13,7 +13,7 @@
 """
 import numpy as np
 
-# CraftGround V2 里的 20 个二值键(与 PixelTowerConfig.n_keys=20 一致)
+# CraftGround V2 的 20 个二值键（与 PixelTowerConfiguration.n_keys=20 一致）
 V2_KEYS = ["forward", "back", "left", "right", "jump", "sneak", "sprint", "attack", "use",
            "drop", "inventory", "hotbar.1", "hotbar.2", "hotbar.3", "hotbar.4",
            "hotbar.5", "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9"]

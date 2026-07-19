@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""VPT 人类视频 → PixelTower 的 BC 暖启动(设计文档 §7 E1;GRPO 只做精修)。
+"""使用 VPT 人类视频对 PixelTower 进行行为克隆暖启动。
 
 对外接口:
     VPT_TO_V2 — VPT 键序 → V2 键序的置换索引
     encode_targets(act_agg) — 数据契约动作 → (cam bins, keys_v2, prev) 训练目标
-    main() — CLI 训练入口(python -m train.minecraft.bc_warmstart)
+    main() — CLI 训练入口(python -m train.minecraft.behavior_cloning_warm_start)
 
 依据（见 knowledge/README.md §2.2、§3）：GRPO 两次起效都从 BC 暖启动
 起跑(可见目标 0.50→0.81);从随机初始化直接 GRPO 的监督带宽差 4~5 个数量级
@@ -41,10 +41,10 @@ from torch.utils.data import DataLoader
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from net.pixel_tower import PixelTowerConfig, build_pixel_tower  # noqa: E402
+from net.pixel_tower import PixelTowerConfiguration, build_pixel_tower  # noqa: E402
 from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG, CAM_MU,  # noqa: E402
                                                V2_KEYS, stack_frames)
-from train.minecraft.vpt_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
+from train.minecraft.vpt_video_dataset import (VPT_KEYS, VPTStreamDataset,  # noqa: E402
                                          _pair_list, assemble_goal)
 
 IMG_HW = (90, 160)
@@ -81,7 +81,7 @@ def encode_targets(act: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch
 
     Parameters
     ----------
-    act : [*, 22] float32(vpt_dataset._action_vec 布局:归一 dx,dy ⊕ VPT 键序 20)
+    act : [*, 22] float32(vpt_video_dataset._action_vec 布局:归一 dx,dy ⊕ VPT 键序 20)
 
     Returns
     -------
@@ -287,10 +287,10 @@ def main() -> None:
     torch.manual_seed(args.seed)
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
 
-    cfg = PixelTowerConfig(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(V2_KEYS),
+    configuration = PixelTowerConfiguration(img_hw=IMG_HW, goal_dim=384 + 2, n_keys=len(V2_KEYS),
                            camera_bins=CAM_BINS)
-    assert cfg.n_keys == len(V2_KEYS) and cfg.camera_bins == CAM_BINS
-    tower = build_pixel_tower(cfg).to(device)
+    assert configuration.n_keys == len(V2_KEYS) and configuration.camera_bins == CAM_BINS
+    tower = build_pixel_tower(configuration).to(device)
     if args.init_from:
         ck = torch.load(args.init_from, map_location=device, weights_only=True)
         tower.load_state_dict(ck["tower"])
@@ -323,7 +323,7 @@ def main() -> None:
                     prefetch_factor=4 if args.workers else None)
     it = iter(dl)
 
-    s = cfg.frame_stack
+    s = configuration.frame_stack
     hold_clips = load_holdout(args.holdout, s, goal_vocab=vocab_path)
     n_lab_hold = int(sum((c["ok"] & c["labeled"]).sum() for c in hold_clips))
     print(f"holdout 有标签 tick(GUI 剔除后)= {n_lab_hold}", flush=True)
@@ -376,7 +376,7 @@ def main() -> None:
             print(f"[eval@{step}] cam_acc={m['cam_acc']} nz={m['cam_acc_nonzero']} "
                   f"keyF1={m['key_f1_mean']} true={score_t:.4f} zero={score_0:.4f} "
                   f"lab true/perm={m.get('lab_true')}/{m.get('lab_perm')}", flush=True)
-            ckpt = dict(tower=tower.state_dict(), cfg=vars(cfg), step=step, metrics=m)
+            ckpt = dict(tower=tower.state_dict(), configuration=vars(configuration), step=step, metrics=m)
             torch.save(ckpt, out / "last.pt")
             if hold < best:
                 best = hold

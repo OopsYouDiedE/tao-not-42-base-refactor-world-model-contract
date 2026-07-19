@@ -1,9 +1,9 @@
 [gd_scene format=3 uid="uid://dvwhi4k6gfm15"]
 
-[ext_resource type="Script" uid="uid://b2p4dif8q5p3m" path="res://mata_envs/env_spotlight_discrete.gd" id="1_env"]
+[ext_resource type="Script" uid="uid://b2p4dif8q5p3m" path="res://meta_environments/discrete_spotlight_environment.gd" id="1_environment_script"]
 
-[node name="EnvSpotlightDiscrete" type="Node" unique_id=1851455328]
-script = ExtResource("1_env")
+[node name="DiscreteSpotlightEnvironment" type="Node" unique_id=1851455328]
+script = ExtResource("1_environment_script")
 
 [node name="SubViewport" type="SubViewport" parent="." unique_id=601743817]
 own_world_3d = true

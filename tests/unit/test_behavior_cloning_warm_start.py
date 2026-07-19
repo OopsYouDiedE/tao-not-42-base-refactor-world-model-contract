@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""BC 暖启动的契约单测:mu-law 编解码互逆 / torch-numpy 同式 / 键置换 / 窗口堆叠对齐。"""
+"""行为克隆暖启动的动作编码与窗口对齐测试。"""
 import sys
 from pathlib import Path
 
@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from train.craftground.action_contract import (CAM_BINS, CAM_MAX_DEG,  # noqa: E402
                                                V2_KEYS, bins_to_deg, deg_to_bins,
                                                stack_frames)
-from train.minecraft.bc_warmstart import (VPT_TO_V2, bin_center_t,  # noqa: E402
+from train.minecraft.behavior_cloning_warm_start import (VPT_TO_V2, bin_center_t,  # noqa: E402
                                                 deg_to_bins_t, encode_targets)
-from train.minecraft.vpt_dataset import VPT_KEYS  # noqa: E402
+from train.minecraft.vpt_video_dataset import VPT_KEYS  # noqa: E402
 
 
 def test_mulaw_roundtrip():

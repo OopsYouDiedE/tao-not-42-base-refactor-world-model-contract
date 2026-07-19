@@ -1,16 +1,16 @@
 # Godot 子系统开发规范 (AGENTS.md)
 
 > 本文是 Godot Meta RL 子系统的局部规则，对 AI 助手与人类开发者同等适用。
-> 通用写作纪律（中文文档、SSOT、禁止夸张措辞）沿用仓库根 [../../AGENTS.md](../../AGENTS.md)；
+> 通用写作纪律沿用仓库根 [../../../AGENTS.md](../../../AGENTS.md)；
 > 本文只补充 Godot 侧特有的约束。子系统概览见 [README.md](README.md)，方法级说明见 [code_analysis.md](code_analysis.md)。
 
 ---
 
 ## 1. 分层与放置
 
-- **引擎侧资产**（C# / GDScript / 场景 / 工程配置）留在本文件夹 `assets/godot_meta_rl/`。
-- **Python 可复用基础设施**（共享内存驱动、启停、工厂）放 `utils/godot_rl/`。
-- **不可复用的对接桥**（SB3 `VecEnv` 适配）放 `train/godot_meta_rl/`。
+- **引擎侧资产**（C# / GDScript / 场景 / 工程配置）放在本文件夹 `engine/`。
+- **Python 通信、进程、SB3 适配与训练入口**放在父目录 `rl_training_environments/godot/`。
+- 后续 CraftGround 环境放入同级 `rl_training_environments/craftground/`，不与 Godot 实现互相 import。
 - 新增环境任务继承 `environment_model_base.gd`（`EnvironmentModelBase`），放入 `meta_environments/`；通用逻辑下沉到基类，任务专属逻辑通过基类虚函数实现。
 
 ## 2. 通信契约不变量

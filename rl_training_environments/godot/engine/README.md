@@ -20,8 +20,7 @@ Godot 引擎侧的元学习强化学习采集环境。当前任务是**聚光灯
 
 Python 侧已按仓库分层规范迁出本文件夹：
 
-- **可复用基础设施 → `utils/godot_rl/`**：`shared_memory_environment.py`、`godot_process.py` 和 `ppo_model_factory.py`。
-- **训练层 → `train/godot_meta_rl/`**：`vectorized_environment.py` 提供 SB3 适配，`train_ppo.py` 是 PPO 训练入口。
+- **Python 环境包 → `rl_training_environments/godot/`**：共享内存、进程管理、SB3 适配和 PPO 训练入口。
 
 方法级说明见 [code_analysis.md](code_analysis.md)。
 

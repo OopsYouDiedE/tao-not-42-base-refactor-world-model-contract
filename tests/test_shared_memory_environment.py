@@ -8,7 +8,7 @@ import struct
 
 import numpy as np
 
-from utils.godot_rl import shared_memory_environment as environment_contract
+from rl_training_environments.godot import shared_memory_environment as environment_contract
 
 
 def test_shared_memory_round_trip(tmp_path, monkeypatch):

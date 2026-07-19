@@ -1,4 +1,4 @@
-"""Godot 40 环境 RL 的跨平台基础设施（共享内存驱动 + 启动/工厂助手）。
+"""Godot 强化学习环境、通信与训练入口。
 
 显式 re-export，禁止桶式 `import *`（命名空间透明，承 code_conventions §2.5）。
 """

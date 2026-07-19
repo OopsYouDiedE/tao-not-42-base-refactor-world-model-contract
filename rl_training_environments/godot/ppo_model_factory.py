@@ -2,7 +2,7 @@
 
 对外接口：PPO_HYPERPARAMETERS、build_ppo_model。
 
-只放与具体任务无关的"怎么造"逻辑；具体采集/学习循环属于各 train/godot_meta_rl/*。
+只放与具体任务无关的模型构造逻辑。
 """
 
 from stable_baselines3 import PPO

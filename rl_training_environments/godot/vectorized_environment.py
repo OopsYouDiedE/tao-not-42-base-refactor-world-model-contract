@@ -15,7 +15,7 @@ from gymnasium import spaces
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 
-from utils.godot_rl import shared_memory_environment as environment_contract
+from rl_training_environments.godot import shared_memory_environment as environment_contract
 
 N_BUTTONS = 4  # disc[0..3] = 上/下/左/右
 

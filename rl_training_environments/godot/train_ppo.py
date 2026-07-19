@@ -8,9 +8,15 @@ from pathlib import Path
 
 from stable_baselines3.common.vec_env import VecMonitor, VecTransposeImage
 
-from train.godot_meta_rl.vectorized_environment import GodotVectorizedEnvironment, RolloutProgress
-from utils.godot_rl.godot_process import launch_godot, terminate_godot_process
-from utils.godot_rl.ppo_model_factory import build_ppo_model
+from rl_training_environments.godot.godot_process import (
+    launch_godot,
+    terminate_godot_process,
+)
+from rl_training_environments.godot.ppo_model_factory import build_ppo_model
+from rl_training_environments.godot.vectorized_environment import (
+    GodotVectorizedEnvironment,
+    RolloutProgress,
+)
 
 
 def _parse_args():

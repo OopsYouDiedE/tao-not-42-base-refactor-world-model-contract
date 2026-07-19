@@ -30,11 +30,11 @@ import numpy as np
 
 IS_WINDOWS = sys.platform == "win32"
 
-# 仓库根：utils/godot_rl/ 向上两级。Godot 工程默认在 assets/godot_meta_rl，可用 RL_PROJECT_DIR 覆盖。
+# 仓库根：rl_training_environments/godot/ 向上两级。
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 GODOT_EXE = os.environ.get("GODOT_EXE", "godot")
-PROJECT_DIR = os.environ.get("RL_PROJECT_DIR", os.path.join(_REPO_ROOT, "assets", "godot_meta_rl"))
+PROJECT_DIR = os.environ.get("RL_PROJECT_DIR", os.path.join(os.path.dirname(__file__), "engine"))
 TRAIN_SCENE = "res://training_main.tscn"
 
 NUM_ENVS = 40

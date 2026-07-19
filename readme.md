@@ -23,7 +23,7 @@ CraftGround 使用实际的 `craftground` Python 包；本项目不引入 MineRL
 Linux 可在 PATH 中提供 godot，也可同样显式指定。
 
     export GODOT_EXE=/path/to/godot
-    python -m train.godot_meta_rl.train_ppo --total-timesteps 100000
+    python -m rl_training_environments.godot.train_ppo --total-timesteps 100000
 
 Minecraft BC 使用成对的 VPT `mp4 + jsonl` 数据。先查看数据参数：
 
@@ -50,24 +50,23 @@ Minecraft BC 使用成对的 VPT `mp4 + jsonl` 数据。先查看数据参数：
 Windows PowerShell：
 
     $env:GODOT_EXE = "C:\path\to\Godot_v4.6.1-stable_mono_win64.exe"
-    python -m train.godot_meta_rl.train_ppo --total-timesteps 100000
+    python -m rl_training_environments.godot.train_ppo --total-timesteps 100000
 
 Linux 需要可产生像素的 X11/Vulkan 渲染环境。Godot 的 --headless 哑渲染器
 不能用于图像训练。具体显示服务和驱动安装由运行机器负责，本项目不猜测发行版包名。
 
 ## 目录
 
-    assets/godot_meta_rl/   Godot 4.6.1 .NET 工程与环境场景
-    utils/godot_rl/         mmap 协议、Godot 进程启停、PPO 工厂
-    train/godot_meta_rl/    SB3 VecEnv 与 PPO 训练入口
+    rl_training_environments/godot/         Godot 通信、环境适配与训练入口
+    rl_training_environments/godot/engine/  Godot 4.6.1 .NET 工程与场景
     train/craftground/      CraftGround 环境、奖励、回放与世界快照
     train/minecraft/        VPT 数据与 BC 训练
     net/                    PixelTower 与 SpatiotemporalFastTower
     tests/                  共享内存协议纯单元测试
 
 Godot 侧协议与方法说明见
-[assets/godot_meta_rl/README.md](assets/godot_meta_rl/README.md) 和
-[assets/godot_meta_rl/code_analysis.md](assets/godot_meta_rl/code_analysis.md)。
+[rl_training_environments/godot/engine/README.md](rl_training_environments/godot/engine/README.md) 和
+[rl_training_environments/godot/engine/code_analysis.md](rl_training_environments/godot/engine/code_analysis.md)。
 
 ## 命名约定
 

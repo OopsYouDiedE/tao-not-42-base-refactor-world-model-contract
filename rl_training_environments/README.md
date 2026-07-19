@@ -1,0 +1,9 @@
+# 强化学习训练环境
+
+本目录按后端组织在线强化学习环境。每个后端包同时拥有运行时适配、训练入口和
+引擎资产，禁止跨后端引用具体实现。
+
+- `godot/`：Godot 共享内存环境、SB3 适配、训练入口与 `engine/` 工程。
+- `craftground/`：预留给后续 CraftGround 迁移；本轮仍位于 `train/craftground/`。
+
+目录名使用正确英文拼写 `environments`。

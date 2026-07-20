@@ -4,39 +4,35 @@
 离线训练只保留一条 MineStudio 路径：完整下载指定数据范围与模态，然后在全部本地数据
 上无限循环训练 `SpatiotemporalFastTower + Dreamer-lite`。
 
-## 安装
+## 一键全流程：配置环境 → 验证 → 训练
 
 需要 Git、Python 3.11+。Godot 环境另需 Godot 4.6.1 .NET 与 .NET 8；CraftGround
-环境另需 Java 21。Minecraft 训练需要支持 BF16 的 CUDA GPU。从空目录安装：
+环境另需 Java 21。Minecraft 训练需要支持 BF16 的 CUDA GPU。运行前需在 DINOv3 模型页
+接受访问条款，并准备一个具有写权限的 Hugging Face token。下面这一段可整体复制到空目录
+执行，依次完成克隆、建虚拟环境、安装、契约测试与全量编译校验，最后启动无限训练；因为
+训练是无限循环，测试与编译校验必须放在训练之前，训练一旦启动其后的命令不会再执行：
 
-    if ! command -v git >/dev/null 2>&1; then
-        echo "请先按当前操作系统安装 Git"
-    else
-        repository_ready=false
-        if [ -d tao-not-42-base-refactor-world-model-contract/.git ]; then
-            cd tao-not-42-base-refactor-world-model-contract && repository_ready=true
-        elif git clone \
-            https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git && \
-            cd tao-not-42-base-refactor-world-model-contract; then
-            repository_ready=true
-        fi
-        if $repository_ready; then
-            python -m venv .venv && \
-                source .venv/bin/activate && \
-                python -m pip install --upgrade pip && \
-                python -m pip install -e .
-        fi
-    fi
+    # 1) 克隆 + 虚拟环境 + 安装(含开发依赖 pytest)
+    git clone \
+        https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
+    cd tao-not-42-base-refactor-world-model-contract
+    python -m venv .venv
+    source .venv/bin/activate
+    python -m pip install --upgrade pip
+    python -m pip install -e ".[dev]"
 
-## MineStudio 无限训练
+    # 2) 验证安装:契约测试 + 全量编译(与 AGENTS.md 的门禁一致)
+    python -m pytest
+    python -m compileall -q blocks datasets net rl_training_environments train tests
 
-默认范围是 `10xx`，默认模态是完整 `image + action`：
-
+    # 3) 配置存储与 Hugging Face 登录(token 不进命令参数,只用登录态)
     export TAO_STORAGE_ROOT="${TAO_STORAGE_ROOT:-$PWD/runs}"
     export HF_HOME="$TAO_STORAGE_ROOT/cache/huggingface"
     export HF_REPO_ID=unjustify/minecraft-dreamer-lite-10xx
     mkdir -p "$TAO_STORAGE_ROOT" "$HF_HOME"
     hf auth whoami >/dev/null 2>&1 || hf auth login
+
+    # 4) 下载所选数据范围(默认 10xx,约 100GB)并无限训练
     python -m train.minecraft.world_model_training \
         --dataset-group 10xx \
         --modalities image action \
@@ -44,6 +40,11 @@
         --cache-directory "$HF_HOME/hub" \
         --output "$TAO_STORAGE_ROOT/checkpoints/minecraft-dreamer-lite-10xx" \
         --hub-repo-id "$HF_REPO_ID"
+
+第 4 步默认范围是 `10xx`，默认模态是完整 `image + action`。换其它数据范围继续训练时，
+在已有 checkpoint 基础上加 `--allow-dataset-transfer` 即可放开 dataset-group 校验（快塔
+与世界模型结构仍要求严格一致）。闭环成功率验收是单独一步（需真实 Java Minecraft 与显示
+服务），见下文“有效性验收”。
 
 入口按固定顺序执行：
 

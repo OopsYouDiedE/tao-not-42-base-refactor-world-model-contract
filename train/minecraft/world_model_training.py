@@ -493,6 +493,51 @@ def _save_checkpoint(
     metadata_temporary.replace(metadata_path)
 
 
+def _check_resume_compatibility(
+    checkpoint: dict[str, object],
+    tower_configuration: SpatiotemporalFastTowerConfiguration,
+    world_configuration: LatentWorldModelConfiguration,
+    dataset_group: str,
+    allow_dataset_transfer: bool,
+) -> bool:
+    """校验恢复用 checkpoint 与本次配置是否兼容，返回是否为跨数据集迁移。
+
+    版本、快塔配置与世界模型配置始终要求严格一致，不一致直接抛出 RuntimeError，
+    以拒绝静默部分加载。仅当 ``allow_dataset_transfer`` 为真时，允许 checkpoint 的
+    ``dataset_group`` 与本次不同，从而换一个数据范围继续训练；权重仍按结构严格加载。
+
+    Parameters
+    ----------
+    checkpoint : dict
+        已加载的 checkpoint 负载，需含 version、tower_configuration、
+        world_model_configuration、dataset_group 字段。
+    tower_configuration, world_configuration
+        本次运行构造的快塔与世界模型配置。
+    dataset_group : str
+        本次运行的数据范围。
+    allow_dataset_transfer : bool
+        是否放开 ``dataset_group`` 一致性校验。
+
+    Returns
+    -------
+    bool
+        checkpoint 的 ``dataset_group`` 是否与本次不同（即是否为迁移续训）。
+    """
+    if checkpoint.get("version") != CHECKPOINT_VERSION:
+        raise RuntimeError("checkpoint 版本不兼容，拒绝静默部分加载")
+    if checkpoint.get("tower_configuration") != asdict(tower_configuration):
+        raise RuntimeError("checkpoint 快塔配置与本次配置不一致")
+    if checkpoint.get("world_model_configuration") != asdict(world_configuration):
+        raise RuntimeError("checkpoint 世界模型配置与本次配置不一致")
+    dataset_group_changed = checkpoint.get("dataset_group") != dataset_group
+    if dataset_group_changed and not allow_dataset_transfer:
+        raise RuntimeError(
+            "checkpoint 数据范围与本次 dataset-group 不一致；"
+            "如需换数据集继续训练请显式传入 --allow-dataset-transfer",
+        )
+    return dataset_group_changed
+
+
 class PublicHubCheckpointUploader:
     """把本地原子 checkpoint 快照异步提交到公开 Hugging Face 模型仓库。"""
 
@@ -695,6 +740,12 @@ def main() -> None:
         "--resume", default="auto",
         help="auto 自动恢复 output/last.pt；空串从头训练；也可给定 checkpoint",
     )
+    parser.add_argument(
+        "--allow-dataset-transfer",
+        action=argparse.BooleanOptionalAction, default=False,
+        help="允许从其它 dataset-group 的 checkpoint 继续训练；仅放开数据范围校验，"
+             "快塔与世界模型结构仍要求严格一致",
+    )
     parser.add_argument("--vision-model", default=DEFAULT_VISION_MODEL)
     parser.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
     parser.add_argument("--workers", type=int, default=8)
@@ -804,14 +855,17 @@ def main() -> None:
     first_step = 1
     if resume:
         checkpoint = torch.load(resume_path, map_location=device, weights_only=True)
-        if checkpoint.get("version") != CHECKPOINT_VERSION:
-            raise RuntimeError("checkpoint 版本不兼容，拒绝静默部分加载")
-        if checkpoint.get("tower_configuration") != asdict(tower_configuration):
-            raise RuntimeError("checkpoint 快塔配置与本次配置不一致")
-        if checkpoint.get("world_model_configuration") != asdict(world_configuration):
-            raise RuntimeError("checkpoint 世界模型配置与本次配置不一致")
-        if checkpoint.get("dataset_group") != dataset_configuration.dataset_group:
-            raise RuntimeError("checkpoint 数据范围与本次 dataset-group 不一致")
+        dataset_group_changed = _check_resume_compatibility(
+            checkpoint, tower_configuration, world_configuration,
+            dataset_configuration.dataset_group, arguments.allow_dataset_transfer,
+        )
+        if dataset_group_changed:
+            print(json.dumps({
+                "event": "dataset_transfer_resume",
+                "checkpoint_dataset_group": checkpoint.get("dataset_group"),
+                "dataset_group": dataset_configuration.dataset_group,
+                "checkpoint_step": int(checkpoint["step"]),
+            }, ensure_ascii=False), flush=True)
         tower.load_state_dict(checkpoint["tower"], strict=True)
         world_model.load_state_dict(checkpoint["world_model"], strict=True)
         optimizer.load_state_dict(checkpoint["optimizer"])

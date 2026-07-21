@@ -36,46 +36,40 @@ python -m data_pipelines.annotations.sonnet_action_annotator \
 输出 JSONL，每行一个窗口：`window_index / task / fps / actions（去抖后真值动作串）/
 annotation（模型产出的标注全文）`。
 
-## 案例（真实窗口 10xx #1370，像素统计核验）
+## 案例（真实窗口 10xx #1370，看图核验）
 
-下面的案例基于真实导出的帧图(`runs/annotate_sample/step*.png`)与 `actions.json` 真值序列。
-帧图可在该路径直接查看。像素级统计:
-- **顶部 20% 区域**平均 R60-70/G65-71/B49-54 → 暗绿色（户外白天，树叶或草地）。
-- **中心区域**平均 R106-150/G93-124/B63-84 → 暖棕黄色（R>G>B 差值 ~60，木材/泥土类方块；
-  若是石头则 R≈G≈B 差值<20）。
-- **底部 10%** 为游戏 HUD/热键栏 UI 覆盖层。
-- 整段 pitch+ 相机偏移（多帧在向下看），与 `use` 动作共现 → 玩家俯视脚下方块做交互操作。
+案例基于真实导出帧图（`runs/annotate_sample/step*.png`，拼图 `mosaic.png`）与
+`actions.json` 真值序列。场景：户外暗绿色地面上摆着浅色**橡木木板**（同心方形木纹）排成
+加号/菱形，玩家俯视地面逐块放置、绕着阵列后退调整视角，底部为热键栏 HUD。任务目标
+`obtain a diamond pickaxe through the Minecraft technology tree`。去抖阈值 `|Δbin| ≤ 1`
+（`CAMERA_JITTER_BIN = 1`）。完整 8 步标注见 `runs/annotate_sample/annotation_reference.md`。
 
-任务目标：`obtain a diamond pickaxe through the Minecraft technology tree`。
-去抖阈值：`|Δbin| ≤ 1`（`CAMERA_JITTER_BIN = 1`）。
-
-**Step 0 —— 真值动作：`use`**（原始 `use cam(+1,-1)`，相机两分量均为 ±1 属抖动，已滤除）
+**Step 0 —— 真值动作：`use`**（原始 `use cam(+1,-1)`，相机两分量均 ±1 属抖动，已滤除）
 ```
-Scene: 户外白天；视角偏低；中心暖棕色方块（木材/泥土类）；热键栏可见。
+Scene: 俯视地面，3-4 块橡木木板排成 L/角形，中心一块颜色偏亮（刚放下）。
 Type: mouse
 Key: right_click
 Action: press
-Explanation: 中心区域为可与之交互的方块（暖色木材/泥土类），use（右键）在 Minecraft 中
-             用于放置或交互；相机偏移量 ±1 属抖动，视线基本稳定对准中心方块。
+Explanation: 准星对准地面木板阵列的空位，use（右键）用于放置方块，正在把橡木木板补进图案。
 ```
 
 **Step 6 —— 真值动作：`back, strafe-right, hotbar-2`**（原始 `B R h2 cam(+1,+0)`，相机 yaw+1 属抖动）
 ```
-Scene: 户外白天；中心棕黄色方块；热键栏高亮格切换。
+Scene: 继续后退，木板阵列偏左，右下有独立方块，热键栏高亮格切换。
 Type: keyboard
 Key: s
 Action: hold
-Explanation: 后退（s）使玩家离开当前所站位置，常见于放置方块后拉开距离以便瞄准下一位置。
+Explanation: 后退（s）拉开与已放方块的距离，绕到下一个放置点。
 Type: keyboard
 Key: d
 Action: hold
-Explanation: 向右横移（d）结合后退，调整与中心方块的相对位置。
+Explanation: 右移（d）横向对齐到阵列右侧，配合后退调整站位。
 Type: keyboard
 Key: 2
 Action: press
-Explanation: 热键栏切换到第 2 格更换手持物品，对应底部 HUD 可观测的高亮格变化。
+Explanation: 切换热键栏第 2 格更换手持物品，对应底部 HUD 高亮格变化。
 ```
 
-> **注**：案例由本项目开发者基于像素统计与真值动作联合推断产出，非外部模型的真实标注输出。
-> 实际生产标注须由 `sonnet_action_annotator.py` 调视觉大模型完成，使模型真正看到画面后再输出理由。
-> 帧图路径：`runs/annotate_sample/`；真值序列：`runs/annotate_sample/actions.json`。
+> **注**：上述案例为看图 + 真值动作联合产出的**参考标注**（供人理解格式与质量基线），
+> 生产标注由 `sonnet_action_annotator.py` 调视觉大模型批量生成。像素统计（顶部暗绿 R60-70/
+> G65-71/B49-54=草地、中心暖棕 R>G>B 差值~60=木材类）可作独立交叉核验，见 `../README.md`。

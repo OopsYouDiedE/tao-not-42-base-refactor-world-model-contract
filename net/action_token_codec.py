@@ -1,4 +1,4 @@
-"""结构化 Minecraft 动作与 Qwen3VL 文本 token 之间的可逆编解码。
+"""结构化 Minecraft 动作与视觉大模型文本 token 之间的可逆编解码。
 
 对外接口：
     ActionTokenFormat — 候选文本格式枚举（供动作 token 表示实验对比）。

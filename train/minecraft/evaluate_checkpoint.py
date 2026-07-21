@@ -1,6 +1,9 @@
-"""在固定 seed 的 CraftGround 环境中闭环评估 Qwen3VL 动作策略 checkpoint。"""
+"""在固定 seed 的 CraftGround 环境中闭环评估 Gemma4 动作策略 checkpoint。"""
 
 from __future__ import annotations
+
+# Unsloth 必须在 torch / transformers 之前导入，其启动期 patch 才能生效。
+import unsloth  # noqa: F401  # isort: skip
 
 import argparse
 from collections import deque
@@ -12,12 +15,12 @@ import torch
 from craftground.screen_encoding_modes import ScreenEncodingMode
 from PIL import Image
 
-from datasets.minestudio.groups import get_dataset_group
+from data_pipelines.minestudio.groups import get_dataset_group
 from net.action_token_codec import ActionTokenFormat
-from net.qwen3vl_policy import (
+from net.gemma4_policy import (
     HistoryContext,
-    Qwen3VLPolicyConfiguration,
-    build_qwen3vl_action_policy,
+    Gemma4PolicyConfiguration,
+    build_gemma4_action_policy,
 )
 from rl_training_environments.craftground.action_contract import V2_KEYS
 from rl_training_environments.craftground.environment import (
@@ -137,14 +140,14 @@ def main() -> None:
         raise RuntimeError("checkpoint 的 dataset_group 与评估参数不一致")
     configuration_dict = metadata["configuration"]
     checkpoint_configuration = _CheckpointConfiguration(**configuration_dict)
-    policy_configuration = Qwen3VLPolicyConfiguration(
+    policy_configuration = Gemma4PolicyConfiguration(
         model_name=checkpoint_configuration.model_name,
         action_format=ActionTokenFormat(checkpoint_configuration.action_format),
         action_horizon=checkpoint_configuration.action_horizon,
         max_history_frames=checkpoint_configuration.history_frames,
         max_new_tokens=max(64, 24 * checkpoint_configuration.action_horizon),
     )
-    policy = build_qwen3vl_action_policy(
+    policy = build_gemma4_action_policy(
         policy_configuration, device, arguments.cache_directory,
         lora_rank=checkpoint_configuration.lora_rank,
     )

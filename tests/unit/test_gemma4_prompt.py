@@ -1,10 +1,10 @@
-"""验证 Qwen3VL 策略的多模态 prompt 构造契约（不加载模型权重）。"""
+"""验证 Gemma4 策略的多模态 prompt 构造契约（不加载模型权重）。"""
 
 import pytest
 from PIL import Image
 
 from net.action_token_codec import ActionTokenFormat, StructuredAction
-from net.qwen3vl_policy import HistoryContext, build_prompt_messages
+from net.gemma4_policy import HistoryContext, build_prompt_messages
 
 
 def _context(history_frames: int = 3, past: int = 2) -> HistoryContext:
@@ -19,6 +19,9 @@ def test_prompt_interleaves_text_and_images():
     """消息含 system 与 user；user 内容交错：每张图像前有文本锚点。"""
     messages = build_prompt_messages(_context(3), ActionTokenFormat.COMPACT_TAG, 5, True)
     assert [message["role"] for message in messages] == ["system", "user"]
+    # Gemma4 chat 模板要求 content 为块列表，system 也不能用裸字符串。
+    assert isinstance(messages[0]["content"], list)
+    assert messages[0]["content"][0]["type"] == "text"
     content = messages[1]["content"]
     # 首块为任务文本，末块为预测请求，中间图像总数等于帧数。
     assert content[0]["type"] == "text"

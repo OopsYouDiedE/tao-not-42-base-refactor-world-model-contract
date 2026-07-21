@@ -10,7 +10,7 @@ import re
 
 from huggingface_hub import HfApi, snapshot_download
 
-from datasets.minestudio.groups import (
+from data_pipelines.minestudio.groups import (
     MINESTUDIO_DATASET_GROUPS,
     get_dataset_group,
 )

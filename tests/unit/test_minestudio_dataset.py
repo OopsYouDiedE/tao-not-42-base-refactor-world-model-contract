@@ -8,7 +8,7 @@ import av
 import lmdb
 import numpy as np
 
-from datasets.minestudio.dataset import MineStudioLMDBDataset
+from data_pipelines.minestudio.dataset import MineStudioLMDBDataset
 
 
 def _video_chunk(frame_count: int) -> bytes:

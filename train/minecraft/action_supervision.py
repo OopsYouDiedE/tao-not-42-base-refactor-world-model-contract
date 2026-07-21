@@ -1,4 +1,4 @@
-"""把 MineStudio 的 VPT 原始动作转换为 Qwen3VL 策略的结构化动作与目标 token 文本。
+"""把 MineStudio 的 VPT 原始动作转换为 Gemma4 策略的结构化动作与目标 token 文本。
 
 对外接口：
     CAMERA_SCALE、DEGREES_PER_MOUSE_PIXEL — 相机归一化标度（与部署端同口径）。
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import torch
 
-from datasets.minestudio.dataset import VPT_KEYS
+from data_pipelines.minestudio.dataset import VPT_KEYS
 from net.action_token_codec import (
     ActionTokenFormat,
     StructuredAction,

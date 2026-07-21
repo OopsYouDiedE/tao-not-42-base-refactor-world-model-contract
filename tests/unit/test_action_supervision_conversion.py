@@ -2,7 +2,7 @@
 
 import torch
 
-from datasets.minestudio.dataset import VPT_KEYS
+from data_pipelines.minestudio.dataset import VPT_KEYS
 from net.action_token_codec import CAMERA_NEUTRAL_BIN, StructuredAction
 from train.minecraft.action_supervision import (
     vpt_action_to_structured,

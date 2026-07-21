@@ -1,14 +1,17 @@
-"""以 Qwen3VL 为视觉大模型、直接生成动作 token 的 Minecraft VLA 策略。
+"""以 Gemma 4（MoE VLM）为视觉大模型、直接生成动作 token 的 Minecraft VLA 策略。
 
 对外接口：
-    Qwen3VLPolicyConfiguration — 策略结构与生成配置（纯配置对象）。
+    Gemma4PolicyConfiguration — 策略结构与生成配置（纯配置对象）。
     HistoryContext — 一次决策所需的历史帧、任务文本与过去动作。
-    Qwen3VLActionPolicy — 封装 Qwen3VL，构造多模态 prompt、生成/解码动作、计算 SFT 损失。
-    build_qwen3vl_action_policy — 加载权重并构造策略（可选 LoRA）。
+    build_prompt_messages — 构造 Gemma4 chat 消息（图文交错）。
+    Gemma4ActionPolicy — 封装 Gemma4，构造多模态 prompt、生成/解码动作、计算 SFT 损失。
+    build_gemma4_action_policy — 用 Unsloth FastVisionModel 加载权重并注入 LoRA。
 
 该模块只负责模型结构与前向，不读取数据集文件、不启动环境（AGENTS §2）。视觉编码由
-Qwen3VL 自带的视觉塔完成，取代旧的 DINOv3 快塔；动作以文本 token 自回归生成，表示
-方式由 ``net.action_token_codec`` 的 ``ActionTokenFormat`` 决定。
+Gemma4 自带的视觉塔完成，取代旧的 Qwen3VL；动作以文本 token 自回归生成，表示方式由
+``net.action_token_codec`` 的 ``ActionTokenFormat`` 决定。Unsloth 仅在
+``build_gemma4_action_policy`` 内延迟导入，保持本模块的纯逻辑部分（prompt 构造）可在无
+GPU、无 unsloth 的环境下测试。
 """
 
 from __future__ import annotations
@@ -29,30 +32,27 @@ from net.action_token_codec import (
 
 
 @dataclass(frozen=True)
-class Qwen3VLPolicyConfiguration:
-    """Qwen3VL 动作策略配置。
+class Gemma4PolicyConfiguration:
+    """Gemma4 动作策略配置。
 
     Attributes
     ----------
     model_name : str
-        Hugging Face 模型标识，默认 Qwen3-VL-8B-Instruct。
+        Hugging Face / Unsloth 模型标识，默认 unsloth/gemma-4-26B-A4B-it（MoE，Text+Image）。
     action_format : ActionTokenFormat
         动作 token 文本表示。
     action_horizon : int
         一次生成的未来动作帧数；部署只执行前若干步后重规划。
     max_history_frames : int
         prompt 中携带的历史帧数（含当前帧）。
-    image_max_pixels : int
-        单帧送入视觉塔前的像素上限，控制显存与序列长度。
     max_new_tokens : int
         生成动作文本的最大新 token 数。
     """
 
-    model_name: str = "Qwen/Qwen3-VL-8B-Instruct"
+    model_name: str = "unsloth/gemma-4-26B-A4B-it"
     action_format: ActionTokenFormat = ActionTokenFormat.COMPACT_TAG
     action_horizon: int = 5
     max_history_frames: int = 4
-    image_max_pixels: int = 256 * 28 * 28
     max_new_tokens: int = 256
 
 
@@ -90,7 +90,10 @@ def build_prompt_messages(
     action_horizon: int,
     include_past_actions: bool = True,
 ) -> list[dict[str, object]]:
-    """构造 Qwen3VL chat 消息列表。
+    """构造 Gemma4 chat 消息列表。
+
+    Gemma4Processor 的 chat 模板要求每条消息的 ``content`` 均为块列表（``[{"type": ...}]``），
+    裸字符串会触发 ``TypeError``，故 system 也用单块文本列表包裹。
 
     Parameters
     ----------
@@ -151,40 +154,33 @@ def build_prompt_messages(
     ]
     content.append({"type": "text", "text": "\n".join(tail)})
     return [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": [{"type": "text", "text": _SYSTEM_PROMPT}]},
         {"role": "user", "content": content},
     ]
 
 
-class Qwen3VLActionPolicy:
-    """封装 Qwen3VL 视觉大模型的动作生成与监督接口。
+class Gemma4ActionPolicy:
+    """封装 Gemma4 视觉大模型的动作生成与监督接口。
 
-    该类持有 processor 与 causal LM 主体。生成路径把多模态 prompt 编码后自回归解码为
-    动作文本，再由 codec 转成结构合法的动作块；监督路径用 teacher forcing 只对目标
-    动作 token 计交叉熵，适合 LoRA/全参 SFT。
+    只做前向 / 生成 / 监督损失，不涉及数据加载与环境交互。生成路径解码为定长结构化动作
+    块，监督路径只对目标动作 token 计交叉熵（图像与 prompt token 标签置 -100）。
     """
 
-    def __init__(
-        self,
-        model: torch.nn.Module,
-        processor: object,
-        configuration: Qwen3VLPolicyConfiguration,
-    ):
+    def __init__(self, model, processor, configuration: Gemma4PolicyConfiguration):
         self.model = model
         self.processor = processor
         self.configuration = configuration
 
     @property
     def device(self) -> torch.device:
-        """返回模型参数所在设备。"""
-        return next(self.model.parameters()).device
+        return self.model.device
 
     def _apply_chat(
         self,
         messages: list[dict[str, object]],
         add_generation_prompt: bool,
     ) -> dict[str, torch.Tensor]:
-        """把 chat 消息处理为模型输入张量。"""
+        """把消息经 processor 转成模型输入张量并搬到设备。"""
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
@@ -194,7 +190,22 @@ class Qwen3VLActionPolicy:
         )
         return {name: value.to(self.device) for name, value in inputs.items()}
 
-    @torch.inference_mode()
+    def _apply_chat_batch(
+        self,
+        conversations: list[list[dict[str, object]]],
+        add_generation_prompt: bool,
+    ) -> dict[str, torch.Tensor]:
+        """批量把多条对话转成左 padding 的模型输入张量并搬到设备。"""
+        inputs = self.processor.apply_chat_template(
+            conversations,
+            tokenize=True,
+            add_generation_prompt=add_generation_prompt,
+            padding=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
+        return {name: value.to(self.device) for name, value in inputs.items()}
+
     def generate_actions(
         self,
         context: HistoryContext,
@@ -202,24 +213,10 @@ class Qwen3VLActionPolicy:
         temperature: float = 0.0,
         seed: int | None = None,
     ) -> tuple[list[StructuredAction], str]:
-        """为一个上下文生成未来 ``action_horizon`` 帧的结构化动作。
+        """自回归生成并解码为定长动作块，返回(动作块, 模型原始文本)。"""
+        from unsloth import FastVisionModel
 
-        Parameters
-        ----------
-        context : HistoryContext
-            多模态上下文。
-        include_past_actions : bool
-            是否在 prompt 中给出过去动作（实验对比"有历史/无历史"）。
-        temperature : float
-            0 表示贪心解码；>0 按温度采样，用于测生成自一致性。
-        seed : int | None
-            采样随机种子，None 表示不显式设定。
-
-        Returns
-        -------
-        tuple[list[StructuredAction], str]
-            解码后的定长动作块与模型原始文本。
-        """
+        FastVisionModel.for_inference(self.model)
         messages = build_prompt_messages(
             context, self.configuration.action_format,
             self.configuration.action_horizon, include_past_actions,
@@ -244,93 +241,97 @@ class Qwen3VLActionPolicy:
 
     def supervised_loss(
         self,
-        context: HistoryContext,
-        target_actions: list[StructuredAction],
+        contexts: list[HistoryContext],
+        targets: list[list[StructuredAction]],
     ) -> torch.Tensor:
-        """对单个样本计算只监督目标动作 token 的交叉熵损失。
+        """对一个 micro-batch 计算 SFT 交叉熵：只监督目标动作 token。
 
-        prompt 部分与图像 token 的标签置为 -100，仅目标动作文本参与损失，
-        构成标准的 VLA 行为克隆监督。返回标量 loss，可反传做 LoRA/全参 SFT。
+        每个样本把目标动作序列作为 assistant 轮加入对话，批量走完整对话模板编码；再批量
+        编码"仅到生成起点"的 prompt 取各样本 prompt 长度。processor 用左 padding，故动作
+        token 一律右对齐——每样本 ``动作 token 数 = 完整有效长度 - prompt 有效长度``，据此把
+        末尾这些位置设为监督标签、其余（system/user/图像/padding）置 -100（AGENTS §5 只对
+        动作监督）。batch 内图像尺寸一致，pixel_values 可张量化。
         """
-        if len(target_actions) != self.configuration.action_horizon:
-            raise ValueError("target_actions 长度必须等于 action_horizon")
-        messages = build_prompt_messages(
-            context, self.configuration.action_format,
-            self.configuration.action_horizon, include_past_actions=True,
-        )
-        prompt_inputs = self._apply_chat(messages, add_generation_prompt=True)
-        target_text = encode_actions(target_actions, self.configuration.action_format)
-        target_ids = self.processor.tokenizer(
-            target_text, add_special_tokens=False, return_tensors="pt",
-        )["input_ids"].to(self.device)
-        input_ids = torch.cat([prompt_inputs["input_ids"], target_ids], dim=1)
-        attention = torch.ones_like(input_ids)
-        labels = input_ids.clone()
-        labels[:, : prompt_inputs["input_ids"].shape[1]] = -100
-        model_inputs = {
-            name: value for name, value in prompt_inputs.items()
-            if name not in ("input_ids", "attention_mask")
-        }
-        outputs = self.model(
-            input_ids=input_ids,
-            attention_mask=attention,
-            labels=labels,
-            **model_inputs,
-        )
+        if len(contexts) != len(targets):
+            raise ValueError("contexts 与 targets 数量必须一致")
+        if not contexts:
+            raise ValueError("batch 不能为空")
+        from unsloth import FastVisionModel
+
+        FastVisionModel.for_training(self.model)
+        full_conversations = []
+        prompt_conversations = []
+        for context, target_actions in zip(contexts, targets):
+            messages = build_prompt_messages(
+                context, self.configuration.action_format,
+                len(target_actions), include_past_actions=True,
+            )
+            target_text = encode_actions(target_actions, self.configuration.action_format)
+            full_conversations.append(messages + [
+                {"role": "assistant",
+                 "content": [{"type": "text", "text": target_text}]},
+            ])
+            prompt_conversations.append(messages)
+        full_inputs = self._apply_chat_batch(full_conversations, add_generation_prompt=False)
+        prompt_inputs = self._apply_chat_batch(prompt_conversations, add_generation_prompt=True)
+        full_valid = full_inputs["attention_mask"].sum(dim=1)  # 每样本非 pad token 数
+        prompt_valid = prompt_inputs["attention_mask"].sum(dim=1)
+        action_lengths = (full_valid - prompt_valid).tolist()
+        sequence_length = full_inputs["input_ids"].shape[1]
+        labels = torch.full_like(full_inputs["input_ids"], -100)
+        for row, action_length in enumerate(action_lengths):
+            if action_length <= 0:
+                raise RuntimeError("目标动作 token 数非正，检查模板与目标文本")
+            start = sequence_length - int(action_length)
+            labels[row, start:] = full_inputs["input_ids"][row, start:]
+        outputs = self.model(**full_inputs, labels=labels)
         return outputs.loss
 
 
-def build_qwen3vl_action_policy(
-    configuration: Qwen3VLPolicyConfiguration,
+def build_gemma4_action_policy(
+    configuration: Gemma4PolicyConfiguration,
     device: torch.device,
     cache_directory: str | None = None,
-    torch_dtype: torch.dtype = torch.bfloat16,
     lora_rank: int = 0,
-) -> Qwen3VLActionPolicy:
-    """加载 Qwen3VL 权重与 processor 并构造动作策略。
+) -> Gemma4ActionPolicy:
+    """用 Unsloth FastVisionModel 加载 Gemma4 权重与 processor 并构造动作策略。
 
     Parameters
     ----------
-    configuration : Qwen3VLPolicyConfiguration
-        策略配置。
+    configuration : Gemma4PolicyConfiguration
+        策略配置（模型名、格式、horizon 等）。
     device : torch.device
-        模型放置设备。
+        目标设备（须为支持 BF16 的 CUDA）。
     cache_directory : str | None
-        Hugging Face 权重缓存目录。
-    torch_dtype : torch.dtype
-        模型计算精度，默认 bfloat16。
+        Hugging Face 缓存目录；None 用默认。
     lora_rank : int
-        >0 时用 PEFT 给语言塔注意力/MLP 注入 LoRA 适配器，仅训练适配器；
-        0 表示不加 LoRA（推理或全参）。
+        >0 时注入 LoRA 适配器（仅训语言层的注意力与 MLP，含 MoE 专家）。=0 用于纯推理。
 
     Returns
     -------
-    Qwen3VLActionPolicy
-        就绪的动作策略。
+    Gemma4ActionPolicy
     """
-    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+    from unsloth import FastVisionModel
 
-    processor = AutoProcessor.from_pretrained(
-        configuration.model_name,
-        cache_dir=cache_directory,
-        max_pixels=configuration.image_max_pixels,
-    )
-    model = Qwen3VLForConditionalGeneration.from_pretrained(
-        configuration.model_name,
-        dtype=torch_dtype,
+    model, processor = FastVisionModel.from_pretrained(
+        model_name=configuration.model_name,
+        load_in_4bit=False,
+        load_in_16bit=True,
+        use_gradient_checkpointing="unsloth",
+        use_exact_model_name=True,
         cache_dir=cache_directory,
     )
     if lora_rank > 0:
-        from peft import LoraConfig, get_peft_model
-
-        lora = LoraConfig(
+        model = FastVisionModel.get_peft_model(
+            model,
             r=lora_rank,
             lora_alpha=2 * lora_rank,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                            "gate_proj", "up_proj", "down_proj"],
             lora_dropout=0.0,
-            task_type="CAUSAL_LM",
+            bias="none",
+            finetune_vision_layers=False,
+            finetune_language_layers=True,
+            finetune_attention_modules=True,
+            finetune_mlp_modules=True,
+            random_state=0,
         )
-        model = get_peft_model(model, lora)
-    model = model.to(device)
-    return Qwen3VLActionPolicy(model, processor, configuration)
+    return Gemma4ActionPolicy(model, processor, configuration)

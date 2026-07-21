@@ -58,6 +58,9 @@ Thumbs.db
 # runs/ — 下载数据/checkpoints/日志,不入库
 runs/
 
+# Unsloth 启动期在工作目录生成的编译缓存,属产物不入库
+unsloth_compiled_cache/
+
 # Test coverage and cache
 .coverage
 .coverage.*

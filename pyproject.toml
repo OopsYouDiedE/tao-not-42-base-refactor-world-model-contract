@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
     "accelerate>=1.0",
+    "anthropic>=0.40",
     "av>=13.1",
     "craftground",
     "huggingface-hub>=0.34",
@@ -20,11 +21,12 @@ dependencies = [
     "opencv-python-headless",
     "peft>=0.13",
     "pillow",
-    "qwen-vl-utils",
     "stable-baselines3",
     "torch",
     "torchvision",
-    "transformers>=4.57",
+    "transformers>=5.5",
+    "unsloth",
+    "unsloth-zoo",
 ]
 
 [project.optional-dependencies]
@@ -35,10 +37,10 @@ train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
 train-minecraft-world-model = "train.minecraft.world_model_training:main"
 evaluate-minecraft-checkpoint = "train.minecraft.evaluate_checkpoint:main"
 probe-action-tokens = "train.minecraft.action_token_probe:main"
-prepare-minestudio-data = "datasets.minestudio.download:main"
+prepare-minestudio-data = "data_pipelines.minestudio.download:main"
 
 [tool.setuptools.packages.find]
-include = ["blocks*", "datasets*", "net*", "rl_training_environments*", "train*"]
+include = ["blocks*", "data_pipelines*", "net*", "rl_training_environments*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,7 +54,7 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["blocks", "datasets", "net", "rl_training_environments", "train"]
+known_first_party = ["blocks", "data_pipelines", "net", "rl_training_environments", "train"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -1,15 +1,18 @@
-"""探测 Qwen3VL 最擅长的动作 token 表示：格式 × horizon × 上下文条件的对照实验。
+"""探测 Gemma4 最擅长的动作 token 表示：格式 × horizon × 上下文条件的对照实验。
 
 对外接口：main（命令行入口）。
 
 协议（对应用户验收口径）：随机抽取若干个含图像与动作的数据窗口；对每种候选文本格式、
 每个未来 horizon（默认 5 与 20 帧）、每种历史上下文条件（正确历史 / 无历史 / 随机历史），
-让 Qwen3VL 生成动作并解码，重复若干次（默认 10）。用"关键动作一致率"评分——只比移动
+让 Gemma4 生成动作并解码，重复若干次（默认 10）。用"关键动作一致率"评分——只比移动
 方向、转向、姿态、攻击 / 使用、快捷栏、相机粗方向，抖动级差异不计。同时报告重复之间的
 自一致性，以及 5 帧与 20 帧的差距。输出 JSON 行与 markdown 汇总。
 """
 
 from __future__ import annotations
+
+# Unsloth 必须在 torch / transformers 之前导入，其启动期 patch 才能生效。
+import unsloth  # noqa: F401  # isort: skip
 
 import argparse
 from collections import Counter
@@ -20,17 +23,17 @@ import random
 import torch
 from PIL import Image
 
-from datasets.minestudio.groups import get_dataset_group
-from datasets.minestudio.dataset import MineStudioLMDBDataset
+from data_pipelines.minestudio.groups import get_dataset_group
+from data_pipelines.minestudio.dataset import MineStudioLMDBDataset
 from net.action_token_codec import (
     CAMERA_NEUTRAL_BIN,
     ActionTokenFormat,
     StructuredAction,
 )
-from net.qwen3vl_policy import (
+from net.gemma4_policy import (
     HistoryContext,
-    Qwen3VLPolicyConfiguration,
-    build_qwen3vl_action_policy,
+    Gemma4PolicyConfiguration,
+    build_gemma4_action_policy,
 )
 from train.minecraft.action_supervision import (
     CAMERA_SCALE,
@@ -238,7 +241,7 @@ def _run_cell(
 
 def _markdown_report(records: list[dict[str, object]]) -> str:
     """把逐单元记录汇总成 markdown 表格与结论。"""
-    lines = ["# Qwen3VL 动作 token 表示实验报告", ""]
+    lines = ["# Gemma4 动作 token 表示实验报告", ""]
     lines.append("关键动作一致率：只比移动/转向/姿态/攻击/使用/快捷栏/相机粗方向，抖动不计。")
     lines.append("")
     lines.append("| 格式 | horizon | 上下文 | 关键动作一致率(均值) | 一致率(最好) | 自一致性 |")
@@ -322,7 +325,7 @@ def main() -> None:
     parser.add_argument("--data-directory", required=True,
                         help="已下载的某个 dataset-group 目录，例如 runs/data/minestudio/10xx")
     parser.add_argument("--dataset-group", default="10xx", choices=("7xx", "9xx", "10xx"))
-    parser.add_argument("--model-name", default="Qwen/Qwen3-VL-8B-Instruct")
+    parser.add_argument("--model-name", default="unsloth/gemma-4-26B-A4B-it")
     parser.add_argument("--cache-directory", default=None)
     parser.add_argument("--history-frames", type=int, default=4)
     parser.add_argument("--horizons", nargs="+", type=int, default=[5, 20])
@@ -398,14 +401,14 @@ def main() -> None:
     for action_format_value in arguments.formats:
         action_format = ActionTokenFormat(action_format_value)
         for horizon in arguments.horizons:
-            configuration = Qwen3VLPolicyConfiguration(
+            configuration = Gemma4PolicyConfiguration(
                 model_name=arguments.model_name,
                 action_format=action_format,
                 action_horizon=horizon,
                 max_history_frames=arguments.history_frames,
                 max_new_tokens=max(96, 40 * horizon),
             )
-            policy = build_qwen3vl_action_policy(
+            policy = build_gemma4_action_policy(
                 configuration, device, arguments.cache_directory,
             )
             for window_position, window_index in enumerate(window_indices):

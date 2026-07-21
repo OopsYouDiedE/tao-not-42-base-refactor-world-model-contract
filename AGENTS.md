@@ -10,7 +10,7 @@
 - Godot 强化学习环境及其共享内存、SB3 适配与 PPO 入口；
 - CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照；
 - MineStudio 完整数据下载、LMDB 读取与无限循环训练；
-- 以 Qwen3VL 为视觉大模型、直接生成动作 token 的 VLA 策略（`net/qwen3vl_policy.py`
+- 以 Gemma4 为视觉大模型、直接生成动作 token 的 VLA 策略（`net/gemma4_policy.py`
   与 `net/action_token_codec.py`），用 LoRA 做行为克隆 SFT。
 
 VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO
@@ -25,8 +25,8 @@ VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、
 |---|---|
 | `blocks/` | 与任务无关的可复用神经网络算子 |
 | `net/` | 模型结构与纯配置对象，不读取文件，不启动环境 |
-| `datasets/` | 可跨训练流程复用的数据读取与原始数据契约 |
-| `datasets/minestudio/` | MineStudio 完整下载、LMDB 读取与原始动作编码 |
+| `data_pipelines/` | 可跨训练流程复用的数据读取与原始数据契约 |
+| `data_pipelines/minestudio/` | MineStudio 完整下载、LMDB 读取与原始动作编码 |
 | `rl_training_environments/godot/` | Godot 通信、进程管理、SB3 适配与训练入口 |
 | `rl_training_environments/godot/engine/` | Godot 4.6.1 .NET 工程与场景 |
 | `rl_training_environments/craftground/` | CraftGround 在线环境及运行状态管理 |
@@ -39,7 +39,7 @@ VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、
 
 ```text
 blocks ← net ← train
-datasets ← train
+data_pipelines ← train
 rl_training_environments ← train
 tests 依赖上述模块，但生产代码不得 import tests
 ```
@@ -62,7 +62,7 @@ tests 依赖上述模块，但生产代码不得 import tests
 - 缺少生产依赖时直接报告，不在生产代码中加入 `try/except` Mock 或静默降级。
 - 禁止添加 `godot-python`。Godot 与 Python 通过文件后端 mmap 通信。
 - 禁止猜测 Linux 发行版包名。Godot、Java、显示服务和驱动的系统安装按运行机器处理。
-- `datasets/` 是本项目的顶层 Python 包；新增 HuggingFace `datasets` 依赖前必须先解决包名冲突。
+- `data_pipelines/` 是本项目的顶层 Python 包；新增 HuggingFace `datasets` 依赖前必须先解决包名冲突。
 
 ## 5. 模型与数值不变量
 
@@ -78,7 +78,7 @@ tests 依赖上述模块，但生产代码不得 import tests
 ## 6. 数据与训练边界
 
 - 原始 MineStudio 数据文件存放在 `runs/data/`，不得提交 LMDB 或 checkpoint。
-- `datasets/minestudio/` 只负责完整下载、读取和原始动作编码，不包含优化器或环境启动。
+- `data_pipelines/minestudio/` 只负责完整下载、读取和原始动作编码，不包含优化器或环境启动。
 - 行为克隆 SFT 无限训练属于 `train/minecraft/`，CraftGround 执行动作契约属于
   `rl_training_environments/craftground/`。
 - 离线 loss 和准确率不是闭环能力结论。闭环结论必须报告固定 seed、样本量和成功指标。
@@ -107,7 +107,7 @@ tests 依赖上述模块，但生产代码不得 import tests
 
 ```bash
 python -m pytest
-python -m compileall -q blocks datasets net rl_training_environments train tests
+python -m compileall -q blocks data_pipelines net rl_training_environments train tests
 ```
 
 涉及 Godot 工程时还要执行：

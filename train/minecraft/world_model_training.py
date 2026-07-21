@@ -1,11 +1,14 @@
-"""下载 MineStudio 数据并对 Qwen3VL 动作策略做无限行为克隆(SFT)训练。
+"""下载 MineStudio 数据并对 Gemma4 动作策略做无限行为克隆(SFT)训练。
 
-以 Qwen3VL 为视觉大模型，用 LoRA 适配器把冻结主干微调成直接输出动作 token 的策略；
-监督信号是数据集真实动作经 codec 编码的目标文本。保留自动 batch 探测、resume 与公开
-Hugging Face 仓库异步上传的骨架。旧的快塔 + Dreamer-lite 世界模型路径已删除。
+以 Gemma 4（MoE VLM）为视觉大模型，用 Unsloth 注入 LoRA 适配器把冻结主干微调成直接
+输出动作 token 的策略；监督信号是数据集真实动作经 codec 编码的目标文本。保留 resume 与
+公开 Hugging Face 仓库异步上传的骨架。旧的 Qwen3VL / 快塔 / Dreamer-lite 路径已删除。
 """
 
 from __future__ import annotations
+
+# Unsloth 必须在 torch / transformers 之前导入，其启动期 patch 才能生效。
+import unsloth  # noqa: F401  # isort: skip
 
 import argparse
 from concurrent.futures import Future
@@ -22,17 +25,17 @@ import torch
 from huggingface_hub import HfApi
 from torch.utils.data import DataLoader
 
-from datasets.minestudio.groups import (
+from data_pipelines.minestudio.groups import (
     MINESTUDIO_DATASET_GROUPS,
     get_dataset_group,
 )
-from datasets.minestudio.dataset import MineStudioLMDBDataset
-from datasets.minestudio.download import prepare_dataset_group
+from data_pipelines.minestudio.dataset import MineStudioLMDBDataset
+from data_pipelines.minestudio.download import prepare_dataset_group
 from net.action_token_codec import ActionTokenFormat
-from net.qwen3vl_policy import (
+from net.gemma4_policy import (
     HistoryContext,
-    Qwen3VLPolicyConfiguration,
-    build_qwen3vl_action_policy,
+    Gemma4PolicyConfiguration,
+    build_gemma4_action_policy,
 )
 from train.minecraft.action_supervision import (
     CAMERA_SCALE,
@@ -41,8 +44,8 @@ from train.minecraft.action_supervision import (
 )
 from train.minecraft.evaluation import key_action_agreement_rate
 
-CHECKPOINT_VERSION = "minecraft_qwen3vl_vla_v1"
-DEFAULT_MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
+CHECKPOINT_VERSION = "minecraft_gemma4_vla_v1"
+DEFAULT_MODEL_NAME = "unsloth/gemma-4-26B-A4B-it"
 
 
 def _frames_to_images(frames: torch.Tensor):
@@ -81,21 +84,28 @@ def _sample_to_context_and_target(
     return context, future
 
 
-def _sft_loss(policy, sample, history_frames, action_horizon, task_text) -> torch.Tensor:
-    """对一个数据窗口计算 SFT 交叉熵损失。"""
-    context, future = _sample_to_context_and_target(
-        sample, history_frames, action_horizon, task_text,
-    )
-    if len(future) != action_horizon:
-        raise RuntimeError("窗口未来动作不足 action_horizon，检查 sequence_length")
-    return policy.supervised_loss(context, future)
+def _sft_loss(policy, samples, history_frames, action_horizon, task_text) -> torch.Tensor:
+    """对一个 micro-batch 的数据窗口计算 SFT 交叉熵损失。
+
+    图像尺寸固定 → 每帧 patch 数固定 → pixel_values 可张量化，故一次前向可并行多个窗口
+    （micro-batch）。逐窗口拆成(上下文, 目标动作)后交给策略的 batch supervised_loss。
+    """
+    contexts = []
+    targets = []
+    for sample in samples:
+        context, future = _sample_to_context_and_target(
+            sample, history_frames, action_horizon, task_text,
+        )
+        if len(future) != action_horizon:
+            raise RuntimeError("窗口未来动作不足 action_horizon，检查 sequence_length")
+        contexts.append(context)
+        targets.append(future)
+    return policy.supervised_loss(contexts, targets)
 
 
-def _single_sample_collate(batch: list[dict]) -> dict:
-    """DataLoader 只取单样本(逐窗口做 SFT，图像数随窗口变，无法张量化 batch)。"""
-    if len(batch) != 1:
-        raise RuntimeError("Qwen3VL SFT 训练按单窗口前向，batch_size 必须为 1")
-    return batch[0]
+def _list_collate(batch: list[dict]) -> list[dict]:
+    """DataLoader 返回窗口列表；图像数随窗口在张量化时右对齐 padding，无需在此堆叠。"""
+    return batch
 
 
 def _data_loader(
@@ -103,16 +113,17 @@ def _data_loader(
     workers: int,
     shuffle: bool,
     prefetch_factor: int,
+    batch_size: int = 1,
     generator: torch.Generator | None = None,
 ) -> DataLoader:
-    """构造单窗口 DataLoader。"""
+    """构造按 micro-batch 取窗口的 DataLoader（collate 返回窗口列表）。"""
     arguments: dict[str, object] = {
         "dataset": dataset,
-        "batch_size": 1,
+        "batch_size": batch_size,
         "shuffle": shuffle,
         "drop_last": False,
         "num_workers": workers,
-        "collate_fn": _single_sample_collate,
+        "collate_fn": _list_collate,
         "persistent_workers": workers > 0,
         "generator": generator,
     }
@@ -273,17 +284,18 @@ def _evaluate(
     total_loss = 0.0
     total_agreement = 0.0
     windows = 0
-    for sample in loader:
-        loss = _sft_loss(policy, sample, history_frames, action_horizon, task_text)
-        total_loss += float(loss)
-        context, future = _sample_to_context_and_target(
-            sample, history_frames, action_horizon, task_text,
-        )
-        predicted, _text = policy.generate_actions(
-            context, include_past_actions=True, temperature=0.0,
-        )
-        total_agreement += key_action_agreement_rate(predicted, future)
-        windows += 1
+    for batch in loader:
+        loss = _sft_loss(policy, batch, history_frames, action_horizon, task_text)
+        total_loss += float(loss) * len(batch)
+        for sample in batch:
+            context, future = _sample_to_context_and_target(
+                sample, history_frames, action_horizon, task_text,
+            )
+            predicted, _text = policy.generate_actions(
+                context, include_past_actions=True, temperature=0.0,
+            )
+            total_agreement += key_action_agreement_rate(predicted, future)
+            windows += 1
         if windows >= maximum_windows:
             break
     if windows == 0:
@@ -295,7 +307,7 @@ def _evaluate(
 
 
 def main() -> None:
-    """下载指定 MineStudio 范围后无限对 Qwen3VL 动作策略做 LoRA SFT。"""
+    """下载指定 MineStudio 范围后无限对 Gemma4 动作策略做 LoRA SFT。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="runs/data/minestudio")
     parser.add_argument(
@@ -313,8 +325,8 @@ def main() -> None:
         help="只下载前若干个图像 LMDB 分片供实验或联调；默认下载全部分片",
     )
     parser.add_argument("--cache-directory", default=None)
-    parser.add_argument("--output", default="runs/checkpoints/minecraft_qwen3vl_vla")
-    parser.add_argument("--hub-repo-id", default="unjustify/minecraft-qwen3vl-vla-10xx")
+    parser.add_argument("--output", default="runs/checkpoints/minecraft_gemma4_vla")
+    parser.add_argument("--hub-repo-id", default="unjustify/minecraft-gemma4-vla-10xx")
     parser.add_argument("--resume", default="auto")
     parser.add_argument(
         "--allow-dataset-transfer",
@@ -330,7 +342,11 @@ def main() -> None:
     parser.add_argument("--lora-rank", type=int, default=16)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--prefetch-factor", type=int, default=4)
-    parser.add_argument("--gradient-accumulation", type=int, default=8)
+    parser.add_argument(
+        "--micro-batch", type=int, default=8,
+        help="一次前向并行的窗口数；实测 Gemma4-26B-A4B 在 96GB 卡上 8 为吞吐/显存甜点",
+    )
+    parser.add_argument("--gradient-accumulation", type=int, default=1)
     parser.add_argument("--image-height", type=int, default=252)
     parser.add_argument("--image-width", type=int, default=448)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
@@ -349,6 +365,8 @@ def main() -> None:
         raise ValueError("lora-rank 必须大于零(SFT 需要可训练适配器)")
     if arguments.gradient_accumulation < 1:
         raise ValueError("gradient-accumulation 必须大于零")
+    if arguments.micro_batch < 1:
+        raise ValueError("micro-batch 必须大于零")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise RuntimeError("该训练入口需要支持 BF16 的 CUDA GPU")
 
@@ -380,14 +398,14 @@ def main() -> None:
         arguments.hub_repo_id, output_directory,
     )
     action_format = ActionTokenFormat(arguments.action_format)
-    policy_configuration = Qwen3VLPolicyConfiguration(
+    policy_configuration = Gemma4PolicyConfiguration(
         model_name=arguments.model_name,
         action_format=action_format,
         action_horizon=arguments.action_horizon,
         max_history_frames=arguments.history_frames,
         max_new_tokens=max(64, 24 * arguments.action_horizon),
     )
-    policy = build_qwen3vl_action_policy(
+    policy = build_gemma4_action_policy(
         policy_configuration, device, arguments.cache_directory,
         lora_rank=arguments.lora_rank,
     )
@@ -427,7 +445,8 @@ def main() -> None:
     generator = torch.Generator().manual_seed(arguments.seed)
     loader = _data_loader(
         dataset, arguments.workers, shuffle=True,
-        prefetch_factor=arguments.prefetch_factor, generator=generator,
+        prefetch_factor=arguments.prefetch_factor,
+        batch_size=arguments.micro_batch, generator=generator,
     )
     validation_loader = None
     if arguments.validation_fraction > 0.0:
@@ -471,9 +490,9 @@ def main() -> None:
             optimizer.zero_grad(set_to_none=True)
             accumulated = 0.0
             for _ in range(arguments.gradient_accumulation):
-                sample = next(batches)
+                samples = next(batches)
                 loss = _sft_loss(
-                    policy, sample, arguments.history_frames,
+                    policy, samples, arguments.history_frames,
                     arguments.action_horizon, task_text,
                 ) / arguments.gradient_accumulation
                 loss.backward()

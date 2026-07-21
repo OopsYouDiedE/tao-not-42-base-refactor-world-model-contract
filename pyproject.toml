@@ -10,6 +10,7 @@ readme = "readme.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
+    "accelerate>=1.0",
     "av>=13.1",
     "craftground",
     "huggingface-hub>=0.34",
@@ -17,9 +18,13 @@ dependencies = [
     "numpy",
     "gymnasium",
     "opencv-python-headless",
+    "peft>=0.13",
+    "pillow",
+    "qwen-vl-utils",
     "stable-baselines3",
     "torch",
-    "transformers>=4.56",
+    "torchvision",
+    "transformers>=4.57",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +34,7 @@ dev = ["pytest>=7.0"]
 train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
 train-minecraft-world-model = "train.minecraft.world_model_training:main"
 evaluate-minecraft-checkpoint = "train.minecraft.evaluate_checkpoint:main"
+probe-action-tokens = "train.minecraft.action_token_probe:main"
 prepare-minestudio-data = "datasets.minestudio.download:main"
 
 [tool.setuptools.packages.find]

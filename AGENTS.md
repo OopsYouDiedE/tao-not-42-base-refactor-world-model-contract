@@ -10,11 +10,12 @@
 - Godot 强化学习环境及其共享内存、SB3 适配与 PPO 入口；
 - CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照；
 - MineStudio 完整数据下载、LMDB 读取与无限循环训练；
-- `SpatiotemporalFastTower` 与训练期 Dreamer-lite 潜状态世界模型。
+- 以 Qwen3VL 为视觉大模型、直接生成动作 token 的 VLA 策略（`net/qwen3vl_policy.py`
+  与 `net/action_token_codec.py`），用 LoRA 做行为克隆 SFT。
 
 VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO
-地图快塔和 `godot-python` 不属于
-当前范围。新增这些能力必须由用户明确要求，不能根据历史文件名自行恢复。
+地图快塔、已移除的 `SpatiotemporalFastTower` / Dreamer-lite 世界模型和 `godot-python`
+不属于当前范围。新增这些能力必须由用户明确要求，不能根据历史文件名自行恢复。
 
 ## 2. 目录职责
 
@@ -29,7 +30,7 @@ VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、
 | `rl_training_environments/godot/` | Godot 通信、进程管理、SB3 适配与训练入口 |
 | `rl_training_environments/godot/engine/` | Godot 4.6.1 .NET 工程与场景 |
 | `rl_training_environments/craftground/` | CraftGround 在线环境及运行状态管理 |
-| `train/minecraft/` | MineStudio 无限行为克隆与潜动力学联合训练 |
+| `train/minecraft/` | MineStudio 无限行为克隆 SFT、动作监督与动作 token 实验 |
 | `tests/unit/` | 不启动真实环境的纯单元测试 |
 | `tests/integration/` | 跨模块契约与离线回放测试 |
 | `runs/` | 数据、日志与 checkpoint，必须保持 Git ignored |
@@ -68,18 +69,17 @@ tests 依赖上述模块，但生产代码不得 import tests
 - 除法和归一化分母必须 `clamp(min=epsilon)`，`epsilon >= 1e-4`。
 - softmax、损失归约、几何计算和其他危险算子使用 fp32。
 - 禁止无界 `exp`；确需指数时必须证明输入和输出有界。
-- 动作头必须在结构上有界。互斥动作应使用类别分布，不能独立采样出前后同按、
-  左右同按、多个 hotbar 或潜行与冲刺同按。
+- 动作必须在结构上有界。互斥动作组（前后、左右、姿态、hotbar）在解码端强制至多一个
+  被激活，不能同时输出前后同按、左右同按、多个 hotbar 或潜行与冲刺同按；无论大模型
+  生成的文本多脏，`net/action_token_codec.py` 的解码结果都必须结构合法。
 - rollout 和递归路径不用 BatchNorm。
-- 快塔 v2 默认使用 `NullMemory`。地图或其他长期记忆只有通过独立消融后才能成为默认项。
-- 当前帧空间网格不得用 CLS 或全局池化替代；历史帧池化不能删除连续时间维。
-- 世界模型只能在训练期作为辅助路径；部署快路径不得依赖像素重建或想象 rollout。
+- 动作 token 解码永远返回定长、合法的动作块：识别不足补 noop，超出截断，非法组合消解。
 
 ## 6. 数据与训练边界
 
 - 原始 MineStudio 数据文件存放在 `runs/data/`，不得提交 LMDB 或 checkpoint。
 - `datasets/minestudio/` 只负责完整下载、读取和原始动作编码，不包含优化器或环境启动。
-- 行为克隆与潜动力学无限训练属于 `train/minecraft/`，CraftGround 执行动作契约属于
+- 行为克隆 SFT 无限训练属于 `train/minecraft/`，CraftGround 执行动作契约属于
   `rl_training_environments/craftground/`。
 - 离线 loss 和准确率不是闭环能力结论。闭环结论必须报告固定 seed、样本量和成功指标。
 - checkpoint 结构不兼容时必须显式升级名称或版本，禁止静默部分加载。

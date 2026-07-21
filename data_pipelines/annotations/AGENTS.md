@@ -38,11 +38,41 @@ annotation（模型产出的标注全文）`。
 
 ## 案例（真实窗口 10xx #1370，看图核验）
 
-案例基于真实导出帧图（`runs/annotate_sample/step*.png`，拼图 `mosaic.png`）与
-`actions.json` 真值序列。场景：户外暗绿色地面上摆着浅色**橡木木板**（同心方形木纹）排成
-加号/菱形，玩家俯视地面逐块放置、绕着阵列后退调整视角，底部为热键栏 HUD。任务目标
+案例产物已固化在本目录 `sample/`（入库，clone 即可查看）：
+- `sample/window_1370_mosaic.png` — 8 帧 5fps 采样拼图（2×4），每帧下方标真值动作。
+- `sample/window_1370_actions.json` — 真值序列（每步 `raw_frame` 与 `aggregated_action`）。
+- `sample/window_1370_annotation.md` — 完整 8 步参考标注。
+
+场景（对照 mosaic 图）：户外暗绿色地面上摆着浅色**橡木木板**（同心方形木纹）排成加号/
+菱形，玩家俯视地面逐块放置、绕着阵列后退调整视角，底部为热键栏 HUD。任务目标
 `obtain a diamond pickaxe through the Minecraft technology tree`。去抖阈值 `|Δbin| ≤ 1`
-（`CAMERA_JITTER_BIN = 1`）。完整 8 步标注见 `runs/annotate_sample/annotation_reference.md`。
+（`CAMERA_JITTER_BIN = 1`）。
+
+**Step 0 —— 真值动作：`use`**（原始 `use cam(+1,-1)`，相机两分量均 ±1 属抖动，已滤除）
+```
+Scene: 俯视地面，3-4 块橡木木板排成 L/角形，中心一块颜色偏亮（刚放下）。
+Type: mouse
+Key: right_click
+Action: press
+Explanation: 准星对准地面木板阵列的空位，use（右键）用于放置方块，正在把橡木木板补进图案。
+```
+
+**Step 6 —— 真值动作：`back, strafe-right, hotbar-2`**（原始 `B R h2 cam(+1,+0)`，相机 yaw+1 属抖动）
+```
+Scene: 继续后退，木板阵列偏左，右下有独立方块，热键栏高亮格切换。
+Type: keyboard
+Key: s
+Action: hold
+Explanation: 后退（s）拉开与已放方块的距离，绕到下一个放置点。
+Type: keyboard
+Key: d
+Action: hold
+Explanation: 右移（d）横向对齐到阵列右侧，配合后退调整站位。
+Type: keyboard
+Key: 2
+Action: press
+Explanation: 切换热键栏第 2 格更换手持物品，对应底部 HUD 高亮格变化。
+```
 
 **Step 0 —— 真值动作：`use`**（原始 `use cam(+1,-1)`，相机两分量均 ±1 属抖动，已滤除）
 ```

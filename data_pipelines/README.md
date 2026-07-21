@@ -23,8 +23,9 @@
 
 ### 核验样本（10xx 窗口 #1370，5fps 降采样 8 步）
 
-合成图见 `runs/annotate_sample/mosaic.png`（2行×4列，每帧下方标真值动作，可直接打开）。
-真值序列见 `runs/annotate_sample/actions.json`。
+合成图见 `annotations/sample/window_1370_mosaic.png`（2行×4列，每帧下方标真值动作，
+入库可直接打开）。真值序列见 `annotations/sample/window_1370_actions.json`，完整参考
+标注见 `annotations/sample/window_1370_annotation.md`。
 
 每帧 448×252，原始 20fps，stride=4，各区域像素均值如下（由 numpy 真算，可复现）：
 
@@ -44,16 +45,7 @@
 - 中心 R>G>B 差值约 40-70 → 暖棕黄色，木材/泥土类方块（石头的 R≈G≈B 差值<20）。
 - 整段多帧 pitch+（低头）+ use 动作 → 玩家俯视地面方块做交互操作。
 
-像素均值重算命令：
-```bash
-cd /tmp && python -c "
-import numpy as np; from PIL import Image; from pathlib import Path
-base = Path('/workspace/.../runs/annotate_sample')
-for i in range(8):
-    img = np.array(Image.open(base/f'step{i}.png')).astype(float)
-    h,w = img.shape[:2]
-    top = img[:h//5]; center = img[2*h//5:3*h//5, w//4:3*w//4]
-    def rgb(a): return f'R{a.mean(axis=(0,1))[0]:.0f} G{a.mean(axis=(0,1))[1]:.0f} B{a.mean(axis=(0,1))[2]:.0f}'
-    print(f'step{i} top={rgb(top)} center={rgb(center)}')
-"
-```
+采样与聚合逻辑即 `annotations/sonnet_action_annotator.py` 的 `sample_window` /
+`aggregate_actions`（同一套 5fps 降采样与去抖），上表的帧与真值由其在窗口 #1370 上产出。
+仓库内固化的 `annotations/sample/window_1370_mosaic.png` 已把 8 帧拼在一张图里，可直接
+肉眼核对上述颜色判断，无需重新导出。

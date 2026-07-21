@@ -1,0 +1,49 @@
+{
+  "window_index": 1370,
+  "richness": 8,
+  "task": "obtain a diamond pickaxe through the Minecraft technology tree",
+  "fps": 5,
+  "stride": 4,
+  "steps": [
+    {
+      "step": 0,
+      "raw_frame": 0,
+      "aggregated_action": "use cam(+1,-1)"
+    },
+    {
+      "step": 1,
+      "raw_frame": 4,
+      "aggregated_action": "F jump cam(-2,+3)"
+    },
+    {
+      "step": 2,
+      "raw_frame": 8,
+      "aggregated_action": "F jump cam(+0,+1)"
+    },
+    {
+      "step": 3,
+      "raw_frame": 12,
+      "aggregated_action": "F jump cam(+2,+2)"
+    },
+    {
+      "step": 4,
+      "raw_frame": 16,
+      "aggregated_action": "cam(+2,+3)"
+    },
+    {
+      "step": 5,
+      "raw_frame": 20,
+      "aggregated_action": "B cam(+3,+3)"
+    },
+    {
+      "step": 6,
+      "raw_frame": 24,
+      "aggregated_action": "B R h2 cam(+1,+0)"
+    },
+    {
+      "step": 7,
+      "raw_frame": 28,
+      "aggregated_action": "B R h1 cam(+2,+1)"
+    }
+  ]
+}

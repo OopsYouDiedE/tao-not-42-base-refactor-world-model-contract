@@ -1,8 +1,8 @@
 // 动作记录器: 为 mineflayer bot 的每个动作记录 startTick 与 durationTicks。
-// 时间基准用 bot.time.age (Minecraft 世界年龄, 20 tick/秒), 与 MineStudio 20fps 对齐。
+// 时间基准用 bot.time.age (Minecraft 世界年龄, 20 tick/秒)。
 // 覆盖 6 类: 移动(move) / 转视角(look) / 跳跃(jump) / 合成(craft) / 放置(place) / 破坏(dig)。
 //
-// 输出动作串对齐 data_pipelines/annotations 约定:
+// 输出动作串对齐 net/action_token_codec.py 的规范动作:
 //   移动 F/B/L/R, jump/sneak/sprint, 破坏 attack, 使用/交互 use, 相机 cam(dYaw,dPitch)。
 // 每条记录形如:
 //   { type, label, startTick, endTick, durationTicks, startMs, durationMs, detail }

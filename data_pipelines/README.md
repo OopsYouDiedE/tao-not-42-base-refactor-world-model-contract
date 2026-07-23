@@ -49,3 +49,18 @@
 `aggregate_actions`（同一套 5fps 降采样与去抖），上表的帧与真值由其在窗口 #1370 上产出。
 仓库内固化的 `annotations/sample/window_1370_mosaic.png` 已把 8 帧拼在一张图里，可直接
 肉眼核对上述颜色判断，无需重新导出。
+
+## Mineflayer 动作数据来源（mineflayer_actions 子包）
+
+`mineflayer_actions/` 用 mineflayer 驱动无头 bot 在真实 Java Minecraft 服务器上**主动
+执行**动作，记录每个动作的**起始 tick 与持续时长**，产出结构化动作序列。与 MineStudio
+被动读取离线真值互补：这里可控地生成"哪个动作、何时开始、持续多久"的精确标注。
+
+覆盖 6 类动作：移动 `F/B/L/R`、姿态 `jump/sneak/sprint`、转视角 `cam(dYaw,dPitch)`、
+合成 `craft:*`、放置 `use`、破坏 `attack`；动作串表示与 `annotations` 约定对齐，时间基准
+`bot.time.age`（20 tick/秒）与 MineStudio 20fps 对齐。原理、动作字段与运行前置见
+`mineflayer_actions/AGENTS.md`，从零搭建服务器到采集的完整流程见
+`mineflayer_actions/SETUP.md`，参考输出见 `mineflayer_actions/sample/session_actions.json`。
+
+该子包是 Node.js 工具链（依赖见其 `package.json`），产物（server.jar、世界、
+node_modules、采集 JSON）均为运行期数据，不入库。

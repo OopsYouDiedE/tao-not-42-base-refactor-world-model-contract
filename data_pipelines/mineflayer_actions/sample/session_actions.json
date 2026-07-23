@@ -1,0 +1,129 @@
+{
+  "source": "mineflayer",
+  "serverVersion": "1.16.5",
+  "task": "six_action_smoke",
+  "sessionStartTick": 72057,
+  "tickRate": 20,
+  "actionCount": 9,
+  "records": [
+    {
+      "type": "sustained",
+      "label": "F",
+      "startTick": 72057,
+      "endTick": 72077,
+      "durationTicks": 20,
+      "startMs": 1784795630985,
+      "durationMs": 1505,
+      "detail": {
+        "control": "forward"
+      }
+    },
+    {
+      "type": "sustained",
+      "label": "jump",
+      "startTick": 72077,
+      "endTick": 72077,
+      "durationTicks": 0,
+      "startMs": 1784795632490,
+      "durationMs": 405,
+      "detail": {
+        "control": "jump"
+      }
+    },
+    {
+      "type": "look",
+      "label": "cam(+90,+17)",
+      "startTick": 72077,
+      "endTick": 72077,
+      "durationTicks": 0,
+      "startMs": 1784795632895,
+      "durationMs": 1,
+      "detail": {
+        "deltaYaw": 90,
+        "deltaPitch": 17
+      }
+    },
+    {
+      "type": "craft",
+      "label": "craft:oak_planks",
+      "startTick": 72117,
+      "endTick": 72117,
+      "durationTicks": 0,
+      "startMs": 1784795634064,
+      "durationMs": 34,
+      "detail": {
+        "result": "oak_planks",
+        "count": 2,
+        "ok": true,
+        "err": null
+      }
+    },
+    {
+      "type": "look",
+      "label": "cam(+0,+17)",
+      "startTick": 72117,
+      "endTick": 72117,
+      "durationTicks": 0,
+      "startMs": 1784795634601,
+      "durationMs": 0,
+      "detail": {
+        "deltaYaw": 0,
+        "deltaPitch": 17
+      }
+    },
+    {
+      "type": "look",
+      "label": "cam(-70,-76)",
+      "startTick": 72117,
+      "endTick": 72137,
+      "durationTicks": 20,
+      "startMs": 1784795634601,
+      "durationMs": 458,
+      "detail": {
+        "deltaYaw": -70,
+        "deltaPitch": -76
+      }
+    },
+    {
+      "type": "place",
+      "label": "use",
+      "startTick": 72117,
+      "endTick": 72137,
+      "durationTicks": 20,
+      "startMs": 1784795634601,
+      "durationMs": 463,
+      "detail": {
+        "reference": "grass_block",
+        "ok": true,
+        "err": null
+      }
+    },
+    {
+      "type": "look",
+      "label": "cam(+0,+10)",
+      "startTick": 72137,
+      "endTick": 72137,
+      "durationTicks": 0,
+      "startMs": 1784795635478,
+      "durationMs": 11,
+      "detail": {
+        "deltaYaw": 0,
+        "deltaPitch": 10
+      }
+    },
+    {
+      "type": "dig",
+      "label": "attack",
+      "startTick": 72137,
+      "endTick": 72137,
+      "durationTicks": 0,
+      "startMs": 1784795635477,
+      "durationMs": 22,
+      "detail": {
+        "block": "stone",
+        "ok": true,
+        "err": null
+      }
+    }
+  ]
+}

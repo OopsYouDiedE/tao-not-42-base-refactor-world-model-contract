@@ -1,0 +1,1379 @@
+{
+  "source": "mineflayer",
+  "serverVersion": "1.16.5",
+  "gameMode": "survival",
+  "tickRate": 20,
+  "task": "survival_mining_chain",
+  "finalImage": "node_13_final.png",
+  "nodeCount": 13,
+  "finalInventory": "dirtx8, wooden_pickaxex1, stickx2, oak_planksx3, cobblestonex4",
+  "nodes": [
+    {
+      "index": 0,
+      "name": "walk_to_tree",
+      "note": "朝树移动",
+      "image": "node_00_walk_to_tree.png",
+      "startTick": 177356,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(-316,+81)",
+          "startTick": 177356,
+          "endTick": 177356,
+          "durationTicks": 0,
+          "startMs": 1784801216831,
+          "durationMs": 252,
+          "detail": {
+            "dYaw": -316,
+            "dPitch": 81
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 177356,
+          "endTick": 177536,
+          "durationTicks": 180,
+          "startMs": 1784801216830,
+          "durationMs": 7785,
+          "detail": {
+            "block": "stone",
+            "ok": true,
+            "err": null
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+6)",
+          "startTick": 177536,
+          "endTick": 177536,
+          "durationTicks": 0,
+          "startMs": 1784801224708,
+          "durationMs": 208,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 6
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177536,
+          "endTick": 177556,
+          "durationTicks": 20,
+          "startMs": 1784801224911,
+          "durationMs": 84,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801224995,
+          "durationMs": 183,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+1,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225060,
+          "durationMs": 118,
+          "detail": {
+            "dYaw": 1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+1,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225120,
+          "durationMs": 58,
+          "detail": {
+            "dYaw": 1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+1,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225171,
+          "durationMs": 7,
+          "detail": {
+            "dYaw": 1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "F",
+          "startTick": 177536,
+          "endTick": 177556,
+          "durationTicks": 20,
+          "startMs": 1784801224708,
+          "durationMs": 537,
+          "detail": {
+            "control": "forward"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "sprint",
+          "startTick": 177536,
+          "endTick": 177556,
+          "durationTicks": 20,
+          "startMs": 1784801224911,
+          "durationMs": 335,
+          "detail": {
+            "control": "sprint"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+1,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225228,
+          "durationMs": 20,
+          "detail": {
+            "dYaw": 1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+1,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225235,
+          "durationMs": 13,
+          "detail": {
+            "dYaw": 1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+1,+0)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225242,
+          "durationMs": 6,
+          "detail": {
+            "dYaw": 1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-1,+41)",
+          "startTick": 177556,
+          "endTick": 177556,
+          "durationTicks": 0,
+          "startMs": 1784801225295,
+          "durationMs": 26,
+          "detail": {
+            "dYaw": -1,
+            "dPitch": 41
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 177556,
+          "endTick": 177576,
+          "durationTicks": 20,
+          "startMs": 1784801225295,
+          "durationMs": 779,
+          "detail": {
+            "block": "dirt",
+            "ok": true,
+            "err": null
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,-48)",
+          "startTick": 177576,
+          "endTick": 177576,
+          "durationTicks": 0,
+          "startMs": 1784801226175,
+          "durationMs": 4,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": -48
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 177576,
+          "endTick": 177596,
+          "durationTicks": 20,
+          "startMs": 1784801226175,
+          "durationMs": 758,
+          "detail": {
+            "block": "dirt",
+            "ok": true,
+            "err": null
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+7)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801226997,
+          "durationMs": 163,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 7
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227159,
+          "durationMs": 150,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227308,
+          "durationMs": 116,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227369,
+          "durationMs": 55,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227397,
+          "durationMs": 27,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227411,
+          "durationMs": 13,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "F",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801226997,
+          "durationMs": 455,
+          "detail": {
+            "control": "forward"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "sprint",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227159,
+          "durationMs": 293,
+          "detail": {
+            "control": "sprint"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227443,
+          "durationMs": 9,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227447,
+          "durationMs": 5,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-1,+0)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227451,
+          "durationMs": 1,
+          "detail": {
+            "dYaw": -1,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-89,+89)",
+          "startTick": 177596,
+          "endTick": 177596,
+          "durationTicks": 0,
+          "startMs": 1784801227502,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": -89,
+            "dPitch": 89
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 177596,
+          "endTick": 177616,
+          "durationTicks": 20,
+          "startMs": 1784801227502,
+          "durationMs": 764,
+          "detail": {
+            "block": "dirt",
+            "ok": true,
+            "err": null
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801228629,
+          "durationMs": 141,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801228770,
+          "durationMs": 227,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801228853,
+          "durationMs": 144,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801228914,
+          "durationMs": 83,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801228976,
+          "durationMs": 21,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+89,-89)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801228359,
+          "durationMs": 638,
+          "detail": {
+            "dYaw": 89,
+            "dPitch": -89
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801229102,
+          "durationMs": 518,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801229246,
+          "durationMs": 374,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 177616,
+          "endTick": 177616,
+          "durationTicks": 0,
+          "startMs": 1784801229177,
+          "durationMs": 443,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177616,
+          "endTick": 177636,
+          "durationTicks": 20,
+          "startMs": 1784801229620,
+          "durationMs": 61,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177636,
+          "endTick": 177636,
+          "durationTicks": 0,
+          "startMs": 1784801230071,
+          "durationMs": 28,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177636,
+          "endTick": 177636,
+          "durationTicks": 0,
+          "startMs": 1784801230324,
+          "durationMs": 1,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177636,
+          "endTick": 177636,
+          "durationTicks": 0,
+          "startMs": 1784801230604,
+          "durationMs": 1,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+77,+0)",
+          "startTick": 177616,
+          "endTick": 177636,
+          "durationTicks": 20,
+          "startMs": 1784801229319,
+          "durationMs": 1604,
+          "detail": {
+            "dYaw": 77,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+11,+0)",
+          "startTick": 177636,
+          "endTick": 177636,
+          "durationTicks": 0,
+          "startMs": 1784801229681,
+          "durationMs": 1242,
+          "detail": {
+            "dYaw": 11,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+8,+0)",
+          "startTick": 177636,
+          "endTick": 177636,
+          "durationTicks": 0,
+          "startMs": 1784801230099,
+          "durationMs": 824,
+          "detail": {
+            "dYaw": 8,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+7,+0)",
+          "startTick": 177636,
+          "endTick": 177636,
+          "durationTicks": 0,
+          "startMs": 1784801230325,
+          "durationMs": 598,
+          "detail": {
+            "dYaw": 7,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177636,
+          "endTick": 177656,
+          "durationTicks": 20,
+          "startMs": 1784801230920,
+          "durationMs": 275,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177656,
+          "endTick": 177656,
+          "durationTicks": 0,
+          "startMs": 1784801231674,
+          "durationMs": 9,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "F",
+          "startTick": 177616,
+          "endTick": 177656,
+          "durationTicks": 40,
+          "startMs": 1784801228366,
+          "durationMs": 3505,
+          "detail": {
+            "control": "forward"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177656,
+          "endTick": 177656,
+          "durationTicks": 0,
+          "startMs": 1784801231871,
+          "durationMs": 0,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "sprint",
+          "startTick": 177616,
+          "endTick": 177656,
+          "durationTicks": 40,
+          "startMs": 1784801228629,
+          "durationMs": 3242,
+          "detail": {
+            "control": "sprint"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177656,
+          "endTick": 177656,
+          "durationTicks": 0,
+          "startMs": 1784801232151,
+          "durationMs": 63,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+2,+0)",
+          "startTick": 177636,
+          "endTick": 177656,
+          "durationTicks": 20,
+          "startMs": 1784801230605,
+          "durationMs": 1798,
+          "detail": {
+            "dYaw": 2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-2,+0)",
+          "startTick": 177656,
+          "endTick": 177656,
+          "durationTicks": 0,
+          "startMs": 1784801231195,
+          "durationMs": 1208,
+          "detail": {
+            "dYaw": -2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-3,+0)",
+          "startTick": 177656,
+          "endTick": 177656,
+          "durationTicks": 0,
+          "startMs": 1784801231683,
+          "durationMs": 720,
+          "detail": {
+            "dYaw": -3,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-2,+0)",
+          "startTick": 177656,
+          "endTick": 177656,
+          "durationTicks": 0,
+          "startMs": 1784801231941,
+          "durationMs": 462,
+          "detail": {
+            "dYaw": -2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177656,
+          "endTick": 177676,
+          "durationTicks": 20,
+          "startMs": 1784801232390,
+          "durationMs": 219,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177676,
+          "endTick": 177676,
+          "durationTicks": 0,
+          "startMs": 1784801232789,
+          "durationMs": 14,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "sustained",
+          "label": "jump",
+          "startTick": 177676,
+          "endTick": 177676,
+          "durationTicks": 0,
+          "startMs": 1784801232977,
+          "durationMs": 2,
+          "detail": {
+            "control": "jump"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-2,+0)",
+          "startTick": 177656,
+          "endTick": 177676,
+          "durationTicks": 20,
+          "startMs": 1784801232214,
+          "durationMs": 782,
+          "detail": {
+            "dYaw": -2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-2,+0)",
+          "startTick": 177676,
+          "endTick": 177676,
+          "durationTicks": 0,
+          "startMs": 1784801232609,
+          "durationMs": 387,
+          "detail": {
+            "dYaw": -2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-2,+0)",
+          "startTick": 177676,
+          "endTick": 177676,
+          "durationTicks": 0,
+          "startMs": 1784801232803,
+          "durationMs": 193,
+          "detail": {
+            "dYaw": -2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-2,+0)",
+          "startTick": 177676,
+          "endTick": 177676,
+          "durationTicks": 0,
+          "startMs": 1784801232979,
+          "durationMs": 17,
+          "detail": {
+            "dYaw": -2,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-1,+0)",
+          "startTick": 177676,
+          "endTick": 177676,
+          "durationTicks": 0,
+          "startMs": 1784801232987,
+          "durationMs": 9,
+          "detail": {
+            "dYaw": -1,
+            "dPitch": 0
+          }
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "name": "chop_log_1",
+      "note": "砍原木",
+      "image": "node_01_chop_log_1.png",
+      "startTick": 178116,
+      "actions": [
+        {
+          "type": "place",
+          "label": "use",
+          "startTick": 177916,
+          "endTick": 178016,
+          "durationTicks": 100,
+          "startMs": 1784801243082,
+          "durationMs": 6053,
+          "detail": {
+            "ref": "air",
+            "ok": false,
+            "err": "Event blockUpdate:(4, 73, 115) did not fire within timeout of 5000ms"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+103,+135)",
+          "startTick": 178116,
+          "endTick": 178116,
+          "durationTicks": 0,
+          "startMs": 1784801253935,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 103,
+            "dPitch": 135
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 178116,
+          "endTick": 178116,
+          "durationTicks": 0,
+          "startMs": 1784801253935,
+          "durationMs": 1,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 178116,
+          "endTick": 178196,
+          "durationTicks": 80,
+          "startMs": 1784801253935,
+          "durationMs": 3002,
+          "detail": {
+            "block": "oak_log",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "name": "chop_log_2",
+      "note": "砍原木",
+      "image": "node_02_chop_log_2.png",
+      "startTick": 178476,
+      "actions": [
+        {
+          "type": "place",
+          "label": "use",
+          "startTick": 178316,
+          "endTick": 178436,
+          "durationTicks": 120,
+          "startMs": 1784801263497,
+          "durationMs": 5502,
+          "detail": {
+            "ref": "air",
+            "ok": false,
+            "err": "Event blockUpdate:(4, 73, 115) did not fire within timeout of 5000ms"
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(-212,+90)",
+          "startTick": 178476,
+          "endTick": 178476,
+          "durationTicks": 0,
+          "startMs": 1784801271396,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": -212,
+            "dPitch": 90
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 178476,
+          "endTick": 178476,
+          "durationTicks": 0,
+          "startMs": 1784801271396,
+          "durationMs": 1,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 178476,
+          "endTick": 178536,
+          "durationTicks": 60,
+          "startMs": 1784801271396,
+          "durationMs": 3002,
+          "detail": {
+            "block": "oak_log",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "name": "chop_log_3",
+      "note": "砍原木",
+      "image": "node_03_chop_log_3.png",
+      "startTick": 178796,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(-180,+83)",
+          "startTick": 178796,
+          "endTick": 178796,
+          "durationTicks": 0,
+          "startMs": 1784801288840,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": -180,
+            "dPitch": 83
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 178796,
+          "endTick": 178796,
+          "durationTicks": 0,
+          "startMs": 1784801288840,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 178796,
+          "endTick": 178896,
+          "durationTicks": 100,
+          "startMs": 1784801288840,
+          "durationMs": 3001,
+          "detail": {
+            "block": "oak_log",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "name": "craft_planks",
+      "note": "原木→木板",
+      "image": "node_04_craft_planks.png",
+      "startTick": 178936,
+      "actions": [
+        {
+          "type": "craft",
+          "label": "craft:oak_planks",
+          "startTick": 178936,
+          "endTick": 178936,
+          "durationTicks": 0,
+          "startMs": 1784801294621,
+          "durationMs": 24,
+          "detail": {
+            "result": "oak_planks",
+            "count": 3,
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "name": "craft_stick",
+      "note": "木板→木棍",
+      "image": "node_05_craft_stick.png",
+      "startTick": 178976,
+      "actions": [
+        {
+          "type": "craft",
+          "label": "craft:stick",
+          "startTick": 178976,
+          "endTick": 178996,
+          "durationTicks": 20,
+          "startMs": 1784801296901,
+          "durationMs": 22,
+          "detail": {
+            "result": "stick",
+            "count": 1,
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "name": "craft_table",
+      "note": "木板→工作台",
+      "image": "node_06_craft_table.png",
+      "startTick": 179016,
+      "actions": [
+        {
+          "type": "craft",
+          "label": "craft:crafting_table",
+          "startTick": 179016,
+          "endTick": 179036,
+          "durationTicks": 20,
+          "startMs": 1784801299472,
+          "durationMs": 70,
+          "detail": {
+            "result": "crafting_table",
+            "count": 1,
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "name": "place_table",
+      "note": "放置工作台",
+      "image": "node_07_place_table.png",
+      "startTick": 179076,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(+236,-136)",
+          "startTick": 179116,
+          "endTick": 179116,
+          "durationTicks": 0,
+          "startMs": 1784801303090,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 236,
+            "dPitch": -136
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,-9)",
+          "startTick": 179116,
+          "endTick": 179116,
+          "durationTicks": 0,
+          "startMs": 1784801303090,
+          "durationMs": 27,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": -9
+          }
+        },
+        {
+          "type": "place",
+          "label": "use",
+          "startTick": 179116,
+          "endTick": 179116,
+          "durationTicks": 0,
+          "startMs": 1784801303090,
+          "durationMs": 42,
+          "detail": {
+            "ref": "grass_block",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "name": "craft_pickaxe",
+      "note": "合成木镐(靠工作台)",
+      "image": "node_08_craft_pickaxe.png",
+      "startTick": 179216,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(+0,+9)",
+          "startTick": 179216,
+          "endTick": 179216,
+          "durationTicks": 0,
+          "startMs": 1784801308477,
+          "durationMs": 2,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 9
+          }
+        },
+        {
+          "type": "craft",
+          "label": "craft:wooden_pickaxe",
+          "startTick": 179216,
+          "endTick": 179216,
+          "durationTicks": 0,
+          "startMs": 1784801308476,
+          "durationMs": 20,
+          "detail": {
+            "result": "wooden_pickaxe",
+            "count": 1,
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "name": "mine_stone_1",
+      "note": "用木镐挖石头",
+      "image": "node_09_mine_stone_1.png",
+      "startTick": 179316,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(+0,-1)",
+          "startTick": 179316,
+          "endTick": 179316,
+          "durationTicks": 0,
+          "startMs": 1784801313882,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": -1
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 179316,
+          "endTick": 179316,
+          "durationTicks": 0,
+          "startMs": 1784801313882,
+          "durationMs": 1,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 179316,
+          "endTick": 179356,
+          "durationTicks": 40,
+          "startMs": 1784801313882,
+          "durationMs": 1151,
+          "detail": {
+            "block": "stone",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "name": "mine_stone_2",
+      "note": "用木镐挖石头",
+      "image": "node_10_mine_stone_2.png",
+      "startTick": 179476,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(+180,+37)",
+          "startTick": 179476,
+          "endTick": 179476,
+          "durationTicks": 0,
+          "startMs": 1784801322177,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 180,
+            "dPitch": 37
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 179476,
+          "endTick": 179476,
+          "durationTicks": 0,
+          "startMs": 1784801322177,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 179476,
+          "endTick": 179516,
+          "durationTicks": 40,
+          "startMs": 1784801322177,
+          "durationMs": 1152,
+          "detail": {
+            "block": "stone",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "name": "mine_stone_3",
+      "note": "用木镐挖石头",
+      "image": "node_11_mine_stone_3.png",
+      "startTick": 179596,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(-180,-37)",
+          "startTick": 179596,
+          "endTick": 179596,
+          "durationTicks": 0,
+          "startMs": 1784801327599,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": -180,
+            "dPitch": -37
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 179596,
+          "endTick": 179596,
+          "durationTicks": 0,
+          "startMs": 1784801327599,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 179596,
+          "endTick": 179616,
+          "durationTicks": 20,
+          "startMs": 1784801327599,
+          "durationMs": 1151,
+          "detail": {
+            "block": "stone",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "name": "mine_stone_4",
+      "note": "用木镐挖石头",
+      "image": "node_12_mine_stone_4.png",
+      "startTick": 179696,
+      "actions": [
+        {
+          "type": "look",
+          "label": "cam(+180,+37)",
+          "startTick": 179696,
+          "endTick": 179696,
+          "durationTicks": 0,
+          "startMs": 1784801332182,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 180,
+            "dPitch": 37
+          }
+        },
+        {
+          "type": "look",
+          "label": "cam(+0,+0)",
+          "startTick": 179696,
+          "endTick": 179696,
+          "durationTicks": 0,
+          "startMs": 1784801332182,
+          "durationMs": 0,
+          "detail": {
+            "dYaw": 0,
+            "dPitch": 0
+          }
+        },
+        {
+          "type": "dig",
+          "label": "attack",
+          "startTick": 179696,
+          "endTick": 179716,
+          "durationTicks": 20,
+          "startMs": 1784801332182,
+          "durationMs": 1151,
+          "detail": {
+            "block": "stone",
+            "ok": true,
+            "err": null
+          }
+        }
+      ]
+    }
+  ]
+}

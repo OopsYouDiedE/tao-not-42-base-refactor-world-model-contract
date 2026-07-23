@@ -9,13 +9,14 @@
 
 - Godot 强化学习环境及其共享内存、SB3 适配与 PPO 入口；
 - CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照；
-- MineStudio 完整数据下载、LMDB 读取与无限循环训练；
+- mineflayer 主动执行动作与观测帧采集的 Minecraft 行为数据来源；
 - 以 Gemma4 为视觉大模型、直接生成动作 token 的 VLA 策略（`net/gemma4_policy.py`
-  与 `net/action_token_codec.py`），用 LoRA 做行为克隆 SFT。
+  与 `net/action_token_codec.py`）及数据源无关的关键动作评估指标。
 
-VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO
-地图快塔、已移除的 `SpatiotemporalFastTower` / Dreamer-lite 世界模型和 `godot-python`
-不属于当前范围。新增这些能力必须由用户明确要求，不能根据历史文件名自行恢复。
+MineStudio 完整下载 / LMDB 读取 / VPT 动作编码、依赖它的离线 SFT 训练入口、VPT
+`mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、旧 DINO 地图快塔、
+已移除的 `SpatiotemporalFastTower` / Dreamer-lite 世界模型和 `godot-python` 不属于当前
+范围。新增这些能力必须由用户明确要求，不能根据历史文件名自行恢复。
 
 ## 2. 目录职责
 
@@ -26,11 +27,11 @@ VPT `mp4 + jsonl`、PixelTower、VPT 教师、慢塔、判官、GRPO、MineRL、
 | `blocks/` | 与任务无关的可复用神经网络算子 |
 | `net/` | 模型结构与纯配置对象，不读取文件，不启动环境 |
 | `data_pipelines/` | 可跨训练流程复用的数据读取与原始数据契约 |
-| `data_pipelines/minestudio/` | MineStudio 完整下载、LMDB 读取与原始动作编码 |
+| `data_pipelines/mineflayer_actions/` | mineflayer 主动执行动作与观测帧采集（Node.js） |
 | `rl_training_environments/godot/` | Godot 通信、进程管理、SB3 适配与训练入口 |
 | `rl_training_environments/godot/engine/` | Godot 4.6.1 .NET 工程与场景 |
 | `rl_training_environments/craftground/` | CraftGround 在线环境及运行状态管理 |
-| `train/minecraft/` | MineStudio 无限行为克隆 SFT、动作监督与动作 token 实验 |
+| `train/minecraft/` | 数据源无关的关键动作一致率与闭环置信区间指标 |
 | `tests/unit/` | 不启动真实环境的纯单元测试 |
 | `tests/integration/` | 跨模块契约与离线回放测试 |
 | `runs/` | 数据、日志与 checkpoint，必须保持 Git ignored |
@@ -77,11 +78,12 @@ tests 依赖上述模块，但生产代码不得 import tests
 
 ## 6. 数据与训练边界
 
-- 原始 MineStudio 数据文件存放在 `runs/data/`，不得提交 LMDB 或 checkpoint。
-- `data_pipelines/minestudio/` 只负责完整下载、读取和原始动作编码，不包含优化器或环境启动。
-- 行为克隆 SFT 无限训练属于 `train/minecraft/`，CraftGround 执行动作契约属于
-  `rl_training_environments/craftground/`。
-- 离线 loss 和准确率不是闭环能力结论。闭环结论必须报告固定 seed、样本量和成功指标。
+- mineflayer 采集产物（server.jar、世界、node_modules、JSON/PNG）均为运行期数据，
+  存放在 `runs/` 或仓库外，不得入库；仓库内仅保留 `sample/` 下的少量参考样本。
+- `data_pipelines/mineflayer_actions/` 只负责主动执行动作与观测采集，不包含优化器或
+  策略训练循环。
+- CraftGround 执行动作契约属于 `rl_training_environments/craftground/`。
+- 离线指标不是闭环能力结论。闭环结论必须报告固定 seed、样本量和成功指标。
 - checkpoint 结构不兼容时必须显式升级名称或版本，禁止静默部分加载。
 
 ## 7. Godot 协议

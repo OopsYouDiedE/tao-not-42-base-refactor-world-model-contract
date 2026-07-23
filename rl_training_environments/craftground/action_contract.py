@@ -8,7 +8,7 @@
     deg_to_bins(deg) — 度 → mu-law 分箱(BC 数据端编码;与 bins_to_deg 互逆,单测锚定)
     stack_frames(imgs, s) — 帧堆叠(旧→新,开局首帧填充;采样/更新/BC 三侧逐字节同序)
 
-采样端(grpo_pixel)与 BC 暖启动端(bc_vpt_warmstart)共同消费本模块——
+在线采样端与 BC 数据编码端共同消费本模块——
 "采样 π = 更新 π = BC 目标编码"的口径一致性以单一定义保证(AGENTS §10 合并触发)。
 """
 import numpy as np
@@ -19,7 +19,7 @@ V2_KEYS = ["forward", "back", "left", "right", "jump", "sneak", "sprint", "attac
            "hotbar.5", "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9"]
 CAM_BINS = 11
 CAM_MAX_DEG = 18.0                     # 每 tick 相机增量上限(与 StudentPolicy 同口径)
-CAM_MU = 8.0                           # mu-law 压缩系数(与 net/vpt_lib 口径同源)
+CAM_MU = 8.0                           # mu-law 压缩系数(动作 token codec 同口径)
 
 
 def bins_to_deg(b: np.ndarray) -> np.ndarray:

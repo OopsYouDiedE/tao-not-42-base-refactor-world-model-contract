@@ -5,17 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tao-not-42"
 version = "0.2.0"
-description = "Godot、CraftGround 与 MineStudio 世界模型训练环境"
+description = "Godot 与 CraftGround 世界模型训练环境"
 readme = "readme.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
     "accelerate>=1.0",
-    "anthropic>=0.40",
-    "av>=13.1",
     "craftground",
     "huggingface-hub>=0.34",
-    "lmdb>=1.5",
     "numpy",
     "gymnasium",
     "opencv-python-headless",
@@ -34,10 +31,6 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
-train-minecraft-world-model = "train.minecraft.world_model_training:main"
-evaluate-minecraft-checkpoint = "train.minecraft.evaluate_checkpoint:main"
-probe-action-tokens = "train.minecraft.action_token_probe:main"
-prepare-minestudio-data = "data_pipelines.minestudio.download:main"
 
 [tool.setuptools.packages.find]
 include = ["blocks*", "data_pipelines*", "net*", "rl_training_environments*", "train*"]

@@ -52,4 +52,5 @@
 - [候选模型性能对照](model-benchmarks-vlm-omni.md) — Qwen3-VL / Nemotron Nano 12B v2 VL / Omni 30B-A3B / Gemma 4(26B-A4B·31B) benchmark;厂商自报利益相关封顶2,gemma-4+Qwen235B有LMArena独立数据。信源B/内容2
 - [2026独立评测榜清单](independent-eval-leaderboards-2026.md) — 类LMArena、收开源、2026现行的独立榜常备参照:LMArena Vision/Artificial Analysis/Vals AI/LiveBench/Aider;附别用清单(HF Open LLM已归档等)
 - [Qwen3-VL动作token零样本探测](qwen3vl-action-token-probe.md) — ⚠️项目自跑实验(非外部信源):交错prompt布局 correct_history +0.042、no_history恒0(能力问题非布局);含重复退化/部分命中两个抽样展示。仅3窗口,只看方向
+- [Voyager 提示词与迭代循环](voyager-prompt-loop.md) — 状态→对话翻译范式(arXiv 2305.16291+MIT开源代码实读):四agent闭环、render_human_message逐字段自解释、反馈回灌、两消息滑窗;对本项目=obs渲染器原型可借鉴。信源B/内容1(方法)·4(性能自报)
 

@@ -82,3 +82,6 @@ assets/godot_meta_rl/*.log
 assets/godot_meta_rl/ppo_spotlight_discrete*.zip
 # 共享内存后备文件(临时)
 GodotRL_SharedMem.bin
+
+# Gradio 运行时产物(证书等)，不入库
+.gradio/

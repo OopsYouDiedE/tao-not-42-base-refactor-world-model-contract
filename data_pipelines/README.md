@@ -62,5 +62,9 @@
 `mineflayer_actions/AGENTS.md`，从零搭建服务器到采集的完整流程见
 `mineflayer_actions/SETUP.md`，参考输出见 `mineflayer_actions/sample/session_actions.json`。
 
+该子包还能在**每个动作节点截取观测帧**（`frame_capturer.js` 无头渲染 + `example_keyframes.js`
+配对），产出 observation(t)→action(t) 的图文数据集；参考样本见
+`mineflayer_actions/sample/keyframes/`（`gallery.md` 可直接浏览节点图与其后动作的对照）。
+
 该子包是 Node.js 工具链（依赖见其 `package.json`），产物（server.jar、世界、
 node_modules、采集 JSON）均为运行期数据，不入库。

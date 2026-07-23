@@ -56,10 +56,25 @@ node record_session.js --host localhost --port 25565 --version 1.16.5 \
 脚本会:连服务器 → 寻路到平坦草地 → 依次执行移动/跳跃/转视角/合成/放置/破坏 →
 把带 `startTick`、`durationTicks` 的动作序列写入 `--output`。
 
-## 4. 参考样本
+## 4. 关键节点截图示例 (obs→action 配对)
 
-`sample/session_actions.json` 是一次真实运行的输出(9 条动作, 6 类全覆盖),可直接查看
-字段结构与时长记录,不依赖任何运行期数据。
+截图依赖无头 GL 渲染, 需虚拟显示与 `node-canvas-webgl`(见 package.json 的
+optionalDependencies)。用 `xvfb-run` 运行:
+
+```bash
+xvfb-run -a -s "-screen 0 1280x720x24" \
+  env OUT_DIR=runs/mineflayer_actions/keyframes \
+  node example_keyframes.js
+```
+
+产出:每个动作节点一张 PNG + `manifest.json`(节点→动作配对) + `gallery.md`(图文对照)。
+
+## 5. 参考样本
+
+- `sample/session_actions.json`:一次真实运行的动作序列(9 条动作, 6 类全覆盖),
+  可直接查看 startTick / durationTicks 字段结构。
+- `sample/keyframes/`:关键节点截图数据集(7 节点), `gallery.md` 可直接浏览
+  "节点观测图 + 该节点后动作"的对照。二者均不依赖运行期数据。
 
 ## 已知坑位
 

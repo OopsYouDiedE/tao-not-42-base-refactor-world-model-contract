@@ -1,0 +1,81 @@
+{
+ "steps": 200,
+ "seed": 0,
+ "frame_size": [
+  640,
+  360
+ ],
+ "total_wall_seconds": 8.45,
+ "video_fps": 10.0,
+ "seconds_per_shot": 1.0,
+ "shots_taken": 9,
+ "nonblack_frames": 200,
+ "achievements_unlocked": [
+  34
+ ],
+ "shots": [
+  {
+   "file": "shot_0000s_f00000.png",
+   "elapsed_s": 3.334,
+   "step": 0,
+   "action_id": 1,
+   "frame_mean": 29.5
+  },
+  {
+   "file": "shot_0001s_f00001.png",
+   "elapsed_s": 3.389,
+   "step": 1,
+   "action_id": 1,
+   "frame_mean": 70.65
+  },
+  {
+   "file": "shot_0002s_f00002.png",
+   "elapsed_s": 3.433,
+   "step": 2,
+   "action_id": 1,
+   "frame_mean": 76.73
+  },
+  {
+   "file": "shot_0003s_f00003.png",
+   "elapsed_s": 3.483,
+   "step": 3,
+   "action_id": 15,
+   "frame_mean": 79.19
+  },
+  {
+   "file": "shot_0004s_f00014.png",
+   "elapsed_s": 4.023,
+   "step": 14,
+   "action_id": 8,
+   "frame_mean": 81.11
+  },
+  {
+   "file": "shot_0005s_f00052.png",
+   "elapsed_s": 5.034,
+   "step": 52,
+   "action_id": 14,
+   "frame_mean": 51.12
+  },
+  {
+   "file": "shot_0006s_f00090.png",
+   "elapsed_s": 6.025,
+   "step": 90,
+   "action_id": 12,
+   "frame_mean": 27.68
+  },
+  {
+   "file": "shot_0007s_f00133.png",
+   "elapsed_s": 7.004,
+   "step": 133,
+   "action_id": 6,
+   "frame_mean": 26.38
+  },
+  {
+   "file": "shot_0008s_f00179.png",
+   "elapsed_s": 8.01,
+   "step": 179,
+   "action_id": 20,
+   "frame_mean": 18.55
+  }
+ ]
+}

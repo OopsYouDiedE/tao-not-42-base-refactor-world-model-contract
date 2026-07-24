@@ -1,0 +1,53 @@
+{
+ "json_frames": 44,
+ "mp4_frames": 44,
+ "boundary_events": 8,
+ "actions_seen": [
+  "camera",
+  "hotbar.2",
+  "hotbar.3",
+  "mine"
+ ],
+ "shots": [
+  {
+   "file": "000_hotbar.2_start_f00017.png",
+   "label": "hotbar.2:start",
+   "frame": 17
+  },
+  {
+   "file": "001_camera_start_f00018.png",
+   "label": "camera:start cam=[0, -0.30000000000000004]",
+   "frame": 18
+  },
+  {
+   "file": "002_hotbar.2_end_f00018.png",
+   "label": "hotbar.2:end",
+   "frame": 18
+  },
+  {
+   "file": "003_mine_start_f00026.png",
+   "label": "mine:start",
+   "frame": 26
+  },
+  {
+   "file": "004_hotbar.3_start_f00026.png",
+   "label": "hotbar.3:start",
+   "frame": 26
+  },
+  {
+   "file": "005_camera_end_f00027.png",
+   "label": "camera:end cam=[0, 0]",
+   "frame": 27
+  },
+  {
+   "file": "006_hotbar.3_end_f00027.png",
+   "label": "hotbar.3:end",
+   "frame": 27
+  },
+  {
+   "file": "007_mine_end_f00029.png",
+   "label": "mine:end",
+   "frame": 29
+  }
+ ]
+}

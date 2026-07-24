@@ -1,10 +1,14 @@
-# solaris 渲染引擎 × mineflayer 相性 — WSL 从零复现文档
+# 两套 Minecraft 渲染器 — WSL 从零复现文档
 
-> 2026-07-24 实证跑通。目标:在 **WSL2 Ubuntu 24.04(无 GPU、无 Xvfb)** 上跑通 solaris-engine 的
-> headless 渲染引擎(`prismarine-viewer-colalab` = three.js + node-canvas-webgl + headless-gl),
-> 让它渲染一个真实连到 MC 1.21 server 的 mineflayer bot,输出**非空 mp4 + 逐帧动作标注 json**。
->
-> 本文档只覆盖 headless 渲染路(绕开需要 NVENC GPU 的 camera 路)。所有步骤除"装 -dev 库"外均免 sudo。
+本文档覆盖两条独立的渲染路，均在 **WSL2 Ubuntu 24.04**（本机有 RTX 3070）上 2026-07-24 实证跑通：
+
+- **第一部分：solaris 渲染引擎 × mineflayer**（`prismarine-viewer-colalab` = three.js +
+  node-canvas-webgl + headless-gl），渲染真实连到 MC 1.21 server 的 mineflayer bot。
+  验收 = 每个动作起止时截图 + 全程录像。
+- **第二部分：CraftGround 渲染器**（Minecraft Java 版 + Fabric mod，LWJGL/OpenGL）。
+  验收 = 每秒截图 + 全程录像。见文末「第二部分」。
+
+> solaris 部分:只覆盖 headless 渲染路(绕开需要 NVENC GPU 的 camera 路)。所有步骤除"装 -dev 库"外均免 sudo。
 
 **脚本位置**:本文档引用的 `_*.sh` / `_*.js` 脚本都在
 `C:\Users\iii\Desktop\mc-agents\solaris-engine\`(WSL 路径 `/mnt/c/Users/iii/Desktop/mc-agents/solaris-engine/`)。
@@ -177,6 +181,22 @@ controller 日志出 `All 1 episodes completed`、`encountered_error=false bot_d
 
 ---
 
+## 7. 地形渲染修复(2026-07-25，关键)
+
+初次跑通时用"cv2 帧非黑(mean>1)"当验收标准是**错的**——那只是天空色背景，地形根本没渲染，画面是玩家实体漂在灰蓝虚空里。**验收渲染要看 Canny 边缘密度 edges%：正常地形 9-13%，空画面 ~0.1%**。
+
+根因是 vendored `prismarine-viewer-colalab` 对 Minecraft 1.18+ 负 y 世界（地面 y=-60，世界 -64..320）的多处旧假设，加一处版本错配。修复（改后各留 `.js.orig` 备份）：
+
+1. **`viewer/lib/worker.js`**（2 处）：`chunk.sections[Math.floor(y / 16)]` → `chunk.sections[Math.floor((y - (chunk.minY ?? 0)) / 16)]`。现代 prismarine-chunk 的 sections 是从 `chunk.minY`(-64) 起 0-based 的数组，裸 `y/16` 对负 y 落负索引=undefined，地面 section 被当空跳过网格化。
+2. **`viewer/lib/worldrenderer.js`**（2 处 addColumn/removeColumn）：`for (let y = 0; y < 256; y += 16)` → `for (let y = -64; y < 320; y += 16)`，否则负 y 地面 section 从不被标 dirty。
+3. **`viewer/lib/models.js`**（2 处 cullface）：`if (neighbor.position.y < 0) continue` → `< -64`（低于世界底才当空气）。
+
+4. **版本对齐（最后一块拼图）**：改完上面三处，地形能生成几何但呈**竖刺畸变**——根因是 server 是 MC **1.21.0**，而 viewer 的 `getVersion("1.21")` 归一到 **1.21.4**（supportedVersions 里无裸 "1.21"），用 1.21.4 的 section palette 解 1.21.0 chunk → 每方块画满六面（畸变时顶点数爆到 749 万）。**修法：三者版本完全对齐**——建 PaperMC **1.21.4** server（`_setup_server_1214.sh` / `_start_server_1214.sh`，端口 25567 / RCON 25577），bot 连时 `--mc_version 1.21.4`，viewer 也解码 1.21.4。对齐后顶点降到正常 ~12 万，渲染出正常 superflat 草地。（注意：强制 viewer 用 1.21.1 反而几乎全空——对齐必须往 1.21.4 走。）
+
+验收：`_smoke_mine_1214.sh` 跑动作密集 mine episode（连 1.21.4 server）→ 出 mp4 + 逐帧动作 json → 本项目 `python -m data_pipelines.mineflayer_actions.action_boundary_shots` 抽每个动作起止帧截图。实测出 8 个动作边界（hotbar 换镐 / camera 转头 / mine 挖矿的起止），全部真实草地画面。
+
+---
+
 ## 附:WSL 命令铁律(踩过多次)
 
 - `wsl -d Ubuntu -- bash -lc '...'` 里内联 `$VAR` / `2>/dev/null` / `$(...)` / 嵌套引号,
@@ -184,3 +204,63 @@ controller 日志出 `All 1 episodes completed`、`encountered_error=false bot_d
 - 调用脚本时加 `MSYS_NO_PATHCONV=1`,防 `/mnt/c/...` 被 Git Bash 改写成 `C:/Program Files/Git/...`。
 - 长任务(npm install / server 下载)用 `setsid ... < /dev/null & disown` 完全 detach,
   避免 CLI 120s 超时把进程一起截断(会造成 node_modules 半装 + 僵尸进程互相破坏)。
+
+---
+
+# 第二部分:CraftGround 渲染器 — WSL 从零装机
+
+CraftGround(pip 包 `craftground`)是 Minecraft Java 版 + Fabric mod，走 LWJGL/OpenGL 渲染，
+与 solaris 的 JS 渲染路完全独立。2026-07-25 在同一 WSL(RTX 3070)实测跑通「每秒截图 + 录像」验收。
+
+## 1. 系统依赖(需 sudo，用户手动执行一次)
+
+CraftGround 官方要求的 apt 包(GL/X dev 头文件 + JDK21 + xvfb):
+
+```bash
+!wsl -d Ubuntu -- sudo bash -c "apt-get update && apt-get install -y openjdk-21-jdk python3-pip git libgl1-mesa-dev libegl1-mesa-dev libglew-dev libglu1-mesa-dev xorg-dev libglfw3-dev xvfb"
+```
+
+## 2. Python 环境(免 sudo)
+
+系统 python 缺 ensurepip(装 python3-venv 又要 sudo)。用 get-pip.py 给 venv 灌 pip：
+
+```bash
+python3 -m venv ~/mc-test/venv           # 若无
+curl -fsSL https://bootstrap.pypa.io/get-pip.py -o ~/mc-test/get-pip.py
+~/mc-test/venv/bin/python ~/mc-test/get-pip.py -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+```
+
+## 3. 装 craftground(脚本 `_install_craftground.sh`)
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+~/mc-test/venv/bin/python -m pip install --upgrade cmake   # 官方要求最新，不能用 apt 的
+~/mc-test/venv/bin/python -m pip install craftground        # 连 torch+CUDA13 全套约 2-3GB
+~/mc-test/venv/bin/python -m pip install opencv-python-headless  # 验收脚本要 cv2
+```
+
+torch 2.13 的 cu130 库与驱动 595.79(支持 CUDA13.2)兼容，`torch.cuda.is_available()=True`(RTX 3070)。
+
+## 4. 首次环境创建 = Gradle 冷编译 + Minecraft asset 下载(唯一硬阻塞)
+
+`env.reset()` 会 `./gradlew runClient`，Fabric loom 先下全 3911 个 Minecraft 1.21 asset 对象。
+**任一个下载失败 → downloadAssets 任务失败 → BUILD FAILED → client 根本不启动**
+(表现为死循环 `Waiting for server on port 8000` 后进程静默消失，无 crash report)。
+海外源 `resources.download.minecraft.net` 经代理慢，常卡在最后 6 个 17-21MB 的 `.ogg` 背景音乐大文件。
+
+补下缺失 asset(脚本 `_fetch_missing_assets.py`，多镜像 bmclapi/官方源 + 长超时)：
+asset 齐全后 client 正常启动，`run/logs/latest.log` 出现 `[Player***] Initialization Done`。
+
+无害噪音(别误判为失败)：`Cannot find vcpkg root`、`Missing/Invalid pack metadata`(server resource pack)、
+进程退出时 `ModuleNotFoundError: import of time halted`(__del__ 析构期，reset 已成功)。
+
+## 5. 验收(每秒截图 + 录像)
+
+```bash
+xvfb-run -a python -m rl_training_environments.craftground.acceptance_sequence \
+  --steps 200 --seed 0 --seconds-per-shot 1.0 --video-fps 10 \
+  --output-dir runs/craftground-acceptance
+```
+
+产出 `sequence.mp4`(200 帧 640×360) + `shots/shot_<秒>_f<帧>.png`(每秒一张) + `summary.json`。
+实测出 9 张每秒截图，全部真实森林渲染(树/草地/HUD)。

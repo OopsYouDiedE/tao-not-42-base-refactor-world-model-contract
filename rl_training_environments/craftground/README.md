@@ -48,16 +48,26 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 
 ## 无头服务器启动方式
 
-在没有显示器的服务器上，必须通过 `xvfb-run` 启动所有需要渲染的脚本：
+在没有显示器的服务器上，必须通过 `xvfb-run` 启动所有需要渲染的脚本，
+让 `MinecraftCraftGroundEnvironment` 能拿到 `DISPLAY`：
 
 ```bash
-xvfb-run -a python -m train.minecraft.evaluate_checkpoint \
-  --checkpoint "$PWD/runs/checkpoints/minecraft-dreamer-lite-10xx/last.pt" \
-  --dataset-group 10xx \
-  --cache-directory "$HF_HOME/hub" \
-  --seeds 0 1 2 3 4 5 6 7 8 9 \
-  --maximum-steps 12000
+xvfb-run -a python -c "
+from rl_training_environments.craftground.environment import MinecraftCraftGroundEnvironment
+from craftground.screen_encoding_modes import ScreenEncodingMode
+
+env = MinecraftCraftGroundEnvironment(seed=0, max_steps=200,
+                                      screen_encoding_mode=ScreenEncodingMode.RAW)
+obs = env.reset()                     # (H, W, 3) uint8 RGB
+for _ in range(200):
+    obs, reward, done, info = env.step(1)   # 1 = forward，见 DISCRETE_TO_V2
+    if done:
+        obs = env.reset()
+env.close()
+"
 ```
+
+首次运行会触发 Gradle 冷编译 Minecraft mod 与 C++ 原生模块（见下文“首次启动编译耗时”）。
 
 ## 常见问题
 

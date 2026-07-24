@@ -29,7 +29,7 @@ RTX PRO 6000 Blackwell（cc 12.0，96GB）。栈:`torch 2.10.0+cu128`、`transfo
 | 16 | 88.3GB | 0.512s | 2.4× |
 
 **敲定:训练 micro-batch = 8**(峰值 71GB,留 ~24GB 给真实窗口的序列长度波动;bs=8 后吞吐收益枯竭,bs=16 贴边易 OOM)。
-**重要**:旧代码"图像数随窗口变→无法张量化 batch"的假设**是错的**——图像尺寸固定→patch 数固定(pixel_values `[B,2520,768]`)→完全可批量。已把 `world_model_training.py` 从 `batch_size=1 + grad_accum=8` 改成真实 micro-batch=8(`--micro-batch` 参数,grad_accum 默认降为 1);collate 返回窗口列表、`supervised_loss` 支持 batch 与 padding_side=left 的逐样本 label mask(动作 token 右对齐,`action_len = full有效长度 - prompt有效长度`)。探针:runs/gemma4_batch_probe.py。
+**重要**:旧代码"图像数随窗口变→无法张量化 batch"的假设**是错的**——图像尺寸固定→patch 数固定(pixel_values `[B,2520,768]`)→完全可批量。已把 `world_model_training.py`(该 MineStudio 离线 SFT 入口已随 2026-07-24 重构移除,以下为当时实测)从 `batch_size=1 + grad_accum=8` 改成真实 micro-batch=8(`--micro-batch` 参数,grad_accum 默认降为 1);collate 返回窗口列表、`supervised_loss` 支持 batch 与 padding_side=left 的逐样本 label mask(动作 token 右对齐,`action_len = full有效长度 - prompt有效长度`)。探针:runs/gemma4_batch_probe.py。
 
 ## 真实数据端到端冒烟(2026-07-21，改造后验证)
 真实 MineStudio 10xx 子集(1 image 分片 part-476 29GB + 全 action 分片,634863 窗口)+ micro-batch=8 走生产 `_sft_loss`→`supervised_loss`:前向 loss=0.53 有限、反向 530 个 LoRA 参数梯度全有限、grad_norm=4.69、峰值 71.1GB(与合成探针 71.0GB 吻合)。**换主干 + batch 改造端到端可行**。脚本 runs/gemma4_realdata_smoke.py。

@@ -1,0 +1,20 @@
+--- a/viewer/lib/worldrenderer.js	2026-07-25 00:33:11.026196631 +0800
++++ b/viewer/lib/worldrenderer.js	2026-07-25 00:33:11.026296831 +0800
+@@ -112,7 +112,7 @@
+     for (const worker of this.workers) {
+       worker.postMessage({ type: 'chunk', x, z, chunk })
+     }
+-    for (let y = 0; y < 256; y += 16) {
++    for (let y = -64; y < 320; y += 16) {
+       const loc = new Vec3(x, y, z)
+       this.setSectionDirty(loc)
+       this.setSectionDirty(loc.offset(-16, 0, 0))
+@@ -127,7 +127,7 @@
+     for (const worker of this.workers) {
+       worker.postMessage({ type: 'unloadChunk', x, z })
+     }
+-    for (let y = 0; y < 256; y += 16) {
++    for (let y = -64; y < 320; y += 16) {
+       this.setSectionDirty(new Vec3(x, y, z), false)
+       const key = `${x},${y},${z}`
+       const mesh = this.sectionMeshs[key]

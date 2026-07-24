@@ -1,0 +1,20 @@
+--- a/viewer/lib/models.js	2026-07-25 00:39:30.168940442 +0800
++++ b/viewer/lib/models.js	2026-07-25 00:39:30.169026966 +0800
+@@ -130,7 +130,7 @@
+     if (!neighbor) continue
+     if (neighbor.type === type) continue
+     if ((neighbor.isCube && !isUp) || neighbor.material === 'plant' || neighbor.getProperties().waterlogged) continue
+-    if (neighbor.position.y < 0) continue
++    if (neighbor.position.y < -64) continue
+ 
+     let tint = [1, 1, 1]
+     if (water) {
+@@ -241,7 +241,7 @@
+       if (!neighbor) continue
+       if (cullIfIdentical && neighbor.type === block.type) continue
+       if (!neighbor.transparent && neighbor.isCube) continue
+-      if (neighbor.position.y < 0) continue
++      if (neighbor.position.y < -64) continue
+     }
+ 
+     const minx = element.from[0]

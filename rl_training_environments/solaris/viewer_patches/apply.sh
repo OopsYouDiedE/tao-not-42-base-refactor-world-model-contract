@@ -3,8 +3,8 @@
 #
 # 用法:
 #   bash apply.sh <viewer 包根目录>
-# 例(WSL solaris 安装):
-#   bash apply.sh ~/mc-test/solaris-engine/node_modules/prismarine-viewer-colalab
+# 例(engine/ 下 npm install 后):
+#   bash apply.sh ../engine/node_modules/prismarine-viewer-colalab
 #
 # 补丁修 3 个文件(viewer/lib/{worker,worldrenderer,models}.js)让引擎正确渲染
 # Minecraft 1.18+ 的负 y 世界地形。幂等:已打过的补丁会被 patch 检测并跳过。

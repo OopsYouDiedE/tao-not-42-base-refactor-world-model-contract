@@ -9,6 +9,8 @@
 
 - Godot 强化学习环境及其共享内存、SB3 适配与 PPO 入口；
 - CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照；
+- solaris 在线环境：mineflayer 无头 bot + prismarine-viewer headless 渲染的行为数据源
+  （vendored controller 渲染路 + 负 y 地形补丁，Node.js，需 npm + 系统 GL 库 + MC 1.21.4 server）；
 - mineflayer 主动执行动作与观测帧采集的 Minecraft 行为数据来源；
 - 以 Gemma4 为视觉大模型、直接生成动作 token 的 VLA 策略（`net/gemma4_policy.py`
   与 `net/action_token_codec.py`）及数据源无关的关键动作评估指标。
@@ -31,6 +33,8 @@ MineStudio 完整下载 / LMDB 读取 / VPT 动作编码、依赖它的离线 SF
 | `rl_training_environments/godot/` | Godot 通信、进程管理、SB3 适配与训练入口 |
 | `rl_training_environments/godot/engine/` | Godot 4.6.1 .NET 工程与场景 |
 | `rl_training_environments/craftground/` | CraftGround 在线环境及运行状态管理 |
+| `rl_training_environments/solaris/` | solaris 渲染环境:验收后处理与地形补丁 |
+| `rl_training_environments/solaris/engine/` | vendored solaris controller 渲染路（Node.js，Apache-2.0） |
 | `train/minecraft/` | 数据源无关的关键动作一致率与闭环置信区间指标 |
 | `tests/unit/` | 不启动真实环境的纯单元测试 |
 | `tests/integration/` | 跨模块契约与离线回放测试 |

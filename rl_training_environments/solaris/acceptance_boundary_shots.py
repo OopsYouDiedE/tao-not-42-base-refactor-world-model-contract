@@ -1,12 +1,12 @@
-"""渲染器验收:逐帧动作 JSON + 录像 mp4 → 每个动作起止帧截图。
+"""solaris 渲染器验收:逐帧动作 JSON + 录像 mp4 → 每个动作起止帧截图。
 
 对外接口:
-    python -m data_pipelines.mineflayer_actions.action_boundary_shots
+    python -m rl_training_environments.solaris.acceptance_boundary_shots
         --json <逐帧动作.json> --mp4 <同一序列的录像.mp4>
         --out <截图输出目录> [--contact-sheet]
 
-输入是"每帧一条动作记录 + 同序列 mp4 录像"的产物(如 prismarine-viewer /
-solaris headless 渲染路输出的逐帧 pos):每帧 pos 含 action 子字典(布尔按键 +
+输入是 solaris engine act_recorder 输出的"每帧一条动作记录 + 同序列 mp4 录像":
+每帧 pos 含 action 子字典(布尔按键 +
 camera:[dx,dy]),frame_count 与 mp4 帧严格 1:1 对齐。本模块把"动作"定义为:
   - 布尔键:值 False→True 记为该键一次动作的“开始帧”,True→False 记为“结束帧”;
   - camera:模长 0→非0 记为转头开始,非0→0 记为转头结束。

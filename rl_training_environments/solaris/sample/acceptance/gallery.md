@@ -1,6 +1,6 @@
 # solaris 渲染器 · 动作起止截图验收样本
 
-`action_boundary_shots.py` 的固化产物：对 solaris headless 渲染路（prismarine-viewer）
+`acceptance_boundary_shots.py` 的固化产物：对 solaris headless 渲染路（prismarine-viewer）
 输出的「逐帧动作 JSON + 录像 mp4」做后处理，在每个动作的开始/结束帧抽截图。
 2026-07-25 在 WSL2 Ubuntu(RTX 3070)实测，Minecraft 1.21.4 superflat 真实渲染。
 
@@ -26,13 +26,15 @@
 
 ## 复现
 
-solaris 引擎在独立仓库 mc-agents（非本项目）。跑出 mp4 + 逐帧动作 json 后，本项目后处理：
+solaris engine controller 已 vendored 进 `../../engine/`。`engine/` 下 `npm install`
+→ 应用 `../../viewer_patches/apply.sh` → 连 1.21.4 server 跑 `controller/main.js` 出
+mp4 + 逐帧动作 json，再后处理：
 
 ```bash
-python -m data_pipelines.mineflayer_actions.action_boundary_shots \
+python -m rl_training_environments.solaris.acceptance_boundary_shots \
   --json <逐帧动作.json> --mp4 <同序列录像.mp4> \
   --out runs/solaris-acceptance --contact-sheet
 ```
 
-solaris headless 渲染在 WSL 的从零复现、以及地形渲染的负 y 修复 + 版本对齐(必须用
-1.21.4 server，否则地形呈竖刺畸变)见仓库根 `SETUP_WSL_SMOKE.md`。
+WSL 从零复现、地形负 y 修复 + 版本对齐（必须用 1.21.4 server，否则地形呈竖刺畸变）
+见 `../../README.md` 与仓库根 `SETUP_WSL_SMOKE.md`。

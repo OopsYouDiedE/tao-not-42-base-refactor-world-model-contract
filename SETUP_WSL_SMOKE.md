@@ -193,7 +193,7 @@ controller 日志出 `All 1 episodes completed`、`encountered_error=false bot_d
 
 4. **版本对齐（最后一块拼图）**：改完上面三处，地形能生成几何但呈**竖刺畸变**——根因是 server 是 MC **1.21.0**，而 viewer 的 `getVersion("1.21")` 归一到 **1.21.4**（supportedVersions 里无裸 "1.21"），用 1.21.4 的 section palette 解 1.21.0 chunk → 每方块画满六面（畸变时顶点数爆到 749 万）。**修法：三者版本完全对齐**——建 PaperMC **1.21.4** server（`_setup_server_1214.sh` / `_start_server_1214.sh`，端口 25567 / RCON 25577），bot 连时 `--mc_version 1.21.4`，viewer 也解码 1.21.4。对齐后顶点降到正常 ~12 万，渲染出正常 superflat 草地。（注意：强制 viewer 用 1.21.1 反而几乎全空——对齐必须往 1.21.4 走。）
 
-验收：`_smoke_mine_1214.sh` 跑动作密集 mine episode（连 1.21.4 server）→ 出 mp4 + 逐帧动作 json → 本项目 `python -m data_pipelines.mineflayer_actions.action_boundary_shots` 抽每个动作起止帧截图。实测出 8 个动作边界（hotbar 换镐 / camera 转头 / mine 挖矿的起止），全部真实草地画面。
+验收：跑动作密集 mine episode（连 1.21.4 server）→ 出 mp4 + 逐帧动作 json → 本项目 `python -m rl_training_environments.solaris.acceptance_boundary_shots` 抽每个动作起止帧截图。实测出 8 个动作边界（hotbar 换镐 / camera 转头 / mine 挖矿的起止），全部真实草地画面。solaris engine controller 已 vendored 进 `rl_training_environments/solaris/engine/`，补丁在 `rl_training_environments/solaris/viewer_patches/`。
 
 ---
 

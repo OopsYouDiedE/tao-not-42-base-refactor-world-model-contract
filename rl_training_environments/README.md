@@ -5,5 +5,7 @@
 
 - `godot/`：Godot 共享内存环境、SB3 适配、训练入口与 `engine/` 工程。
 - `craftground/`：CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照。
+- `solaris/`：mineflayer + prismarine-viewer headless 渲染数据源，含 vendored `engine/`
+  controller 渲染路、负 y 地形补丁与动作起止截图验收。
 
 目录名使用正确英文拼写 `environments`。

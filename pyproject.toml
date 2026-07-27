@@ -4,42 +4,42 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tao-not-42"
-version = "0.2.0"
-description = "Godot 与 CraftGround 世界模型训练环境"
+version = "0.3.0"
+description = "MineStudio → Lumine 预训练数据管线与 Unsloth Gemma4 / Qwen3.6 训练入口"
 readme = "readme.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
-    "accelerate>=1.0",
-    "craftground",
     "huggingface-hub>=0.34",
+    "lmdb>=1.4",
     "numpy",
-    "gymnasium",
     "opencv-python-headless",
-    "peft>=0.13",
+    "av>=12",
     "pillow",
-    "stable-baselines3",
-    "torch",
-    "torchvision",
-    "transformers>=5.5",
-    "unsloth",
-    "unsloth-zoo",
 ]
 
 [project.optional-dependencies]
+# 训练侧依赖单独一组：数据管线机器不必装 CUDA 栈。
+train = [
+    "accelerate>=1.0",
+    "datasets>=3.0",
+    "peft>=0.13",
+    "torch",
+    "transformers>=5.5",
+    "trl>=0.24",
+    "unsloth",
+    "unsloth-zoo",
+]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
+minestudio-download = "minestudio_dataset.huggingface_download:main"
+lumine-build-pretrain = "minestudio_dataset.lumine_pretrain_builder:main"
+train-gemma-vision-sft = "train.gemma_vision_sft:main"
+train-qwen-vision-sft = "train.qwen_vision_sft:main"
 
 [tool.setuptools.packages.find]
-include = ["blocks*", "control_contract*", "data_pipelines*", "net*",
-           "rl_training_environments*", "train*"]
-
-# profile_registry 在运行时按文件名 glob 加载 profiles/*.json，装成 wheel 后这些
-# JSON 必须跟着包走，否则 available_profiles() 会返回空元组。
-[tool.setuptools.package-data]
-control_contract = ["profiles/*.json"]
+include = ["minestudio_dataset*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -53,10 +53,4 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["blocks", "data_pipelines", "net", "rl_training_environments", "train"]
-
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
+known_first_party = ["minestudio_dataset", "train"]

@@ -1,92 +1,80 @@
-# Godot 与 CraftGround 训练项目
+# MineStudio → Lumine 预训练数据 + Unsloth 视觉 SFT
 
-仓库保留两套在线环境：Godot 共享内存强化学习环境与 CraftGround 在线 Minecraft
-环境。动作以 `net/action_token_codec.py` 的 `StructuredAction`（CraftGround V2 键序 +
-相机 mu-law 分箱）为唯一规范表示，结构上强制互斥约束合法。以 Gemma 4（MoE VLM）为
-视觉主干、直接自回归生成动作 token 的 VLA 策略定义在 `net/gemma4_policy.py`。
+两件事：把 MineStudio 的 Minecraft 轨迹批量转成 Lumine 格式的动作预训练数据，
+再用 Unsloth 在这份数据上微调 Gemma 4 或 Qwen3.6 视觉主干。
 
-Minecraft 侧的**行为数据来源**是 `data_pipelines/mineflayer_actions/`：用 mineflayer
-驱动无头 bot 在真实 Java 服务器上主动执行动作，记录每个动作的起始 tick 与持续时长，
-并在关键节点截取观测帧，产出 observation(t)→action(t) 的图文配对数据。旧的 MineStudio
-离线下载 / LMDB 读取 / VPT 动作编码路径，以及依赖它的离线 SFT 训练入口已整体移除。
+    minestudio_dataset/    批量下载 MineStudio LMDB + 转 Lumine 格式预训练数据
+    train/                 Unsloth 视觉 SFT：Gemma 4 与 Qwen3.6 两个入口
+    tests/                 动作编解码与时间布局的单元测试
 
-## 一键配置环境与验证
+## 安装
 
-需要 Git、Python 3.11+。Godot 环境另需 Godot 4.6.1 .NET 与 .NET 8；CraftGround
-环境另需 Java 21。下面这一段可整体复制到空目录执行，完成克隆、建虚拟环境、安装、
-契约测试与全量编译校验：
+    python -m venv .venv && source .venv/bin/activate
+    python -m pip install -e ".[dev]"          # 数据管线
+    python -m pip install -e ".[train,dev]"    # 加训练侧（CUDA 栈）
 
-    # 1) 克隆 + 虚拟环境 + 安装(含开发依赖 pytest)
-    git clone \
-        https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
-    cd tao-not-42-base-refactor-world-model-contract
-    python -m venv .venv
-    source .venv/bin/activate
-    python -m pip install --upgrade pip
-    python -m pip install -e ".[dev]"
+数据管线不需要 CUDA，训练侧依赖单列在 `train` extra 里。
 
-    # 2) 验证安装:契约测试 + 全量编译(与 AGENTS.md 的门禁一致)
+## 一、下载 MineStudio 数据
+
+数据来自 `CraftJarvis/minestudio-data-{6xx,7xx,8xx,9xx,10xx}-v110`（OpenAI VPT
+contractor data 转成 MineStudio 轨迹结构）。仓库内按模态解耦存放，
+布局为 `<模态>/part-<编号>/{data.mdb,lock.mdb}`。
+
+    # 先看有哪些分片，别一上来就全量拉
+    python -m minestudio_dataset.huggingface_download --dataset 10xx \
+        --modal image action --list-parts
+
+    # 只下 1 个分片试水（单个 image 分片可达 29GB）
+    python -m minestudio_dataset.huggingface_download \
+        --dataset 10xx --modal image action meta_info \
+        --maximum-parts 1 --maximum-workers 8 \
+        --output-dir runs/minestudio
+
+并行参数是 `--maximum-workers`。盘要留够：一个 image 分片 29GB 起。
+
+## 二、转成 Lumine 格式
+
+    python -m minestudio_dataset.lumine_pretrain_builder \
+        --dataset-dir runs/minestudio/minestudio-data-10xx-v110 \
+        --output-dir runs/lumine-pretrain
+
+产物：`samples.jsonl`（每行一条样本）+ `frames/`（观测帧 JPEG）+ `dataset_info.json`。
+image 模态还没下载时加 `--no-images`，只出动作文本。
+
+### 动作格式
+
+照搬 Lumine（arXiv 2511.08892）的 run-length 表示，帧率换成 Minecraft 的 20Hz：
+感知端 4 帧一个窗口（200ms，对应 Lumine 的 5Hz），窗口内每帧一个电机 chunk（50ms）。
+每个 chunk 只列出**该 chunk 按住的键**——键在相邻 chunk 连续出现即保持按下、不重按，
+某 chunk 缺席即在该 chunk 松开。格式里没有时长数值，也没有按下/松开事件 token，
+以此规避“按 3 秒还是 2 秒”这类脆弱的时长回归。
+
+    <|action_start|>ΔX ΔY ΔZ ; W space ; W space ; W space ; W<|action_end|>
+
+`ΔX ΔY` 是窗口内累计的鼠标像素增量（相机度数 ÷ 0.15 度/像素，钳到 ±999），
+`ΔZ` 是滚轮档位——VPT 动作空间没有滚轮，快捷栏走数字键，所以恒为 0。
+
+上面这串的语义：W 全程按住只按一次，space 在最后 50ms 松开。
+
+Lumine 原文的 6×33ms 是《原神》的 30Hz 电机步，这里按 Minecraft tick 换算成 4×50ms，
+没有照抄。`--frames-per-chunk 2` 可换成 100ms 电机步（此时一个 chunk 内任一帧按下即
+记为按住，短按不丢）。
+
+## 三、训练
+
+    python -m train.gemma_vision_sft --model gemma-4-26B-A4B-it \
+        --dataset-dir runs/lumine-pretrain --output-dir runs/sft-gemma
+
+    python -m train.qwen_vision_sft --model Qwen3.6-35B-A3B \
+        --dataset-dir runs/lumine-pretrain --output-dir runs/sft-qwen
+
+两族共用同一套数据与训练流程（`train/unsloth_supervised_finetuning.py`），
+入口只差候选模型与 chat template。`--micro-batch` 默认 8：96GB 卡上实测这是
+吞吐/显存拐点，再往上收益枯竭且易 OOM。MoE 主干（gemma-4-26B-A4B、Qwen3.6-35B-A3B）
+不建议 `--load-in-4bit`，走 bf16 LoRA。
+
+## 验收
+
     python -m pytest
-    python -m compileall -q blocks data_pipelines net rl_training_environments train tests
-
-## 在线环境
-
-Godot：
-
-    export GODOT_EXE=/path/to/godot
-    python -m rl_training_environments.godot.train_ppo --total-timesteps 100000
-
-Godot 像素训练需要真实 X11/Vulkan 渲染，不能用 `--headless` 哑渲染器。协议说明见
-`rl_training_environments/godot/engine/README.md`。
-
-CraftGround 的环境、奖励塑形、动作契约、回放和世界快照位于
-`rl_training_environments/craftground/`。
-
-## Minecraft 行为数据来源
-
-`data_pipelines/mineflayer_actions/` 用 mineflayer 驱动无头 bot 在真实 Java Minecraft
-服务器上主动执行动作，记录每个动作的起始 tick 与持续时长，覆盖移动 `F/B/L/R`、姿态
-`jump/sneak/sprint`、转视角 `cam(dYaw,dPitch)`、合成 `craft:*`、放置 `use`、破坏
-`attack` 六类。它还能在每个动作节点截取第一人称观测帧，产出 observation→action 图文
-配对。从零搭建服务器到采集的完整流程见 `data_pipelines/mineflayer_actions/SETUP.md`，
-动作字段与原理见 `data_pipelines/mineflayer_actions/AGENTS.md`。
-
-时间基准是 `bot.time.age`（世界年龄，20 tick/秒）。该子包是 Node.js 工具链（依赖见其
-`package.json`），产物（server.jar、世界、node_modules、采集 JSON/PNG）均为运行期数据，
-不入库。
-
-## 渲染器验收
-
-两套 Minecraft 渲染路各有一个验收脚本，都产出**录像 mp4 + 按要求抽取的截图**，
-落在 gitignore 的 `runs/` 下。无头运行都需 `xvfb-run`（Java/GL 冷启动依赖见对应文档）。
-
-CraftGround（每秒截图 + 全程录像）：
-
-    xvfb-run -a python -m rl_training_environments.craftground.acceptance_sequence \
-        --steps 200 --seed 0 --seconds-per-shot 1.0 --video-fps 10 \
-        --output-dir runs/craftground-acceptance
-    # 产出 sequence.mp4 + shots/shot_<秒>_f<帧>.png（每秒一张）+ summary.json
-
-solaris / prismarine-viewer（每个动作起止时截图 + 全程录像）：vendored 引擎在
-`rl_training_environments/solaris/engine/`，`npm install` + 应用地形补丁后跑
-`controller/main.js`（连 1.21.4 server）出逐帧动作 JSON + 录像 mp4，再后处理抽帧：
-
-    python -m rl_training_environments.solaris.acceptance_boundary_shots \
-        --json <逐帧动作.json> --mp4 <同序列录像.mp4> \
-        --out runs/solaris-acceptance --contact-sheet
-    # 逐帧检测每个动作 False↔True 边界，从 mp4 抽出起止帧 + contact_sheet.png + boundary_summary.json
-
-两条渲染路的 WSL 从零装机与实测（含 CraftGround 的 Minecraft asset 补齐坑）见
-`SETUP_WSL_SMOKE.md`。
-
-## 目录
-
-    data_pipelines/mineflayer_actions/     mineflayer 主动执行动作与观测帧采集
-    blocks/                                通用注意力、调制、残差与 Transformer 算子
-    net/                                   Gemma4 动作策略与动作 token 编解码
-    train/minecraft/                       数据源无关的关键动作评估指标
-    rl_training_environments/godot/        Godot 环境、SB3 适配与引擎工程
-    rl_training_environments/craftground/  CraftGround 环境、回放与世界快照
-    rl_training_environments/craftground/acceptance_sequence.py  每秒截图 + 录像验收
-    rl_training_environments/solaris/      solaris 渲染环境:vendored engine + 地形补丁 + 动作起止截图验收
-    tests/                                 保留路径的契约测试
+    python -m compileall -q minestudio_dataset train tests

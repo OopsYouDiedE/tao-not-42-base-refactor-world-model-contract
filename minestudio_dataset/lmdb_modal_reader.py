@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import pickle
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,6 +72,11 @@ class ModalKernelReader:
         仅 ``image`` 模态使用：解码后缩放到的尺寸，单位像素。
     decode_workers : int
         仅 ``image`` 模态使用：单个视频块的并行解码线程数。
+    cache_size : int
+        已解码块的 LRU 缓存容量。一个块含 ``chunk_size`` 帧（通常 32），顺序扫描时
+        同一块会被相邻窗口反复命中，缓存能省掉大量重复解码。
+        ``image`` 模态单块约 ``chunk_size × H × W × 3`` 字节（32×224×224×3 ≈ 4.6MB），
+        容量要按内存预算设小；``action`` / ``meta_info`` 块很小，可放宽。
     """
 
     def __init__(
@@ -80,13 +86,18 @@ class ModalKernelReader:
         frame_width: int = 224,
         frame_height: int = 224,
         decode_workers: int = 4,
+        cache_size: int = 32,
     ) -> None:
         if not part_directories:
             raise ValueError("part_directories 不能为空")
+        if cache_size < 0:
+            raise ValueError("cache_size 不能为负")
         self.modal = modal
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.decode_workers = decode_workers
+        self.cache_size = cache_size
+        self._cache: OrderedDict[tuple[Path, int, int], Any] = OrderedDict()
         self._environments: dict[Path, Any] = {}
         self._chunk_size: int | None = None
         self._episodes: dict[str, EpisodeInfo] = {}
@@ -137,10 +148,11 @@ class ModalKernelReader:
             raise KeyError(f"模态 {self.modal} 中没有 episode {episode!r}") from None
 
     def close(self) -> None:
-        """关闭全部 LMDB 环境。"""
+        """关闭全部 LMDB 环境并清空缓存。"""
         for environment in self._environments.values():
             environment.close()
         self._environments.clear()
+        self._cache.clear()
 
     def _decode_image_chunk(self, chunk: bytes) -> np.ndarray:
         """把一段视频字节流解码成帧数组，shape (T, H, W, 3)，dtype uint8，RGB。"""
@@ -169,6 +181,24 @@ class ModalKernelReader:
         if not frames:
             raise ValueError("视频块解码得到零帧")
         return np.stack(frames, axis=0)
+
+    def _cached_chunk(self, info: EpisodeInfo, chunk_frame: int) -> Any:
+        """取缓存中的已解码块，未命中返回 None，命中则刷新为最近使用。"""
+        if self.cache_size == 0:
+            return None
+        key = (info.part_directory, info.episode_index, chunk_frame)
+        if key not in self._cache:
+            return None
+        self._cache.move_to_end(key)
+        return self._cache[key]
+
+    def _store_chunk(self, info: EpisodeInfo, chunk_frame: int, chunk: Any) -> None:
+        """把已解码块写入缓存，超容量时淘汰最久未使用的一项。"""
+        if self.cache_size == 0:
+            return
+        self._cache[(info.part_directory, info.episode_index, chunk_frame)] = chunk
+        while len(self._cache) > self.cache_size:
+            self._cache.popitem(last=False)
 
     def _decode_chunk(self, chunk: bytes) -> Any:
         """按模态解码单个 LMDB value。"""
@@ -216,20 +246,35 @@ class ModalKernelReader:
         # LMDB key 的第二项是该块的**起始帧号**（chunk_size 的整数倍），不是块序号。
         first_chunk_frame = (start // self.chunk_size) * self.chunk_size
         last_chunk_frame = ((end - 1) // self.chunk_size) * self.chunk_size
-        environment = self._environments[info.part_directory]
-        decoded: list[Any] = []
-        with environment.begin(write=False) as transaction:
-            for chunk_frame in range(
-                first_chunk_frame, last_chunk_frame + 1, self.chunk_size,
-            ):
-                key = str((info.episode_index, chunk_frame)).encode()
-                value = transaction.get(key)
-                if value is None:
-                    raise KeyError(f"缺少 chunk {key!r}（{info.part_directory}）")
-                decoded.append(self._decode_chunk(value))
-        merged = self._merge_chunks(decoded)
+        wanted = list(range(first_chunk_frame, last_chunk_frame + 1, self.chunk_size))
+        decoded: list[Any] = [self._cached_chunk(info, frame) for frame in wanted]
+        missing = [frame for frame, chunk in zip(wanted, decoded) if chunk is None]
+        if missing:
+            environment = self._environments[info.part_directory]
+            with environment.begin(write=False) as transaction:
+                for position, (chunk_frame, chunk) in enumerate(zip(wanted, decoded)):
+                    if chunk is not None:
+                        continue
+                    key = str((info.episode_index, chunk_frame)).encode()
+                    value = transaction.get(key)
+                    if value is None:
+                        raise KeyError(f"缺少 chunk {key!r}（{info.part_directory}）")
+                    fresh = self._decode_chunk(value)
+                    decoded[position] = fresh
+                    self._store_chunk(info, chunk_frame, fresh)
         offset = start - first_chunk_frame
         count = end - start
+        if len(decoded) == 1:
+            # 单块命中：直接切片省掉逐字段 concatenate，这是顺序扫描的主路径。
+            # 必须 copy——切片是缓存对象的视图，调用方若原地修改会污染缓存。
+            single = decoded[0]
+            if self.modal == "image":
+                return np.array(single[offset:offset + count], copy=True)
+            return {
+                key: np.array(value[offset:offset + count], copy=True)
+                for key, value in single.items()
+            }
+        merged = self._merge_chunks(decoded)
         if self.modal == "image":
             return merged[offset:offset + count]
         return {key: value[offset:offset + count] for key, value in merged.items()}

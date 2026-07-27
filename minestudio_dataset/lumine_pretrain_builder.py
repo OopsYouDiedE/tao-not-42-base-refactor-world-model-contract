@@ -9,9 +9,10 @@
 产物布局::
 
     <输出目录>/
-        samples.jsonl          每行一条 PretrainSample
+        samples_train.jsonl        训练集，每行一条 PretrainSample
+        samples_validation.jsonl   验证集，同格式
         frames/<episode>/<起始帧>_<历史序号>.jpg
-        dataset_info.json      时间布局、键表与统计
+        dataset_info.json          时间布局、键表、划分统计
 
 时间基准：MineStudio 为 20Hz（50ms/帧）。Lumine 的感知端 5Hz（200ms 一次前向）在
 Minecraft 上就是 **4 帧一个感知窗口**，窗口内每帧一个电机 chunk（50ms/chunk）。
@@ -29,6 +30,7 @@ from typing import Any, Iterator
 import cv2
 import numpy as np
 
+from minestudio_dataset.episode_split import HoldoutLevel, SplitResult, build_split
 from minestudio_dataset.lmdb_modal_reader import TrajectoryReader
 from minestudio_dataset.lumine_action_codec import (
     MINECRAFT_KEYMAP,
@@ -214,6 +216,9 @@ def build_pretrain_dataset(
     maximum_episodes: int | None = None,
     maximum_samples: int | None = None,
     jpeg_quality: int = 90,
+    holdout_level: HoldoutLevel = "prefix",
+    validation_ratio: float = 0.1,
+    split_seed: int = 3407,
 ) -> dict[str, Any]:
     """批量把 MineStudio 轨迹预处理成 Lumine 格式预训练数据。
 
@@ -232,14 +237,20 @@ def build_pretrain_dataset(
     maximum_episodes : int or None
         最多处理的 episode 数，None 表示全部。
     maximum_samples : int or None
-        最多产出的样本数，None 表示不限。
+        最多产出的样本数，None 表示不限。两个子集各自受此上限约束。
     jpeg_quality : int
         观测帧 JPEG 质量，1–100。
+    holdout_level : {"prefix", "episode"}
+        验证集留出粒度，见 ``minestudio_dataset.episode_split.build_split``。
+    validation_ratio : float
+        验证集目标帧数占比。
+    split_seed : int
+        ``episode`` 粒度打散的稳定哈希种子。
 
     Returns
     -------
     dict
-        统计信息：``num_samples``、``num_episodes``、``chunks_per_window`` 等。
+        统计信息：两个子集的样本数与 episode 数、时间布局、划分口径等。
 
     Raises
     ------
@@ -259,30 +270,52 @@ def build_pretrain_dataset(
     output_directory.mkdir(parents=True, exist_ok=True)
     frames_directory = output_directory / "frames" if include_images else None
 
-    episodes = reader.episode_names()
+    # 复用已打开的 reader 读帧数：LMDB 不允许同进程重复打开同一环境。
+    split = build_split(
+        holdout_level=holdout_level,
+        validation_ratio=validation_ratio,
+        seed=split_seed,
+        output_path=output_directory / "split.json",
+        episode_frames={
+            name: reader.episode_length(name) for name in reader.episode_names()
+        },
+    )
+    subsets = {
+        "train": split.train_episodes,
+        "validation": split.validation_episodes,
+    }
     if maximum_episodes is not None:
-        episodes = episodes[:maximum_episodes]
+        subsets = {name: episodes[:maximum_episodes] for name, episodes in subsets.items()}
 
-    num_samples = 0
-    samples_path = output_directory / "samples.jsonl"
+    counts: dict[str, int] = {}
     try:
-        with samples_path.open("w", encoding="utf-8") as handle:
-            for episode in episodes:
-                for sample in _iterate_episode_samples(
-                    reader, episode, resolved, frames_directory, jpeg_quality,
-                ):
-                    handle.write(json.dumps(asdict(sample), ensure_ascii=False) + "\n")
-                    num_samples += 1
+        for subset_name, episodes in subsets.items():
+            samples_path = output_directory / f"samples_{subset_name}.jsonl"
+            num_samples = 0
+            with samples_path.open("w", encoding="utf-8") as handle:
+                for episode in episodes:
+                    for sample in _iterate_episode_samples(
+                        reader, episode, resolved, frames_directory, jpeg_quality,
+                    ):
+                        handle.write(json.dumps(asdict(sample), ensure_ascii=False) + "\n")
+                        num_samples += 1
+                        if maximum_samples is not None and num_samples >= maximum_samples:
+                            break
                     if maximum_samples is not None and num_samples >= maximum_samples:
                         break
-                if maximum_samples is not None and num_samples >= maximum_samples:
-                    break
+            counts[subset_name] = num_samples
     finally:
         reader.close()
 
     info: dict[str, Any] = {
-        "num_samples": num_samples,
-        "num_episodes": len(episodes),
+        "num_train_samples": counts["train"],
+        "num_validation_samples": counts["validation"],
+        "num_train_episodes": len(subsets["train"]),
+        "num_validation_episodes": len(subsets["validation"]),
+        "holdout_level": split.holdout_level,
+        "validation_prefixes": split.validation_prefixes,
+        "achieved_validation_frame_ratio": split.achieved_validation_ratio,
+        "target_validation_frame_ratio": split.target_validation_ratio,
         "frames_per_second": FRAMES_PER_SECOND,
         "window_frames": resolved.window_frames,
         "window_milliseconds": resolved.window_frames * 1000 // FRAMES_PER_SECOND,
@@ -324,6 +357,14 @@ def main() -> None:
     parser.add_argument("--maximum-episodes", type=int, default=None, help="最多处理的 episode 数")
     parser.add_argument("--maximum-samples", type=int, default=None, help="最多产出的样本数")
     parser.add_argument("--jpeg-quality", type=int, default=90, help="观测帧 JPEG 质量")
+    parser.add_argument(
+        "--holdout-level", default="prefix", choices=("prefix", "episode"),
+        help="prefix：整个玩家留出，衡量跨玩家泛化；episode：按 episode 打散",
+    )
+    parser.add_argument(
+        "--validation-ratio", type=float, default=0.1, help="验证集目标帧数占比",
+    )
+    parser.add_argument("--split-seed", type=int, default=3407, help="episode 粒度打散种子")
     arguments = parser.parse_args()
 
     layout = WindowLayout(
@@ -346,6 +387,9 @@ def main() -> None:
         maximum_episodes=arguments.maximum_episodes,
         maximum_samples=arguments.maximum_samples,
         jpeg_quality=arguments.jpeg_quality,
+        holdout_level=arguments.holdout_level,
+        validation_ratio=arguments.validation_ratio,
+        split_seed=arguments.split_seed,
     )
     print(json.dumps(info, ensure_ascii=False, indent=2))
 

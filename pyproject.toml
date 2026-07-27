@@ -34,6 +34,7 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 minestudio-download = "minestudio_dataset.huggingface_download:main"
+minestudio-split = "minestudio_dataset.episode_split:main"
 lumine-build-pretrain = "minestudio_dataset.lumine_pretrain_builder:main"
 train-gemma-vision-sft = "train.gemma_vision_sft:main"
 train-qwen-vision-sft = "train.qwen_vision_sft:main"

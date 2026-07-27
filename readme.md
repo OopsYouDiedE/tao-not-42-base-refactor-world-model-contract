@@ -33,13 +33,36 @@ contractor data 转成 MineStudio 轨迹结构）。仓库内按模态解耦存�
 
 并行参数是 `--maximum-workers`。盘要留够：一个 image 分片 29GB 起。
 
-## 二、转成 Lumine 格式
+## 二、划分训练 / 验证集
+
+episode 名形如 `lovely-persimmon-angora-02e496ce4abb-20220421-092639`，
+结构是 `<前缀>-<12 位 hex>-<日期>-<时间>`。**前缀是玩家标识**（10xx 全量 19 个），
+中间的 hex 名义上是会话 ID，但 10xx 里 `f153ac423f61` 一个值就横跨全部 19 个前缀、
+覆盖 442 条 episode——它是退化占位值，不能单独当分组键。
+
+    python -m minestudio_dataset.episode_split \
+        --dataset-dir runs/minestudio/minestudio-data-10xx-v110 \
+        --holdout-level prefix --validation-ratio 0.1 \
+        --output runs/split-10xx.json
+
+两种粒度，选哪个取决于你要衡量什么：
+
+- `prefix`（默认）：整个玩家留出，同一人的运镜与按键习惯不会同时出现在两边，
+  衡量**跨玩家泛化**。10xx 上验证集是 6 个前缀 / 198 episodes / 26.0 h。
+- `episode`：按 episode 打散，同一玩家两边都有（10xx 实测验证集摸到 19 个前缀里的 16 个），
+  数字更好看但只衡量同分布内插。
+
+前缀级帧数分布极偏（10xx 前 4 个前缀占 66%），随机抽组会让验证集占比在 0.1%–22%
+之间乱跳，所以组数 ≤20 时精确枚举全部子集取最接近目标占比的那个——10xx 上精确命中 90.00/10.00。
+
+## 三、转成 Lumine 格式
 
     python -m minestudio_dataset.lumine_pretrain_builder \
         --dataset-dir runs/minestudio/minestudio-data-10xx-v110 \
         --output-dir runs/lumine-pretrain
 
-产物：`samples.jsonl`（每行一条样本）+ `frames/`（观测帧 JPEG）+ `dataset_info.json`。
+产物：`samples_train.jsonl` + `samples_validation.jsonl` + `frames/`（观测帧 JPEG）
++ `split.json` + `dataset_info.json`。划分在构建时自动完成，参数与上一步一致。
 image 模态还没下载时加 `--no-images`，只出动作文本。
 
 ### 动作格式
@@ -61,7 +84,7 @@ Lumine 原文的 6×33ms 是《原神》的 30Hz 电机步，这里按 Minecraft
 没有照抄。`--frames-per-chunk 2` 可换成 100ms 电机步（此时一个 chunk 内任一帧按下即
 记为按住，短按不丢）。
 
-## 三、训练
+## 四、训练
 
     python -m train.gemma_vision_sft --model gemma-4-26B-A4B-it \
         --dataset-dir runs/lumine-pretrain --output-dir runs/sft-gemma

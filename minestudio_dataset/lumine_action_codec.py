@@ -173,18 +173,31 @@ def encode_lumine_action(
     delta_x = _clamp(total_yaw / degrees_per_pixel, MOUSE_DELTA_LIMIT)
     delta_y = _clamp(total_pitch / degrees_per_pixel, MOUSE_DELTA_LIMIT)
 
+    # 一次性堆成 (键数, 帧数) 布尔矩阵再按 chunk 归约。逐键逐 chunk 调 np.any 的写法
+    # 在全量构建里会产生百万级单元素 numpy 调用，纯属调用开销。
+    present = [(field, name) for field, name in mapping.items() if field in actions]
     chunks: list[LumineActionChunk] = []
-    for chunk_start in range(0, num_frames, frames_per_chunk):
-        chunk_end = chunk_start + frames_per_chunk
-        held: list[str] = []
-        for field, key_name in mapping.items():
-            values = actions.get(field)
-            if values is None:
-                continue
-            window = np.asarray(values)[chunk_start:chunk_end]
-            if window.size and bool(np.any(window.astype(bool))):
-                held.append(key_name)
-        chunks.append(LumineActionChunk(keys=tuple(held)))
+    if present:
+        matrix = np.stack(
+            [np.asarray(actions[field]).astype(bool) for field, _ in present],
+        )
+        if matrix.shape[1] != num_frames:
+            raise ValueError(
+                f"按键帧数 {matrix.shape[1]} 与 camera 帧数 {num_frames} 不一致",
+            )
+        held = matrix.reshape(len(present), -1, frames_per_chunk).any(axis=2)
+        names = [name for _, name in present]
+        for column in held.T:
+            chunks.append(
+                LumineActionChunk(
+                    keys=tuple(name for name, flag in zip(names, column) if flag),
+                ),
+            )
+    else:
+        chunks = [
+            LumineActionChunk(keys=())
+            for _ in range(num_frames // frames_per_chunk)
+        ]
 
     # MineStudio / VPT 的动作空间没有滚轮，快捷栏走数字键，故 ΔZ 恒为 0。
     return LumineWindowAction(

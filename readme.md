@@ -4,6 +4,7 @@
 再用 Unsloth 在这份数据上微调 Gemma 4 或 Qwen3.6 视觉主干。
 
     bc_datasets/minestudio/   批量下载 MineStudio LMDB + 转 Lumine 格式预训练数据
+    machine_environment/      本机 CPU / 内存 / 磁盘 / GPU / CUDA 检测
     train/                    Unsloth 视觉 SFT：Gemma 4 与 Qwen3.6 两个入口
     tests/                    动作编解码与时间布局的单元测试
     runs/bc_datasets/         数据集（原始 LMDB 与转换产物），Git ignored
@@ -18,6 +19,19 @@
     python -m pip install -e ".[train,dev]"    # 加训练侧（CUDA 栈）
 
 数据管线不需要 CUDA，训练侧依赖单列在 `train` extra 里。
+
+## 先看机器
+
+下载前确认磁盘容量（单个 image 分片 29GB），训练前确认显存（决定 micro-batch）：
+
+    python -m machine_environment.hardware_report          # 对齐文本
+    python -m machine_environment.hardware_report --json   # 机器可读
+
+CUDA 有三个互不相同的版本号，报告里分开列——混为一谈是排错时最常见的误判来源：
+驱动支持的**上限**（`nvidia-smi`）、已装**工具链**（`nvcc`）、torch **编译时链接**的版本。
+后两者不一致通常无害，torch 自带运行时。
+
+不装 torch 也能跑，检测不到的项显示"未知"，不填默认值。
 
 ## 一、下载 MineStudio 数据
 

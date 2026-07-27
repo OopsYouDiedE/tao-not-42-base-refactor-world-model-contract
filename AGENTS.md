@@ -19,6 +19,7 @@
 |---|---|
 | `bc_datasets/` | 行为克隆数据集构建的命名空间；每个子包一个数据来源 |
 | `bc_datasets/minestudio/` | 数据下载、LMDB 读取、Lumine 动作编解码、预训练数据构建 |
+| `machine_environment/` | 本机 CPU / 内存 / 磁盘 / GPU / CUDA 检测 |
 | `train/` | Unsloth 视觉 SFT 流程与两族主干入口 |
 | `tests/unit/` | 不碰真实数据集与模型的纯单元测试 |
 | `runs/bc_datasets/` | 数据集：原始 LMDB 分片与 Lumine 转换产物 |
@@ -44,6 +45,9 @@
 - 训练侧依赖（torch / transformers / trl / unsloth）放在 `train` extra，
   数据管线机器不必装 CUDA 栈。
 - 缺少生产依赖时直接报告，不在生产代码里加 `try/except` Mock 或静默降级。
+  `machine_environment` 对 torch 的 `try/except ImportError` 是例外：它的职责就是
+  报告环境缺什么，且必须能在没装 CUDA 栈的数据管线机器上运行。缺失结果显式标注，
+  不填默认值。
 - `import unsloth` 必须早于 transformers / trl 的重型导入，这是补丁顺序要求。
 
 ## 5. 数据契约不变量

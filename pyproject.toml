@@ -33,6 +33,7 @@ train = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
+machine-environment = "machine_environment.hardware_report:main"
 minestudio-download = "bc_datasets.minestudio.huggingface_download:main"
 minestudio-split = "bc_datasets.minestudio.episode_split:main"
 lumine-build-pretrain = "bc_datasets.minestudio.lumine_pretrain_builder:main"
@@ -40,7 +41,7 @@ train-gemma-vision-sft = "train.gemma_vision_sft:main"
 train-qwen-vision-sft = "train.qwen_vision_sft:main"
 
 [tool.setuptools.packages.find]
-include = ["bc_datasets*", "train*"]
+include = ["bc_datasets*", "machine_environment*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -54,4 +55,4 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["bc_datasets", "train"]
+known_first_party = ["bc_datasets", "machine_environment", "train"]

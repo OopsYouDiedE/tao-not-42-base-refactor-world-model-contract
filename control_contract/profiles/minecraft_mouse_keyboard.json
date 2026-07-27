@@ -1,0 +1,30 @@
+{
+  "profile_name": "minecraft_mouse_keyboard",
+  "tick_hz": 20.0,
+  "locomotion_axis": {
+    "direction_count": 8,
+    "magnitude_levels": 1,
+    "dead_zone": 0.15
+  },
+  "aim_axis": {
+    "cap_per_tick": 18.0
+  },
+  "cursor_cap_per_tick": 0.1875,
+  "sprint_threshold": 0.75,
+  "menu_cursor": true,
+  "direct_slot_buttons": true,
+  "slot_count": 9,
+  "supports_text": false,
+  "abilities": [
+    {"name": "mine", "role": "primary", "description": "hold to break the block you look at"},
+    {"name": "attack", "role": "primary", "description": "swing at what you look at"},
+    {"name": "place", "role": "secondary", "description": "place the held block"},
+    {"name": "eat", "role": "secondary", "description": "hold to consume the held food"},
+    {"name": "drop", "role": "aux1", "description": "throw the held item on the ground"}
+  ],
+  "unavailable_roles": [
+    "map", "menu", "confirm", "cancel", "next", "prev",
+    "nav_up", "nav_down", "nav_left", "nav_right",
+    "aux2", "aux3", "aux4"
+  ]
+}

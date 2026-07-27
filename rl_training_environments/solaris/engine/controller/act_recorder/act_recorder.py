@@ -114,6 +114,9 @@ def process_frame_worker(frame_queue, output_path, viewer_rendering_disabled, ep
 
     # Now create video writer with calculated FPS and write all frames
     if not viewer_rendering_disabled:
+        # (640, 360) must stay aligned with the prismarine viewer width/height in
+        # episodes-loop.js and with CraftGround's OBS_SHAPE_NATIVE so both renderers
+        # emit identically-sized observation frames.
         out = cv2.VideoWriter(
             f"{output_path}.mp4",
             cv2.VideoWriter_fourcc(*"mp4v"),

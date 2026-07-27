@@ -19,6 +19,7 @@ from craftground import CraftGroundEnvironment, InitialEnvironmentConfig
 from craftground.environment.action_space import ActionSpaceVersion, no_op_v2
 from craftground.screen_encoding_modes import ScreenEncodingMode
 
+from rl_training_environments.craftground.observation_spaces import OBS_SHAPE_NATIVE
 from rl_training_environments.craftground.reward_shaping import (
     RewardShaper,
     extract_inventory_keys,
@@ -95,7 +96,11 @@ class MinecraftCraftGroundEnvironment:
                 "完整的系统依赖安装请参阅 rl_training_environments/craftground/README.md"
             )
 
+        # 显式对齐分辨率到项目统一口径（OBS_SHAPE_NATIVE=(C,H,W)），与 solaris viewer
+        # 的 640x360 一致，且不依赖 craftground 的库默认值（避免升级后默认变化导致失配）。
         config = InitialEnvironmentConfig(
+            image_width=OBS_SHAPE_NATIVE[2],
+            image_height=OBS_SHAPE_NATIVE[1],
             screen_encoding_mode=self.screen_encoding_mode,
             seed=str(self.seed) if self.seed is not None else ""
         )

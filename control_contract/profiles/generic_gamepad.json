@@ -1,0 +1,18 @@
+{
+  "profile_name": "generic_gamepad",
+  "tick_hz": 30.0,
+  "locomotion_axis": {
+    "direction_count": 0,
+    "magnitude_levels": 0,
+    "dead_zone": 0.12
+  },
+  "aim_axis": {
+    "cap_per_second": 220.0
+  },
+  "cursor_cap_per_second": 1.2,
+  "menu_cursor": true,
+  "direct_slot_buttons": false,
+  "slot_count": 8,
+  "supports_text": false,
+  "abilities": []
+}

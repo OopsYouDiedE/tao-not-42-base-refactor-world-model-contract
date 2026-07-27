@@ -33,7 +33,13 @@ dev = ["pytest>=7.0"]
 train-godot-ppo = "rl_training_environments.godot.train_ppo:main"
 
 [tool.setuptools.packages.find]
-include = ["blocks*", "data_pipelines*", "net*", "rl_training_environments*", "train*"]
+include = ["blocks*", "control_contract*", "data_pipelines*", "net*",
+           "rl_training_environments*", "train*"]
+
+# profile_registry 在运行时按文件名 glob 加载 profiles/*.json，装成 wheel 后这些
+# JSON 必须跟着包走，否则 available_profiles() 会返回空元组。
+[tool.setuptools.package-data]
+control_contract = ["profiles/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

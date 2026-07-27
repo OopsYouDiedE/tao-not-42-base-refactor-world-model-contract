@@ -624,7 +624,10 @@ function getOnSpawnFn(bot, host, actRecorderPort, coordinator, args) {
       await sleep(args.bootstrap_wait_time * 1000);
     }
 
-    // Initialize viewer once for the entire program
+    // Initialize viewer once for the entire program.
+    // Resolution 640x360 is the project-wide alignment: it must match CraftGround's
+    // OBS_SHAPE_NATIVE (rl_training_environments/craftground/observation_spaces.py) and the
+    // act_recorder VideoWriter size so both renderers emit identically-sized observation frames.
     mineflayerViewerhl(bot, {
       output: `${host}:${actRecorderPort}`,
       width: 640,

@@ -7,6 +7,9 @@
 
 仓库只维护以下生产路径：
 
+- 游戏无关、设备无关的纯大模型控制契约（`control_contract/`：语义角色 + 决策段 + 守卫 +
+  每游戏绑定 profile），及其到各环境的 adapter。键鼠与手柄统一为"两个抽象摇杆 + 语义按钮"，
+  设备差异只允许表现为 `AxisSpec` 数值差异，不得按设备族分支；
 - Godot 强化学习环境及其共享内存、SB3 适配与 PPO 入口；
 - CraftGround 在线环境、奖励塑形、动作契约、回放与世界快照；
 - solaris 在线环境：mineflayer 无头 bot + prismarine-viewer headless 渲染的行为数据源
@@ -27,6 +30,8 @@ MineStudio 完整下载 / LMDB 读取 / VPT 动作编码、依赖它的离线 SF
 | 目录 | 职责 |
 |---|---|
 | `blocks/` | 与任务无关的可复用神经网络算子 |
+| `control_contract/` | 游戏无关、设备无关的控制契约：语义角色、决策段、守卫、段编译器 |
+| `control_contract/profiles/` | 每游戏 × 每设备一份的绑定 profile 数据（JSON，新增游戏只加文件） |
 | `net/` | 模型结构与纯配置对象，不读取文件，不启动环境 |
 | `data_pipelines/` | 可跨训练流程复用的数据读取与原始数据契约 |
 | `data_pipelines/mineflayer_actions/` | mineflayer 主动执行动作与观测帧采集（Node.js） |
@@ -44,12 +49,18 @@ MineStudio 完整下载 / LMDB 读取 / VPT 动作编码、依赖它的离线 SF
 
 ```text
 blocks ← net ← train
+control_contract ← net
+control_contract ← rl_training_environments
 data_pipelines ← train
 rl_training_environments ← train
 tests 依赖上述模块，但生产代码不得 import tests
 ```
 
 不同在线环境不得引用对方的具体实现。共享的任务无关逻辑应下沉到合适的公共层。
+
+`control_contract/` 是最底层的公共层，不得 import `net/`、`rl_training_environments/` 或
+`train/`。具体游戏的键位、按钮名与引擎动作格式只允许出现在 `control_contract/profiles/`
+的 JSON 与各环境的 adapter 里；控制契约的 Python 代码本身不得出现任何具体游戏的绑定知识。
 
 ## 3. 命名规范
 

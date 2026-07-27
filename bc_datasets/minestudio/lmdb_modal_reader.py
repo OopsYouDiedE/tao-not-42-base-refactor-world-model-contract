@@ -327,7 +327,7 @@ class TrajectoryReader:
             if not parts:
                 raise FileNotFoundError(
                     f"模态 {modal} 没有找到任何含 data.mdb 的分片；先用 "
-                    f"minestudio_dataset.huggingface_download 下载",
+                    f"bc_datasets.minestudio.huggingface_download 下载",
                 )
             self.readers[modal] = ModalKernelReader(
                 part_directories=parts,

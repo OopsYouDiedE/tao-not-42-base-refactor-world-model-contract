@@ -30,9 +30,9 @@ from typing import Any, Iterator
 import cv2
 import numpy as np
 
-from minestudio_dataset.episode_split import HoldoutLevel, SplitResult, build_split
-from minestudio_dataset.lmdb_modal_reader import TrajectoryReader
-from minestudio_dataset.lumine_action_codec import (
+from bc_datasets.minestudio.episode_split import HoldoutLevel, SplitResult, build_split
+from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lumine_action_codec import (
     MINECRAFT_KEYMAP,
     encode_lumine_action,
 )
@@ -241,7 +241,7 @@ def build_pretrain_dataset(
     jpeg_quality : int
         观测帧 JPEG 质量，1–100。
     holdout_level : {"prefix", "episode"}
-        验证集留出粒度，见 ``minestudio_dataset.episode_split.build_split``。
+        验证集留出粒度，见 ``bc_datasets.minestudio.episode_split.build_split``。
     validation_ratio : float
         验证集目标帧数占比。
     split_seed : int

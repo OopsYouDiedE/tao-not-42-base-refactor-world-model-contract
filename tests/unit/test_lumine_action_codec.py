@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from minestudio_dataset.lumine_action_codec import (
+from bc_datasets.minestudio.lumine_action_codec import (
     MOUSE_DELTA_LIMIT,
     SCROLL_LIMIT,
     decode_lumine_action,

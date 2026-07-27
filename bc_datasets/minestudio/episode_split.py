@@ -30,7 +30,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
-from minestudio_dataset.lmdb_modal_reader import (
+from bc_datasets.minestudio.lmdb_modal_reader import (
     ModalKernelReader,
     discover_part_directories,
 )

@@ -114,7 +114,7 @@ def load_lumine_conversations(
     samples_path = Path(dataset_directory) / "samples.jsonl"
     if not samples_path.is_file():
         raise FileNotFoundError(
-            f"找不到 {samples_path}；先跑 minestudio_dataset.lumine_pretrain_builder",
+            f"找不到 {samples_path}；先跑 bc_datasets.minestudio.lumine_pretrain_builder",
         )
     conversations: list[dict[str, list[dict[str, Any]]]] = []
     with samples_path.open("r", encoding="utf-8") as handle:

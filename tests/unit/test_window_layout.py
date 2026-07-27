@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from minestudio_dataset.lumine_pretrain_builder import (
+from bc_datasets.minestudio.lumine_pretrain_builder import (
     FRAMES_PER_SECOND,
     WindowLayout,
     _observation_frame_indices,

@@ -10,25 +10,25 @@
     build_pretrain_dataset — 批量产出 Lumine 格式预训练样本。
 """
 
-from minestudio_dataset.episode_split import (
+from bc_datasets.minestudio.episode_split import (
     EpisodeIdentity,
     SplitResult,
     build_split,
     load_split,
     parse_episode_identity,
 )
-from minestudio_dataset.huggingface_download import (
+from bc_datasets.minestudio.huggingface_download import (
     DATASET_REPOSITORIES,
     download_datasets,
 )
-from minestudio_dataset.lmdb_modal_reader import ModalKernelReader, TrajectoryReader
-from minestudio_dataset.lumine_action_codec import (
+from bc_datasets.minestudio.lmdb_modal_reader import ModalKernelReader, TrajectoryReader
+from bc_datasets.minestudio.lumine_action_codec import (
     LumineActionChunk,
     LumineWindowAction,
     decode_lumine_action,
     encode_lumine_action,
 )
-from minestudio_dataset.lumine_pretrain_builder import build_pretrain_dataset
+from bc_datasets.minestudio.lumine_pretrain_builder import build_pretrain_dataset
 
 __all__ = [
     "DATASET_REPOSITORIES",

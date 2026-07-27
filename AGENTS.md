@@ -6,7 +6,7 @@
 
 仓库只维护两条生产路径：
 
-- `minestudio_dataset/`：MineStudio 数据集批量下载 + 转 Lumine 格式预训练数据；
+- `bc_datasets/minestudio/`：MineStudio 数据集批量下载 + 转 Lumine 格式预训练数据；
 - `train/`：Unsloth 视觉 SFT，Gemma 4 与 Qwen3.6 两族主干。
 
 不在范围内：在线环境（Godot / CraftGround / solaris）、控制契约、mineflayer 采集、
@@ -17,13 +17,15 @@
 
 | 目录 | 职责 |
 |---|---|
-| `minestudio_dataset/` | 数据下载、LMDB 读取、Lumine 动作编解码、预训练数据构建 |
+| `bc_datasets/` | 行为克隆数据集构建的命名空间；每个子包一个数据来源 |
+| `bc_datasets/minestudio/` | 数据下载、LMDB 读取、Lumine 动作编解码、预训练数据构建 |
 | `train/` | Unsloth 视觉 SFT 流程与两族主干入口 |
 | `tests/unit/` | 不碰真实数据集与模型的纯单元测试 |
 | `runs/bc_datasets/` | 数据集：原始 LMDB 分片与 Lumine 转换产物 |
 | `runs/trains/` | 训练产物：checkpoint、LoRA adapter、训练日志 |
 
-依赖方向单向：`minestudio_dataset ← train`。`minestudio_dataset/` 不得 import `train/`。
+依赖方向单向：`bc_datasets ← train`。`bc_datasets/` 不得 import `train/`。
+新增数据来源作为 `bc_datasets/` 下的兄弟子包，不得塞进 `minestudio/`。
 
 ## 3. 命名规范
 
@@ -34,6 +36,7 @@
 - 张量公式里的 `B/T/H/W/C` 是数学符号，可保留。
 - 顶层包不得命名为 `datasets`：`import unsloth` 内部 `from datasets import Dataset`，
   会被同名顶层包遮蔽导致 unsloth_zoo 崩（`python -m` 从仓库根跑必现）。
+  `bc_datasets` 带前缀，不构成遮蔽，可以用。
 
 ## 4. 依赖规则
 
@@ -82,7 +85,7 @@
 ## 8. 测试与验收
 
     python -m pytest
-    python -m compileall -q minestudio_dataset train tests
+    python -m compileall -q bc_datasets train tests
 
 单元测试不得依赖已下载的数据集或模型权重。涉及真实 LMDB、CUDA 或模型加载的验证
 属于冒烟，需单独说明在哪台机器上跑过；纯 CPU 测试不能替代。

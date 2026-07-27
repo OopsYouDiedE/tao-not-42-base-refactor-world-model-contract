@@ -3,11 +3,13 @@
 两件事：把 MineStudio 的 Minecraft 轨迹批量转成 Lumine 格式的动作预训练数据，
 再用 Unsloth 在这份数据上微调 Gemma 4 或 Qwen3.6 视觉主干。
 
-    minestudio_dataset/    批量下载 MineStudio LMDB + 转 Lumine 格式预训练数据
-    train/                 Unsloth 视觉 SFT：Gemma 4 与 Qwen3.6 两个入口
-    tests/                 动作编解码与时间布局的单元测试
-    runs/bc_datasets/      数据集（原始 LMDB 与转换产物），Git ignored
-    runs/trains/           checkpoint 与训练日志，Git ignored
+    bc_datasets/minestudio/   批量下载 MineStudio LMDB + 转 Lumine 格式预训练数据
+    train/                    Unsloth 视觉 SFT：Gemma 4 与 Qwen3.6 两个入口
+    tests/                    动作编解码与时间布局的单元测试
+    runs/bc_datasets/         数据集（原始 LMDB 与转换产物），Git ignored
+    runs/trains/              checkpoint 与训练日志，Git ignored
+
+`bc_datasets/` 是代码命名空间，每个子包对应一个数据来源；`runs/bc_datasets/` 是它的产物落地处。
 
 ## 安装
 
@@ -24,11 +26,11 @@ contractor data 转成 MineStudio 轨迹结构）。仓库内按模态解耦存�
 布局为 `<模态>/part-<编号>/{data.mdb,lock.mdb}`。
 
     # 先看有哪些分片，别一上来就全量拉
-    python -m minestudio_dataset.huggingface_download --dataset 10xx \
+    python -m bc_datasets.minestudio.huggingface_download --dataset 10xx \
         --modal image action --list-parts
 
     # 只下 1 个分片试水（单个 image 分片可达 29GB）
-    python -m minestudio_dataset.huggingface_download \
+    python -m bc_datasets.minestudio.huggingface_download \
         --dataset 10xx --modal image action meta_info \
         --maximum-parts 1 --maximum-workers 8 \
         --output-dir runs/bc_datasets
@@ -42,7 +44,7 @@ episode 名形如 `lovely-persimmon-angora-02e496ce4abb-20220421-092639`，
 中间的 hex 名义上是会话 ID，但 10xx 里 `f153ac423f61` 一个值就横跨全部 19 个前缀、
 覆盖 442 条 episode——它是退化占位值，不能单独当分组键。
 
-    python -m minestudio_dataset.episode_split \
+    python -m bc_datasets.minestudio.episode_split \
         --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110 \
         --holdout-level prefix --validation-ratio 0.1 \
         --output runs/bc_datasets/split-10xx.json
@@ -59,7 +61,7 @@ episode 名形如 `lovely-persimmon-angora-02e496ce4abb-20220421-092639`，
 
 ## 三、转成 Lumine 格式
 
-    python -m minestudio_dataset.lumine_pretrain_builder \
+    python -m bc_datasets.minestudio.lumine_pretrain_builder \
         --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110 \
         --output-dir runs/bc_datasets/lumine-10xx
 
@@ -102,4 +104,4 @@ Lumine 原文的 6×33ms 是《原神》的 30Hz 电机步，这里按 Minecraft
 ## 验收
 
     python -m pytest
-    python -m compileall -q minestudio_dataset train tests
+    python -m compileall -q bc_datasets train tests

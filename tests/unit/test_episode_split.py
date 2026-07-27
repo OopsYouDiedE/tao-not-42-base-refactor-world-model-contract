@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from minestudio_dataset.episode_split import (
+from bc_datasets.minestudio.episode_split import (
     _select_groups_by_frames,
     _stable_order,
     parse_episode_identity,

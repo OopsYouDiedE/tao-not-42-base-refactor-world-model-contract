@@ -172,7 +172,7 @@ def main() -> None:
         help="要下载的模态",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("runs/minestudio"), help="输出根目录",
+        "--output-dir", type=Path, default=Path("runs/bc_datasets"), help="输出根目录",
     )
     parser.add_argument(
         "--maximum-parts", type=int, default=None,

@@ -298,7 +298,7 @@ class TrajectoryReader:
     Parameters
     ----------
     dataset_directories : list of Path
-        数据集根目录列表，例如 ``[Path("runs/minestudio-data-10xx-v110")]``。
+        数据集根目录列表，例如 ``[Path("runs/bc_datasets/minestudio-data-10xx-v110")]``。
     modals : list of str
         要读取的模态，必须包含 ``"action"``；``"image"`` 可选（缺失时只出动作）。
     frame_width, frame_height : int

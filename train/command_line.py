@@ -39,7 +39,8 @@ def build_argument_parser(
         "--dataset-dir", type=Path, required=True, help="Lumine 预训练数据目录",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("runs/sft"), help="checkpoint 输出目录",
+        "--output-dir", type=Path, default=Path("runs/trains/sft"),
+        help="checkpoint 输出目录",
     )
     parser.add_argument("--lora-rank", type=int, default=32, help="LoRA 秩")
     parser.add_argument("--lora-alpha", type=int, default=32, help="LoRA alpha")

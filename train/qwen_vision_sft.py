@@ -6,7 +6,7 @@
 用法::
 
     python -m train.qwen_vision_sft --model Qwen3.6-35B-A3B \
-        --dataset-dir runs/lumine-pretrain --output-dir runs/sft-qwen
+        --dataset-dir runs/bc_datasets/lumine-10xx --output-dir runs/trains/sft-qwen
 
 Qwen3.6 的注意点：原生多模态（Causal LM + Vision Encoder），思考模式是同一份权重的
 运行时开关（不再支持 Qwen3 的 ``/think`` 软开关）；35B-A3B 是 MoE（35B 总 / 3B 激活），

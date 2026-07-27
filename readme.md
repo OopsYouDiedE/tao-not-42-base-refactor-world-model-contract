@@ -6,6 +6,8 @@
     minestudio_dataset/    批量下载 MineStudio LMDB + 转 Lumine 格式预训练数据
     train/                 Unsloth 视觉 SFT：Gemma 4 与 Qwen3.6 两个入口
     tests/                 动作编解码与时间布局的单元测试
+    runs/bc_datasets/      数据集（原始 LMDB 与转换产物），Git ignored
+    runs/trains/           checkpoint 与训练日志，Git ignored
 
 ## 安装
 
@@ -29,7 +31,7 @@ contractor data 转成 MineStudio 轨迹结构）。仓库内按模态解耦存�
     python -m minestudio_dataset.huggingface_download \
         --dataset 10xx --modal image action meta_info \
         --maximum-parts 1 --maximum-workers 8 \
-        --output-dir runs/minestudio
+        --output-dir runs/bc_datasets
 
 并行参数是 `--maximum-workers`。盘要留够：一个 image 分片 29GB 起。
 
@@ -41,9 +43,9 @@ episode 名形如 `lovely-persimmon-angora-02e496ce4abb-20220421-092639`，
 覆盖 442 条 episode——它是退化占位值，不能单独当分组键。
 
     python -m minestudio_dataset.episode_split \
-        --dataset-dir runs/minestudio/minestudio-data-10xx-v110 \
+        --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110 \
         --holdout-level prefix --validation-ratio 0.1 \
-        --output runs/split-10xx.json
+        --output runs/bc_datasets/split-10xx.json
 
 两种粒度，选哪个取决于你要衡量什么：
 
@@ -58,8 +60,8 @@ episode 名形如 `lovely-persimmon-angora-02e496ce4abb-20220421-092639`，
 ## 三、转成 Lumine 格式
 
     python -m minestudio_dataset.lumine_pretrain_builder \
-        --dataset-dir runs/minestudio/minestudio-data-10xx-v110 \
-        --output-dir runs/lumine-pretrain
+        --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110 \
+        --output-dir runs/bc_datasets/lumine-10xx
 
 产物：`samples_train.jsonl` + `samples_validation.jsonl` + `frames/`（观测帧 JPEG）
 + `split.json` + `dataset_info.json`。划分在构建时自动完成，参数与上一步一致。
@@ -87,10 +89,10 @@ Lumine 原文的 6×33ms 是《原神》的 30Hz 电机步，这里按 Minecraft
 ## 四、训练
 
     python -m train.gemma_vision_sft --model gemma-4-26B-A4B-it \
-        --dataset-dir runs/lumine-pretrain --output-dir runs/sft-gemma
+        --dataset-dir runs/bc_datasets/lumine-10xx --output-dir runs/trains/sft-gemma
 
     python -m train.qwen_vision_sft --model Qwen3.6-35B-A3B \
-        --dataset-dir runs/lumine-pretrain --output-dir runs/sft-qwen
+        --dataset-dir runs/bc_datasets/lumine-10xx --output-dir runs/trains/sft-qwen
 
 两族共用同一套数据与训练流程（`train/unsloth_supervised_finetuning.py`），
 入口只差候选模型与 chat template。`--micro-batch` 默认 8：96GB 卡上实测这是

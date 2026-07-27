@@ -20,7 +20,8 @@
 | `minestudio_dataset/` | 数据下载、LMDB 读取、Lumine 动作编解码、预训练数据构建 |
 | `train/` | Unsloth 视觉 SFT 流程与两族主干入口 |
 | `tests/unit/` | 不碰真实数据集与模型的纯单元测试 |
-| `runs/` | 数据、日志、checkpoint 与探针脚本，必须保持 Git ignored |
+| `runs/bc_datasets/` | 数据集：原始 LMDB 分片与 Lumine 转换产物 |
+| `runs/trains/` | 训练产物：checkpoint、LoRA adapter、训练日志 |
 
 依赖方向单向：`minestudio_dataset ← train`。`minestudio_dataset/` 不得 import `train/`。
 
@@ -74,6 +75,8 @@
 - 类和函数 docstring 用 NumPy 风格；张量参数与返回值声明 Shape、Dtype 与单位。
 - import 位于文件顶部，禁止 `from module import *`（unsloth 的延迟导入需注明原因）。
 - 生产代码不得包含测试 Mock、离线假数据或本地个人绝对路径。
+- `runs/` 只有 `bc_datasets/` 与 `trains/` 两个子目录，整体 Git ignored。
+  临时脚本、探针与一次性产物不留在 `runs/`：用完即删，需要留存的结论写进代码或文档。
 - 废弃模块物理删除，不留空文件、转发壳或仅含注释的兼容层。
 
 ## 8. 测试与验收

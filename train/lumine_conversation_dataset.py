@@ -33,6 +33,7 @@ def build_conversation(
     dataset_root: Path,
     instruction: str = DEFAULT_INSTRUCTION,
     include_previous_action: bool = True,
+    loaded_images: list[Image.Image] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """把一条 Lumine 样本转成 messages 对话。
 
@@ -48,6 +49,9 @@ def build_conversation(
     include_previous_action : bool
         是否把上一窗口的动作串带进 prompt。带上等于给模型动作历史；
         本项目此前的零样本探测显示无动作历史时模型完全无法对齐真值。
+    loaded_images : list of PIL.Image.Image or None
+        已在内存中的观测帧，时间升序。给定时直接使用并忽略 ``image_paths``——
+        流式路径从 LMDB 解码出帧，不经过磁盘。
 
     Returns
     -------
@@ -60,11 +64,15 @@ def build_conversation(
         ``image_paths`` 指向的帧文件不存在。
     """
     content: list[dict[str, Any]] = []
-    for relative in sample["image_paths"]:
-        path = dataset_root / relative
-        if not path.is_file():
-            raise FileNotFoundError(f"观测帧缺失：{path}")
-        content.append({"type": "image", "image": Image.open(path).convert("RGB")})
+    if loaded_images is not None:
+        for image in loaded_images:
+            content.append({"type": "image", "image": image})
+    else:
+        for relative in sample["image_paths"]:
+            path = dataset_root / relative
+            if not path.is_file():
+                raise FileNotFoundError(f"观测帧缺失：{path}")
+            content.append({"type": "image", "image": Image.open(path).convert("RGB")})
 
     text = instruction
     previous = sample.get("previous_action_text") or ""

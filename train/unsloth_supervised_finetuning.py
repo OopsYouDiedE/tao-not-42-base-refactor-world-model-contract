@@ -205,6 +205,11 @@ def run_supervised_finetuning(
     include_previous_action: bool = True,
     maximum_samples: int | None = None,
     subset: str = "train",
+    streaming: bool = True,
+    dataloader_workers: int | None = None,
+    holdout_level: str = "prefix",
+    validation_ratio: float = 0.1,
+    split_seed: int = 3407,
 ) -> dict[str, Any]:
     """端到端跑一次 Lumine 动作预测的视觉 SFT。
 
@@ -227,15 +232,26 @@ def run_supervised_finetuning(
     maximum_samples : int or None
         最多使用的样本数。
     subset : str
-        用于训练的子集名，对应 ``samples_<子集>.jsonl``。默认 ``"train"``。
+        用于训练的子集名。流式模式下取 ``"train"`` 或 ``"validation"``；
+        落盘模式下对应 ``samples_<子集>.jsonl``。
+    streaming : bool
+        True（默认）时直接从 LMDB 流式加载，不需要预先落盘中间产物，
+        ``dataset_directory`` 指向 MineStudio 数据集根目录。
+        False 时读 ``lumine_pretrain_builder`` 的落盘产物。
+    dataloader_workers : int or None
+        DataLoader 并行 worker 数，None 时按 CPU 核心数与可用内存推算。仅流式模式生效。
+    holdout_level : str
+        流式模式下的验证集留出粒度：``"prefix"`` 或 ``"episode"``。
+    validation_ratio : float
+        流式模式下的验证集目标帧数占比。
+    split_seed : int
+        流式模式下 ``episode`` 粒度打散的种子。
 
     Returns
     -------
     dict
         训练统计：``train_runtime``、``train_loss`` 等 TRL 原始字段，加 ``num_samples``。
     """
-    from train.lumine_conversation_dataset import load_lumine_conversations
-
     lora_settings = lora if lora is not None else LoraSettings()
     training_settings = training if training is not None else TrainingSettings()
 
@@ -245,12 +261,38 @@ def run_supervised_finetuning(
         load_in_4bit=load_in_4bit,
         max_sequence_length=training_settings.max_sequence_length,
     )
-    conversations = load_lumine_conversations(
-        dataset_directory,
-        subset=subset,  # type: ignore[arg-type]
-        include_previous_action=include_previous_action,
-        maximum_samples=maximum_samples,
-    )
+    dataset_statistics: dict[str, Any] = {}
+    if streaming:
+        from train.lumine_streaming_dataset import (
+            StreamingSettings,
+            build_streaming_dataset,
+            resolve_worker_count,
+        )
+
+        streaming_settings = StreamingSettings(
+            include_previous_action=include_previous_action,
+        )
+        train_dataset, validation_dataset, dataset_statistics = build_streaming_dataset(
+            dataset_directories=[dataset_directory],
+            settings=streaming_settings,
+            holdout_level=holdout_level,  # type: ignore[arg-type]
+            validation_ratio=validation_ratio,
+            split_seed=split_seed,
+            maximum_samples=maximum_samples,
+        )
+        conversations = validation_dataset if subset == "validation" else train_dataset
+        if dataloader_workers is None:
+            dataloader_workers = resolve_worker_count()
+    else:
+        from train.lumine_conversation_dataset import load_lumine_conversations
+
+        conversations = load_lumine_conversations(  # type: ignore[assignment]
+            dataset_directory,
+            subset=subset,  # type: ignore[arg-type]
+            include_previous_action=include_previous_action,
+            maximum_samples=maximum_samples,
+        )
+        dataloader_workers = 0
 
     configuration = SFTConfig(
         per_device_train_batch_size=training_settings.micro_batch_size,
@@ -267,6 +309,11 @@ def run_supervised_finetuning(
         seed=training_settings.seed,
         output_dir=str(output_directory),
         report_to="none",
+        # 流式模式下解码是 CPU 密集的，多 worker 预取才能喂饱 GPU。
+        dataloader_num_workers=dataloader_workers,
+        dataloader_pin_memory=True,
+        # worker 常驻，避免每个 epoch 重开 LMDB 环境与重建块缓存。
+        dataloader_persistent_workers=bool(dataloader_workers),
         max_length=training_settings.max_sequence_length,
         # 视觉微调的四个硬性要求：collator 自己处理图文，不能让 TRL 再插手。
         remove_unused_columns=False,
@@ -295,4 +342,8 @@ def run_supervised_finetuning(
     result = dict(statistics.metrics)
     result["num_samples"] = len(conversations)
     result["adapter_directory"] = str(adapter_directory)
+    result["streaming"] = streaming
+    result["dataloader_workers"] = dataloader_workers
+    if dataset_statistics:
+        result["dataset"] = dataset_statistics
     return result

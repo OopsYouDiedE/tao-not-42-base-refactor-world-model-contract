@@ -36,7 +36,8 @@ def build_argument_parser(
         help="主干模型短名",
     )
     parser.add_argument(
-        "--dataset-dir", type=Path, required=True, help="Lumine 预训练数据目录",
+        "--dataset-dir", type=Path, required=True,
+        help="流式模式（默认）：MineStudio 数据集根目录；--no-streaming 时：Lumine 落盘数据目录",
     )
     parser.add_argument(
         "--output-dir", type=Path, default=Path("runs/trains/sft"),
@@ -68,13 +69,43 @@ def build_argument_parser(
     parser.add_argument("--maximum-samples", type=int, default=None, help="最多使用的样本数")
     parser.add_argument(
         "--subset", default="train", choices=("train", "validation"),
-        help="用于训练的子集，对应 samples_<子集>.jsonl",
+        help="用于训练的子集",
+    )
+    parser.add_argument(
+        "--no-streaming", action="store_true",
+        help="改读 lumine_pretrain_builder 的落盘产物；默认直接从 LMDB 流式加载",
+    )
+    parser.add_argument(
+        "--dataloader-workers", type=int, default=None,
+        help="并行数据加载 worker 数；默认按 CPU 核心数与可用内存推算",
+    )
+    parser.add_argument(
+        "--holdout-level", default="prefix", choices=("prefix", "episode"),
+        help="prefix：整个玩家留出，衡量跨玩家泛化；episode：按 episode 打散",
+    )
+    parser.add_argument(
+        "--validation-ratio", type=float, default=0.1, help="验证集目标帧数占比",
+    )
+    parser.add_argument("--split-seed", type=int, default=3407, help="episode 粒度打散种子")
+    parser.add_argument(
+        "--no-preflight", action="store_true", help="跳过开工前环境体检",
     )
     return parser
 
 
 def run_from_arguments(arguments: argparse.Namespace) -> None:
-    """按解析结果跑训练并打印统计。"""
+    """按解析结果跑训练并打印统计。
+
+    体检在加载模型之前跑：显存不足要尽早看到，不该等到权重下载完才发现。
+    """
+    warnings: list[object] = []
+    if not arguments.no_preflight:
+        from machine_environment.preflight import report_preflight
+
+        warnings = list(
+            report_preflight([arguments.dataset_dir, arguments.output_dir]),
+        )
+
     # unsloth 必须在 transformers 之前完成补丁，因此训练模块延迟到此处导入。
     from train.unsloth_supervised_finetuning import (
         LoraSettings,
@@ -103,5 +134,14 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
         include_previous_action=not arguments.no_previous_action,
         maximum_samples=arguments.maximum_samples,
         subset=arguments.subset,
+        streaming=not arguments.no_streaming,
+        dataloader_workers=arguments.dataloader_workers,
+        holdout_level=arguments.holdout_level,
+        validation_ratio=arguments.validation_ratio,
+        split_seed=arguments.split_seed,
     )
+    if warnings:
+        result["preflight_warnings"] = [
+            f"{warning.category}：{warning.message}" for warning in warnings  # type: ignore[attr-defined]
+        ]
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

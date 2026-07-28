@@ -9,6 +9,10 @@
 - `bc_datasets/minestudio/`：MineStudio 数据集批量下载 + 转 Lumine 格式预训练数据；
 - `train/`：Unsloth 视觉 SFT，Gemma 4 与 Qwen3.6 两族主干。
 
+当前使用的主干是 `gemma-4-26B-A4B-it`，也是两个训练入口的默认值。
+训练默认从下载好的 LMDB **流式加载**，落盘预处理（`lumine_pretrain_builder`）
+退为可选路径，仅供离线检查与 `--no-streaming`。
+
 不在范围内：在线环境（Godot / CraftGround / solaris）、控制契约、mineflayer 采集、
 世界模型、RL / GRPO、IDM、VPT 教师、判官。新增这些能力必须由用户明确要求，
 不得根据历史文件名自行恢复。
@@ -19,8 +23,8 @@
 |---|---|
 | `bc_datasets/` | 行为克隆数据集构建的命名空间；每个子包一个数据来源 |
 | `bc_datasets/minestudio/` | 数据下载、LMDB 读取、Lumine 动作编解码、预训练数据构建 |
-| `machine_environment/` | 本机 CPU / 内存 / 磁盘 / GPU / CUDA 检测 |
-| `train/` | Unsloth 视觉 SFT 流程与两族主干入口 |
+| `machine_environment/` | 环境检测与开工前体检（显存 / 存储 / 网络） |
+| `train/` | 流式数据加载、Unsloth 视觉 SFT 流程与两族主干入口 |
 | `tools/` | 开发期查看工具，不参与生产路径；依赖在 `tools` extra |
 | `tests/unit/` | 不碰真实数据集与模型的纯单元测试 |
 | `runs/bc_datasets/` | 数据集：原始 LMDB 分片与 Lumine 转换产物 |
@@ -66,6 +70,11 @@
   chunk 数不足补空、超出截断。大模型吐出的文本再脏也不能让解码抛错。
 - 鼠标增量钳到 ±999，滚轮钳到 ±5。
 - 相机换算固定 0.15 度/像素（VPT 口径）；分母必须挡住非正输入。
+- 流式加载的样本位只能由帧数算出，不得读帧数据；训练与验证的 episode 集合必须互斥。
+- LMDB 环境不能跨进程 fork 共享：DataLoader worker 必须各自惰性打开自己的 reader。
+- `train/__init__.py` 不得在导入时拉起 unsloth：数据侧与纯 CPU 单元测试不装 CUDA 栈
+  也要能用，训练侧的名字经 `__getattr__` 惰性转发。
+- 体检三项阈值是建议性的，只警告不终止；检测不到的项按"未知"警告，不当作达标。
 
 ## 6. 训练边界
 

@@ -36,6 +36,7 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 machine-environment = "machine_environment.hardware_report:main"
+machine-preflight = "machine_environment.preflight:main"
 minestudio-download = "bc_datasets.minestudio.huggingface_download:main"
 minestudio-split = "bc_datasets.minestudio.episode_split:main"
 lumine-build-pretrain = "bc_datasets.minestudio.lumine_pretrain_builder:main"

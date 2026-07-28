@@ -1,0 +1,36 @@
+{
+  "format": "minestudio_action_choice_v1",
+  "sample_count": 100,
+  "seed": 20260728,
+  "frame_gap_range": [
+    4,
+    20
+  ],
+  "action_interval": "[before_frame, after_frame)",
+  "image_size": [
+    320,
+    180
+  ],
+  "episode_count": 1845,
+  "gap_counts": {
+    "4": 6,
+    "5": 3,
+    "6": 7,
+    "7": 4,
+    "8": 8,
+    "9": 6,
+    "10": 6,
+    "11": 3,
+    "12": 5,
+    "13": 9,
+    "14": 5,
+    "15": 4,
+    "16": 6,
+    "17": 6,
+    "18": 7,
+    "19": 4,
+    "20": 11
+  },
+  "questions": "questions.jsonl",
+  "answer_key": "answer_key.jsonl"
+}

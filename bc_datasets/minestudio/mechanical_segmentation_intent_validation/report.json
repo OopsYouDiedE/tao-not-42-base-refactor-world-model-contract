@@ -1,0 +1,1188 @@
+[
+  {
+    "episode": "whiny-ecru-cougar-7b14f8f52995-20220421-221823",
+    "start_frame": 13909,
+    "core": [
+      13978,
+      13982
+    ],
+    "expanded": [
+      13974,
+      13986
+    ],
+    "label": [
+      [
+        "back"
+      ],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_00.jpg"
+  },
+  {
+    "episode": "pokey-cyan-spitz-f153ac423f61-20220418-135037",
+    "start_frame": 3119,
+    "core": [
+      3180,
+      3185
+    ],
+    "expanded": [
+      3176,
+      3189
+    ],
+    "label": [
+      [],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_01.jpg"
+  },
+  {
+    "episode": "trippy-red-llama-a0e3295e243d-20220416-000222",
+    "start_frame": 1655,
+    "core": [
+      1688,
+      1695
+    ],
+    "expanded": [
+      1684,
+      1699
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 6,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_02.jpg"
+  },
+  {
+    "episode": "woozy-ruby-ostrich-8df8ad11bfcb-20220416-093516",
+    "start_frame": 1962,
+    "core": [
+      1987,
+      1992
+    ],
+    "expanded": [
+      1983,
+      1996
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_03.jpg"
+  },
+  {
+    "episode": "gimpy-jade-panda-6fb175670cdc-20220420-162454",
+    "start_frame": 1856,
+    "core": [
+      1893,
+      1898
+    ],
+    "expanded": [
+      1889,
+      1902
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_04.jpg"
+  },
+  {
+    "episode": "thirsty-lavender-koala-4efd6fc3dc4b-20220421-151037",
+    "start_frame": 4340,
+    "core": [
+      4395,
+      4411
+    ],
+    "expanded": [
+      4391,
+      4415
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 6,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_05.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-5f071212c398-20220421-051339",
+    "start_frame": 9382,
+    "core": [
+      9432,
+      9438
+    ],
+    "expanded": [
+      9428,
+      9442
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_06.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-62e20e313587-20220418-124909",
+    "start_frame": 1478,
+    "core": [
+      1526,
+      1532
+    ],
+    "expanded": [
+      1522,
+      1536
+    ],
+    "label": [
+      [
+        "forward",
+        "jump"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_07.jpg"
+  },
+  {
+    "episode": "gimpy-jade-panda-c5b1450c7ddf-20220420-192907",
+    "start_frame": 11325,
+    "core": [
+      11369,
+      11385
+    ],
+    "expanded": [
+      11365,
+      11389
+    ],
+    "label": [
+      [
+        "forward",
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.875,
+    "expansion_label_changes": 8,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_08.jpg"
+  },
+  {
+    "episode": "sleepy-sangria-bat-a4c5196155a2-20220419-005156",
+    "start_frame": 564,
+    "core": [
+      633,
+      638
+    ],
+    "expanded": [
+      629,
+      642
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 0.8,
+    "expansion_label_changes": 7,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_09.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-e8b6a71198ec-20220418-140524",
+    "start_frame": 6750,
+    "core": [
+      6826,
+      6830
+    ],
+    "expanded": [
+      6822,
+      6830
+    ],
+    "label": [
+      [],
+      [
+        1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_10.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-26364ef97db4-20220414-140227",
+    "start_frame": 15546,
+    "core": [
+      15612,
+      15619
+    ],
+    "expanded": [
+      15608,
+      15623
+    ],
+    "label": [
+      [
+        "forward",
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_11.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-3ad5180d2c59-20220416-023734",
+    "start_frame": 11812,
+    "core": [
+      11851,
+      11855
+    ],
+    "expanded": [
+      11847,
+      11859
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_12.jpg"
+  },
+  {
+    "episode": "trippy-red-llama-6412a8fe3bcc-20220421-215219",
+    "start_frame": 4065,
+    "core": [
+      4087,
+      4094
+    ],
+    "expanded": [
+      4083,
+      4098
+    ],
+    "label": [
+      [
+        "forward",
+        "jump"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_13.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-5f4a91c6e5a3-20220419-172450",
+    "start_frame": 18931,
+    "core": [
+      19007,
+      19011
+    ],
+    "expanded": [
+      19003,
+      19011
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_14.jpg"
+  },
+  {
+    "episode": "woozy-ruby-ostrich-f153ac423f61-20220414-200115",
+    "start_frame": 4012,
+    "core": [
+      4084,
+      4092
+    ],
+    "expanded": [
+      4080,
+      4092
+    ],
+    "label": [
+      [],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 0.75,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_15.jpg"
+  },
+  {
+    "episode": "woozy-ruby-ostrich-14100d7ce20d-20220420-084911",
+    "start_frame": 2052,
+    "core": [
+      2054,
+      2059
+    ],
+    "expanded": [
+      2052,
+      2063
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_16.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-dd1317050544-20220416-163045",
+    "start_frame": 7801,
+    "core": [
+      7801,
+      7809
+    ],
+    "expanded": [
+      7801,
+      7813
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 1,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_17.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-6f87b3c3dddb-20220422-100602",
+    "start_frame": 10591,
+    "core": [
+      10594,
+      10599
+    ],
+    "expanded": [
+      10591,
+      10603
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_18.jpg"
+  },
+  {
+    "episode": "woozy-ruby-ostrich-9b378ab3d24d-20220418-010438",
+    "start_frame": 1366,
+    "core": [
+      1394,
+      1406
+    ],
+    "expanded": [
+      1390,
+      1410
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_19.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-15abf42a291b-20220423-080951",
+    "start_frame": 5481,
+    "core": [
+      5496,
+      5558
+    ],
+    "expanded": [
+      5492,
+      5561
+    ],
+    "label": [
+      [
+        "forward",
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_20.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-f153ac423f61-20220422-182041",
+    "start_frame": 14389,
+    "core": [
+      14431,
+      14435
+    ],
+    "expanded": [
+      14427,
+      14439
+    ],
+    "label": [
+      [
+        "forward",
+        "right",
+        "attack"
+      ],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_21.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-2783098a4adf-20220416-154138",
+    "start_frame": 11866,
+    "core": [
+      11867,
+      11880
+    ],
+    "expanded": [
+      11866,
+      11884
+    ],
+    "label": [
+      [],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 0.9230769230769231,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_22.jpg"
+  },
+  {
+    "episode": "thirsty-lavender-koala-dd4ac20aefbf-20220423-111808",
+    "start_frame": 6433,
+    "core": [
+      6470,
+      6477
+    ],
+    "expanded": [
+      6466,
+      6481
+    ],
+    "label": [
+      [],
+      [
+        0,
+        -1
+      ]
+    ],
+    "core_purity": 0.5714285714285714,
+    "expansion_label_changes": 8,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_23.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-afdd36f9755d-20220422-181800",
+    "start_frame": 12316,
+    "core": [
+      12345,
+      12349
+    ],
+    "expanded": [
+      12341,
+      12353
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 0.75,
+    "expansion_label_changes": 6,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_24.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-8f4f4f030ab3-20220417-225848",
+    "start_frame": 2576,
+    "core": [
+      2576,
+      2589
+    ],
+    "expanded": [
+      2576,
+      2593
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.8461538461538461,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_25.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-278d2862e73e-20220422-225640",
+    "start_frame": 3031,
+    "core": [
+      3068,
+      3076
+    ],
+    "expanded": [
+      3064,
+      3080
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_26.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-bb79267bce10-20220423-201318",
+    "start_frame": 3331,
+    "core": [
+      3382,
+      3393
+    ],
+    "expanded": [
+      3378,
+      3397
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_27.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-f153ac423f61-20220417-170747",
+    "start_frame": 2970,
+    "core": [
+      3045,
+      3049
+    ],
+    "expanded": [
+      3041,
+      3050
+    ],
+    "label": [
+      [],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_28.jpg"
+  },
+  {
+    "episode": "sleepy-sangria-bat-174d23926b18-20220419-191854",
+    "start_frame": 5334,
+    "core": [
+      5361,
+      5368
+    ],
+    "expanded": [
+      5357,
+      5372
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 0.5714285714285714,
+    "expansion_label_changes": 10,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_29.jpg"
+  },
+  {
+    "episode": "gimpy-jade-panda-3f6abdd58c70-20220423-142107",
+    "start_frame": 2041,
+    "core": [
+      2113,
+      2121
+    ],
+    "expanded": [
+      2109,
+      2121
+    ],
+    "label": [
+      [
+        "forward",
+        "jump"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 1,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_30.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-f153ac423f61-20220417-220757",
+    "start_frame": 2065,
+    "core": [
+      2108,
+      2116
+    ],
+    "expanded": [
+      2104,
+      2120
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 0.875,
+    "expansion_label_changes": 8,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_31.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-cd8c9e0bf301-20220414-215741",
+    "start_frame": 4214,
+    "core": [
+      4265,
+      4272
+    ],
+    "expanded": [
+      4261,
+      4276
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 0.8571428571428571,
+    "expansion_label_changes": 6,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_32.jpg"
+  },
+  {
+    "episode": "gimpy-jade-panda-f153ac423f61-20220421-205555",
+    "start_frame": 4815,
+    "core": [
+      4873,
+      4879
+    ],
+    "expanded": [
+      4869,
+      4883
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_33.jpg"
+  },
+  {
+    "episode": "scaly-fuchsia-wasp-02476e9ec1fc-20220419-112522",
+    "start_frame": 20050,
+    "core": [
+      20079,
+      20085
+    ],
+    "expanded": [
+      20075,
+      20089
+    ],
+    "label": [
+      [],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_34.jpg"
+  },
+  {
+    "episode": "scaly-fuchsia-wasp-f153ac423f61-20220415-120032",
+    "start_frame": 5039,
+    "core": [
+      5092,
+      5119
+    ],
+    "expanded": [
+      5088,
+      5119
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_35.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-594c751a895b-20220419-232431",
+    "start_frame": 10763,
+    "core": [
+      10814,
+      10818
+    ],
+    "expanded": [
+      10810,
+      10822
+    ],
+    "label": [
+      [
+        "forward",
+        "left",
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_36.jpg"
+  },
+  {
+    "episode": "shabby-pink-molly-d1b19e929d39-20220416-122832",
+    "start_frame": 82,
+    "core": [
+      116,
+      121
+    ],
+    "expanded": [
+      112,
+      125
+    ],
+    "label": [
+      [],
+      [
+        0,
+        1
+      ]
+    ],
+    "core_purity": 0.8,
+    "expansion_label_changes": 5,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_37.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-983cb1144d74-20220420-202159",
+    "start_frame": 29,
+    "core": [
+      43,
+      47
+    ],
+    "expanded": [
+      39,
+      51
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.75,
+    "expansion_label_changes": 7,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_38.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-a8fa0b8f8c02-20220421-002126",
+    "start_frame": 16997,
+    "core": [
+      17048,
+      17052
+    ],
+    "expanded": [
+      17044,
+      17056
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        -1,
+        0
+      ]
+    ],
+    "core_purity": 0.75,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_39.jpg"
+  },
+  {
+    "episode": "sleepy-sangria-bat-14ad8f0512d2-20220423-105149",
+    "start_frame": 4387,
+    "core": [
+      4406,
+      4417
+    ],
+    "expanded": [
+      4402,
+      4421
+    ],
+    "label": [
+      [
+        "forward",
+        "jump"
+      ],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 0.7272727272727273,
+    "expansion_label_changes": 9,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_40.jpg"
+  },
+  {
+    "episode": "whiny-ecru-cougar-f0e9226ea6c2-20220420-171841",
+    "start_frame": 20206,
+    "core": [
+      20263,
+      20267
+    ],
+    "expanded": [
+      20259,
+      20271
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 0.75,
+    "expansion_label_changes": 7,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_41.jpg"
+  },
+  {
+    "episode": "sleepy-sangria-bat-f153ac423f61-20220419-184021",
+    "start_frame": 13496,
+    "core": [
+      13525,
+      13530
+    ],
+    "expanded": [
+      13521,
+      13534
+    ],
+    "label": [
+      [
+        "forward",
+        "left",
+        "jump"
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "core_purity": 0.8,
+    "expansion_label_changes": 9,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_42.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-ec643bba6ada-20220421-232510",
+    "start_frame": 2312,
+    "core": [
+      2312,
+      2321
+    ],
+    "expanded": [
+      2312,
+      2325
+    ],
+    "label": [
+      [
+        "forward",
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.7777777777777778,
+    "expansion_label_changes": 3,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_43.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-74bbc35ef0c9-20220421-062643",
+    "start_frame": 1455,
+    "core": [
+      1527,
+      1534
+    ],
+    "expanded": [
+      1523,
+      1535
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "core_purity": 0.8571428571428571,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_44.jpg"
+  },
+  {
+    "episode": "gimpy-jade-panda-f153ac423f61-20220415-112013",
+    "start_frame": 3456,
+    "core": [
+      3502,
+      3509
+    ],
+    "expanded": [
+      3498,
+      3513
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.8571428571428571,
+    "expansion_label_changes": 7,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_45.jpg"
+  },
+  {
+    "episode": "shabby-pink-molly-fd12c9c9a0a5-20220421-092158",
+    "start_frame": 2277,
+    "core": [
+      2298,
+      2303
+    ],
+    "expanded": [
+      2294,
+      2307
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_46.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-f153ac423f61-20220415-040555",
+    "start_frame": 2684,
+    "core": [
+      2684,
+      2764
+    ],
+    "expanded": [
+      2684,
+      2764
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 0,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_47.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-f153ac423f61-20220422-103015",
+    "start_frame": 8247,
+    "core": [
+      8277,
+      8283
+    ],
+    "expanded": [
+      8273,
+      8287
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_48.jpg"
+  },
+  {
+    "episode": "shabby-pink-molly-f153ac423f61-20220414-104518",
+    "start_frame": 11280,
+    "core": [
+      11351,
+      11355
+    ],
+    "expanded": [
+      11347,
+      11359
+    ],
+    "label": [
+      [],
+      [
+        0,
+        -1
+      ]
+    ],
+    "core_purity": 0.5,
+    "expansion_label_changes": 6,
+    "image": "bc_datasets/minestudio/mechanical_segmentation_intent_validation/sample_49.jpg"
+  }
+]

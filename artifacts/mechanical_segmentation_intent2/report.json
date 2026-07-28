@@ -1,0 +1,708 @@
+[
+  {
+    "episode": "woozy-ruby-ostrich-b69b109a8128-20220419-061549",
+    "start_frame": 2307,
+    "core": [
+      2380,
+      2386
+    ],
+    "expanded": [
+      2376,
+      2387
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 0.8333333333333334,
+    "expansion_label_changes": 6,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_00.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-f153ac423f61-20220422-232504",
+    "start_frame": 426,
+    "core": [
+      453,
+      460
+    ],
+    "expanded": [
+      449,
+      464
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 6,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_01.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-87267f247bfe-20220421-002011",
+    "start_frame": 15428,
+    "core": [
+      15494,
+      15498
+    ],
+    "expanded": [
+      15490,
+      15502
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_02.jpg"
+  },
+  {
+    "episode": "pokey-cyan-spitz-19fdcb5129a3-20220418-000412",
+    "start_frame": 18586,
+    "core": [
+      18643,
+      18650
+    ],
+    "expanded": [
+      18639,
+      18654
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_03.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-8e148bcbdae4-20220421-221029",
+    "start_frame": 11109,
+    "core": [
+      11109,
+      11114
+    ],
+    "expanded": [
+      11109,
+      11118
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_04.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-cdd7cdcf2ee7-20220419-160618",
+    "start_frame": 368,
+    "core": [
+      394,
+      400
+    ],
+    "expanded": [
+      390,
+      404
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 6,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_05.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-1654ae366c37-20220422-141149",
+    "start_frame": 7786,
+    "core": [
+      7826,
+      7843
+    ],
+    "expanded": [
+      7822,
+      7847
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 0.8823529411764706,
+    "expansion_label_changes": 6,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_06.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-f153ac423f61-20220417-220757",
+    "start_frame": 776,
+    "core": [
+      801,
+      810
+    ],
+    "expanded": [
+      797,
+      814
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_07.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-0af0903eb6f4-20220415-183319",
+    "start_frame": 17965,
+    "core": [
+      18032,
+      18045
+    ],
+    "expanded": [
+      18028,
+      18045
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 1,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_08.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-f153ac423f61-20220415-083209",
+    "start_frame": 1700,
+    "core": [
+      1719,
+      1727
+    ],
+    "expanded": [
+      1715,
+      1731
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.875,
+    "expansion_label_changes": 9,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_09.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-31e7f88a96bd-20220415-213028",
+    "start_frame": 2705,
+    "core": [
+      2705,
+      2785
+    ],
+    "expanded": [
+      2705,
+      2785
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 0.9875,
+    "expansion_label_changes": 2,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_10.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-3174e27044c4-20220421-173930",
+    "start_frame": 789,
+    "core": [
+      789,
+      798
+    ],
+    "expanded": [
+      789,
+      802
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_11.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-34e052d104c7-20220415-050919",
+    "start_frame": 4396,
+    "core": [
+      4400,
+      4416
+    ],
+    "expanded": [
+      4396,
+      4420
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_12.jpg"
+  },
+  {
+    "episode": "shabby-pink-molly-b4d769163550-20220414-093031",
+    "start_frame": 843,
+    "core": [
+      898,
+      906
+    ],
+    "expanded": [
+      894,
+      910
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_13.jpg"
+  },
+  {
+    "episode": "gimpy-jade-panda-ec818f707c1c-20220416-110111",
+    "start_frame": 8287,
+    "core": [
+      8314,
+      8319
+    ],
+    "expanded": [
+      8310,
+      8323
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_14.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-f153ac423f61-20220419-200147",
+    "start_frame": 9517,
+    "core": [
+      9585,
+      9591
+    ],
+    "expanded": [
+      9581,
+      9595
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        0
+      ]
+    ],
+    "core_purity": 0.6666666666666666,
+    "expansion_label_changes": 8,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_15.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-f153ac423f61-20220414-020538",
+    "start_frame": 9945,
+    "core": [
+      9965,
+      9971
+    ],
+    "expanded": [
+      9961,
+      9975
+    ],
+    "label": [
+      [],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_16.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-aed0f89b8e7b-20220421-133225",
+    "start_frame": 4179,
+    "core": [
+      4184,
+      4188
+    ],
+    "expanded": [
+      4180,
+      4192
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "core_purity": 0.5,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_17.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-f153ac423f61-20220416-161021",
+    "start_frame": 13009,
+    "core": [
+      13027,
+      13042
+    ],
+    "expanded": [
+      13023,
+      13046
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 0.9333333333333333,
+    "expansion_label_changes": 8,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_18.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-8cb1a92f3ff1-20220415-054155",
+    "start_frame": 1323,
+    "core": [
+      1365,
+      1376
+    ],
+    "expanded": [
+      1361,
+      1380
+    ],
+    "label": [
+      [],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_19.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-e93be360fa26-20220422-190703",
+    "start_frame": 20840,
+    "core": [
+      20908,
+      20913
+    ],
+    "expanded": [
+      20904,
+      20917
+    ],
+    "label": [
+      [
+        "forward",
+        "right"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_20.jpg"
+  },
+  {
+    "episode": "thirsty-lavender-koala-f153ac423f61-20220415-220216",
+    "start_frame": 8940,
+    "core": [
+      8944,
+      8956
+    ],
+    "expanded": [
+      8940,
+      8960
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_21.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-f153ac423f61-20220418-120640",
+    "start_frame": 15543,
+    "core": [
+      15575,
+      15583
+    ],
+    "expanded": [
+      15571,
+      15587
+    ],
+    "label": [
+      [
+        "forward",
+        "right"
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "core_purity": 0.875,
+    "expansion_label_changes": 6,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_22.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-f153ac423f61-20220422-152429",
+    "start_frame": 2825,
+    "core": [
+      2836,
+      2841
+    ],
+    "expanded": [
+      2832,
+      2845
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_23.jpg"
+  },
+  {
+    "episode": "lovely-persimmon-angora-82b80f21cf6e-20220421-032231",
+    "start_frame": 1617,
+    "core": [
+      1683,
+      1688
+    ],
+    "expanded": [
+      1679,
+      1692
+    ],
+    "label": [
+      [
+        "forward"
+      ],
+      [
+        -1,
+        -1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_24.jpg"
+  },
+  {
+    "episode": "cheeky-cornflower-setter-93b6aeff27cc-20220418-134529",
+    "start_frame": 3884,
+    "core": [
+      3959,
+      3964
+    ],
+    "expanded": [
+      3955,
+      3964
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 2,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_25.jpg"
+  },
+  {
+    "episode": "shabby-pink-molly-2f0d7ce69f89-20220416-122853",
+    "start_frame": 10246,
+    "core": [
+      10309,
+      10319
+    ],
+    "expanded": [
+      10305,
+      10323
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 4,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_26.jpg"
+  },
+  {
+    "episode": "woozy-ruby-ostrich-f153ac423f61-20220419-053352",
+    "start_frame": 4786,
+    "core": [
+      4859,
+      4863
+    ],
+    "expanded": [
+      4855,
+      4866
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        -1,
+        1
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 6,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_27.jpg"
+  },
+  {
+    "episode": "shabby-viridian-beaver-ffde53b7eae1-20220420-001147",
+    "start_frame": 2155,
+    "core": [
+      2156,
+      2173
+    ],
+    "expanded": [
+      2155,
+      2177
+    ],
+    "label": [
+      [
+        "attack"
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 3,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_28.jpg"
+  },
+  {
+    "episode": "squeaky-magnolia-ocelot-eab3e7650201-20220418-172912",
+    "start_frame": 4762,
+    "core": [
+      4824,
+      4840
+    ],
+    "expanded": [
+      4820,
+      4842
+    ],
+    "label": [
+      [],
+      [
+        0,
+        0
+      ]
+    ],
+    "core_purity": 1.0,
+    "expansion_label_changes": 5,
+    "image": "runs/mechanical_segmentation_probe_intent2/sample_29.jpg"
+  }
+]

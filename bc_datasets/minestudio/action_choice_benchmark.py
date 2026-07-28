@@ -6,18 +6,28 @@ import argparse
 import hashlib
 import json
 import random
-import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 from PIL import Image
 
+from bc_datasets.minestudio.action_benchmark_common import (
+    CHOICE_LABELS,
+    ActionLocation,
+    copy_actions as _copy_actions,
+    load_episode_subset as _load_episode_subset,
+    prepare_output as _prepare_output,
+    random_location as _random_location,
+    read_action as _read_action,
+    serialize_action,
+    serialized_action_signature,
+    shuffled_choices,
+)
 from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
-from bc_datasets.minestudio.lumine_action_codec import MINECRAFT_KEYMAP, encode_lumine_action
+from bc_datasets.minestudio.lumine_action_codec import MINECRAFT_KEYMAP
 
-CHOICE_LABELS = ("A", "B", "C", "D")
 ACTION_TYPES = ("camera_only", "movement", "interaction", "mixed")
 DETAILED_ACTION_TYPES = (
     "camera_only",
@@ -36,15 +46,6 @@ INTERACTION_FIELDS = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class ActionLocation:
-    """一段动作在原始数据中的位置。"""
-
-    episode: str
-    start_frame: int
-    frame_gap: int
-
-
 def action_signature(actions: dict[str, np.ndarray]) -> str:
     """返回动作的稳定签名，用于排除四个候选中完全相同的序列。"""
     digest = hashlib.sha256()
@@ -55,12 +56,6 @@ def action_signature(actions: dict[str, np.ndarray]) -> str:
         digest.update(repr(value.shape).encode())
         digest.update(value.tobytes())
     return digest.hexdigest()
-
-
-def serialized_action_signature(actions: dict[str, np.ndarray]) -> str:
-    """返回最终公开动作内容的签名，避免浮点舍入后出现相同选项。"""
-    payload = json.dumps(serialize_action(actions), ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def is_informative_action(actions: dict[str, np.ndarray]) -> bool:
@@ -131,106 +126,6 @@ def classify_detailed_action_type(actions: dict[str, np.ndarray]) -> str:
     ):
         return "camera_only"
     return "complex" if is_informative_action(actions) else "noop"
-
-
-def serialize_action(actions: dict[str, np.ndarray]) -> dict[str, Any]:
-    """把原始逐帧动作转换成无来源信息的候选答案结构。"""
-    encoded = encode_lumine_action(actions, frames_per_chunk=1)
-    camera = np.asarray(actions["camera"], dtype=np.float64)
-    per_frame: list[dict[str, Any]] = []
-    for frame_index, (pitch, yaw) in enumerate(camera):
-        held_keys = [
-            key_name
-            for field, key_name in MINECRAFT_KEYMAP.items()
-            if field in actions and bool(np.asarray(actions[field])[frame_index])
-        ]
-        per_frame.append(
-            {
-                "camera_pitch_degrees": round(float(pitch), 6),
-                "camera_yaw_degrees": round(float(yaw), 6),
-                "held_keys": held_keys,
-            },
-        )
-    return {
-        "lumine_text": encoded.to_text(),
-        "total_mouse_delta_pixels": {
-            "x": encoded.mouse_delta_x,
-            "y": encoded.mouse_delta_y,
-        },
-        "frames": per_frame,
-    }
-
-
-def shuffled_choices(
-    correct: dict[str, np.ndarray],
-    distractors: Iterable[dict[str, np.ndarray]],
-    randomizer: random.Random,
-    correct_label: str | None = None,
-) -> tuple[dict[str, dict[str, Any]], str]:
-    """打乱一个正确项与三个互异干扰项，并返回选项和正确标签。"""
-    candidates = [correct, *distractors]
-    if len(candidates) != 4:
-        raise ValueError("四选一必须恰好包含一个正确项和三个干扰项")
-    signatures = [serialized_action_signature(candidate) for candidate in candidates]
-    if len(set(signatures)) != 4:
-        raise ValueError("四个候选动作必须互不相同")
-    if correct_label is not None and correct_label not in CHOICE_LABELS:
-        raise ValueError(f"correct_label 必须是 {CHOICE_LABELS} 之一")
-    distractor_items = list(enumerate(candidates[1:], start=1))
-    randomizer.shuffle(distractor_items)
-    selected_label = correct_label or randomizer.choice(CHOICE_LABELS)
-    correct_position = CHOICE_LABELS.index(selected_label)
-    indexed = list(distractor_items)
-    indexed.insert(correct_position, (0, correct))
-    choices = {
-        label: serialize_action(candidate)
-        for label, (_, candidate) in zip(CHOICE_LABELS, indexed)
-    }
-    return choices, selected_label
-
-
-def _load_episode_subset(path: Path | None, available: list[str]) -> list[str]:
-    if path is None:
-        return available
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(payload, dict):
-        requested = payload.get("validation_episodes")
-    else:
-        requested = payload
-    if not isinstance(requested, list) or not all(isinstance(item, str) for item in requested):
-        raise ValueError("episode 文件应为字符串列表，或含 validation_episodes 的 split JSON")
-    selected = sorted(set(available) & set(requested))
-    if not selected:
-        raise ValueError("episode 文件与 image/action 共同 episode 没有交集")
-    return selected
-
-
-def _random_location(
-    reader: TrajectoryReader,
-    episodes: list[str],
-    frame_gap: int,
-    randomizer: random.Random,
-    excluded_episode: str | None = None,
-) -> ActionLocation:
-    pool = [episode for episode in episodes if episode != excluded_episode]
-    for _ in range(10_000):
-        episode = randomizer.choice(pool or episodes)
-        maximum_start = reader.episode_length(episode) - frame_gap - 1
-        if maximum_start >= 0:
-            return ActionLocation(episode, randomizer.randint(0, maximum_start), frame_gap)
-    raise RuntimeError(f"找不到可容纳 {frame_gap} 帧间隔的 episode")
-
-
-def _read_action(reader: TrajectoryReader, location: ActionLocation) -> dict[str, np.ndarray]:
-    return reader.readers["action"].read_frames(
-        location.episode,
-        location.start_frame,
-        location.frame_gap,
-    )
-
-
-def _copy_actions(actions: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-    return {field: np.array(value, copy=True) for field, value in actions.items()}
 
 
 def _swap_fields(
@@ -455,18 +350,6 @@ def build_magnitude_distractors(
     if len(set(signatures)) != 4:
         raise ValueError("程度候选四档在公开表示中不唯一")
     return [candidate for rank, candidate in enumerate(candidates) if rank != correct_rank], metadata
-
-
-def _prepare_output(output_directory: Path, overwrite: bool) -> Path:
-    output_directory = output_directory.resolve()
-    if output_directory.exists():
-        if not overwrite:
-            raise FileExistsError(f"输出目录已存在：{output_directory}；使用 --overwrite 覆盖")
-        if output_directory.name in {"", ".", ".."} or output_directory.parent == output_directory:
-            raise ValueError(f"拒绝清除不安全目录：{output_directory}")
-        shutil.rmtree(output_directory)
-    (output_directory / "images").mkdir(parents=True)
-    return output_directory
 
 
 def build_action_choice_benchmark(

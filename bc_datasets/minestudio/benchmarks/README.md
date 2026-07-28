@@ -15,6 +15,7 @@
 
 ## 代码与测试
 
+- [生成器共享基础操作](../../minestudio/action_benchmark_common.py)
 - [Easy/反事实/幅度测试生成器](../../minestudio/action_choice_benchmark.py)
 - [WASD 与鼠标程度生成器](../../minestudio/action_degree_benchmark.py)
 - [意图保持机械切分器](../../minestudio/mechanical_segmentation_probe.py)

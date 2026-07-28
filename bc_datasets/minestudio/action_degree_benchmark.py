@@ -13,13 +13,13 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from bc_datasets.minestudio.action_choice_benchmark import (
+from bc_datasets.minestudio.action_benchmark_common import (
     CHOICE_LABELS,
-    _copy_actions,
-    _load_episode_subset,
-    _prepare_output,
-    _random_location,
-    _read_action,
+    copy_actions,
+    load_episode_subset,
+    prepare_output,
+    random_location,
+    read_action,
     serialized_action_signature,
     shuffled_choices,
 )
@@ -82,7 +82,7 @@ def build_key_frame_distractors(
     )
     distractors: list[dict[str, np.ndarray]] = []
     for mask in masks:
-        candidate = _copy_actions(actions)
+        candidate = copy_actions(actions)
         changed = np.array(values, copy=True)
         changed[mask] = 1 - changed[mask]
         candidate[field] = changed
@@ -123,7 +123,7 @@ def build_mouse_local_distractors(
     multipliers_by_candidate: list[list[float]] = []
     for pattern in patterns:
         multipliers = [pattern[index % 4] for index in range(selected_count)]
-        candidate = _copy_actions(actions)
+        candidate = copy_actions(actions)
         candidate["camera"][selected_positions, axis] *= np.asarray(multipliers)
         distractors.append(candidate)
         multipliers_by_candidate.append(multipliers)
@@ -158,7 +158,7 @@ def build_action_degree_benchmark(
         raise ValueError("sample_count 必须大于零")
     if minimum_gap < 1 or maximum_gap < minimum_gap:
         raise ValueError("帧间隔范围非法")
-    output_directory = _prepare_output(output_directory, overwrite)
+    output_directory = prepare_output(output_directory, overwrite)
     randomizer = random.Random(seed)
     target_schedule = [TARGET_TYPES[index % len(TARGET_TYPES)] for index in range(sample_count)]
     answer_schedule = [CHOICE_LABELS[index % 4] for index in range(sample_count)]
@@ -173,15 +173,15 @@ def build_action_degree_benchmark(
     target_counts: dict[str, int] = {}
     gap_counts: dict[int, int] = {}
     try:
-        episodes = _load_episode_subset(episode_file, reader.episode_names())
+        episodes = load_episode_subset(episode_file, reader.episode_names())
         with questions_path.open("w", encoding="utf-8") as question_file, answers_path.open(
             "w", encoding="utf-8"
         ) as answer_file:
             for sample_index, target_type in enumerate(target_schedule):
                 for _ in range(20_000):
                     frame_gap = randomizer.randint(minimum_gap, maximum_gap)
-                    location = _random_location(reader, episodes, frame_gap, randomizer)
-                    actions = _read_action(reader, location)
+                    location = random_location(reader, episodes, frame_gap, randomizer)
+                    actions = read_action(reader, location)
                     try:
                         if target_type in KEY_FIELDS:
                             distractors, degree_design = build_key_frame_distractors(

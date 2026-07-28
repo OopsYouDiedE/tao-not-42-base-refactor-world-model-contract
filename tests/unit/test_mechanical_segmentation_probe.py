@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from bc_datasets.minestudio.mechanical_segmentation_probe import intent_preserving_segments
 
@@ -26,3 +27,11 @@ def test_different_key_intents_remain_separate() -> None:
     segments = intent_preserving_segments(actions, minimum_length=4, bridge_frames=2)
     assert (0, 8) in segments
     assert (8, 16) in segments
+
+
+def test_segmentation_parameters_are_validated() -> None:
+    actions = make_actions()
+    with pytest.raises(ValueError, match="minimum_length"):
+        intent_preserving_segments(actions, minimum_length=0)
+    with pytest.raises(ValueError, match="bridge_frames"):
+        intent_preserving_segments(actions, bridge_frames=-1)

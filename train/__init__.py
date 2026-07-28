@@ -3,7 +3,8 @@
 对外接口：
     GEMMA_MODELS, QWEN_MODELS — 两族可用主干的模型名。
     LoraSettings, TrainingSettings — LoRA 与训练超参配置对象。
-    load_lumine_conversations — Lumine 预训练样本 → 对话格式数据集。
+    DEFAULT_INSTRUCTION — 动作预测任务的默认指令文本。
+    build_conversation, load_lumine_conversations — Lumine 预训练样本 → 对话格式数据集。
     run_supervised_finetuning — 通用视觉 SFT 训练循环。
 
 两族主干共用同一套数据与训练流程，差别只在模型名与 chat template，因此
@@ -11,6 +12,7 @@
 """
 
 from train.lumine_conversation_dataset import (
+    DEFAULT_INSTRUCTION,
     build_conversation,
     load_lumine_conversations,
 )
@@ -23,6 +25,7 @@ from train.unsloth_supervised_finetuning import (
 )
 
 __all__ = [
+    "DEFAULT_INSTRUCTION",
     "GEMMA_MODELS",
     "QWEN_MODELS",
     "LoraSettings",

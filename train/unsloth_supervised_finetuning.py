@@ -204,6 +204,7 @@ def run_supervised_finetuning(
     load_in_4bit: bool = False,
     include_previous_action: bool = True,
     maximum_samples: int | None = None,
+    subset: str = "train",
 ) -> dict[str, Any]:
     """端到端跑一次 Lumine 动作预测的视觉 SFT。
 
@@ -225,6 +226,8 @@ def run_supervised_finetuning(
         prompt 是否带上一窗口动作。
     maximum_samples : int or None
         最多使用的样本数。
+    subset : str
+        用于训练的子集名，对应 ``samples_<子集>.jsonl``。默认 ``"train"``。
 
     Returns
     -------
@@ -244,6 +247,7 @@ def run_supervised_finetuning(
     )
     conversations = load_lumine_conversations(
         dataset_directory,
+        subset=subset,  # type: ignore[arg-type]
         include_previous_action=include_previous_action,
         maximum_samples=maximum_samples,
     )

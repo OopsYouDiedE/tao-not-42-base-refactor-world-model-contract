@@ -2,8 +2,9 @@
 
 对外接口：
     DEFAULT_INSTRUCTION — 动作预测任务的默认指令文本。
+    SubsetName — 可读取的子集名。
     build_conversation — 单条 Lumine 样本 → messages 对话。
-    load_lumine_conversations — 读 samples.jsonl，产出可直接喂 SFTTrainer 的数据集。
+    load_lumine_conversations — 读 ``samples_<子集>.jsonl``，产出可直接喂 SFTTrainer 的数据集。
 
 对话布局遵循 Unsloth 视觉微调的硬约束：**图像必须排在文本指令之前**，assistant 回复
 只含 Lumine 动作串，使模型的监督目标就是动作 token 本身。
@@ -13,9 +14,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PIL import Image
+
+SubsetName = Literal["train", "validation"]
 
 DEFAULT_INSTRUCTION = (
     "You are controlling a Minecraft player. Given the current view"
@@ -36,10 +39,10 @@ def build_conversation(
     Parameters
     ----------
     sample : dict
-        ``samples.jsonl`` 的一行，含 ``image_paths`` / ``action_text`` /
+        样本 JSONL 的一行，含 ``image_paths`` / ``action_text`` /
         ``previous_action_text``。
     dataset_root : Path
-        ``samples.jsonl`` 所在目录，用于解析 ``image_paths`` 的相对路径。
+        样本 JSONL 所在目录，用于解析 ``image_paths`` 的相对路径。
     instruction : str
         任务指令文本。
     include_previous_action : bool
@@ -82,16 +85,19 @@ def build_conversation(
 
 def load_lumine_conversations(
     dataset_directory: Path,
+    subset: SubsetName = "train",
     instruction: str = DEFAULT_INSTRUCTION,
     include_previous_action: bool = True,
     maximum_samples: int | None = None,
 ) -> list[dict[str, list[dict[str, Any]]]]:
-    """读取 Lumine 预训练目录，产出 SFTTrainer 可直接消费的对话列表。
+    """读取 Lumine 预训练目录的一个子集，产出 SFTTrainer 可直接消费的对话列表。
 
     Parameters
     ----------
     dataset_directory : Path
-        ``build_pretrain_dataset`` 的输出目录，需含 ``samples.jsonl``。
+        ``build_pretrain_dataset`` 的输出目录，需含 ``samples_<子集>.jsonl``。
+    subset : {"train", "validation"}
+        要读取的子集。文件名与 ``build_pretrain_dataset`` 的产物一致。
     instruction : str
         任务指令文本。
     include_previous_action : bool
@@ -107,11 +113,11 @@ def load_lumine_conversations(
     Raises
     ------
     FileNotFoundError
-        目录下没有 ``samples.jsonl``。
+        目录下没有该子集的样本文件。
     ValueError
         样本里没有观测帧——视觉 SFT 必须有图像，需用带 ``image`` 模态的数据重新构建。
     """
-    samples_path = Path(dataset_directory) / "samples.jsonl"
+    samples_path = Path(dataset_directory) / f"samples_{subset}.jsonl"
     if not samples_path.is_file():
         raise FileNotFoundError(
             f"找不到 {samples_path}；先跑 bc_datasets.minestudio.lumine_pretrain_builder",

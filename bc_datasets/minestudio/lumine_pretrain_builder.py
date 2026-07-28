@@ -227,7 +227,8 @@ def build_pretrain_dataset(
     dataset_directories : list of Path
         MineStudio 数据集根目录列表。
     output_directory : Path
-        输出目录，写入 ``samples.jsonl``、``frames/`` 与 ``dataset_info.json``。
+        输出目录，写入 ``samples_train.jsonl``、``samples_validation.jsonl``、
+        ``frames/``、``split.json`` 与 ``dataset_info.json``。
     layout : WindowLayout or None
         时间布局，None 表示默认（4 帧窗口 / 1 帧一 chunk / 无历史 / 窗口不重叠）。
     frame_width, frame_height : int
@@ -336,7 +337,9 @@ def build_pretrain_dataset(
 
 def main() -> None:
     """命令行入口：MineStudio → Lumine 预训练数据。"""
-    parser = argparse.ArgumentParser(description="把 MineStudio 轨迹转成 Lumine 预训练数据")
+    parser = argparse.ArgumentParser(
+        description="把 MineStudio 轨迹转成 Lumine 预训练数据",
+    )
     parser.add_argument(
         "--dataset-dir", type=Path, nargs="+", required=True, help="MineStudio 数据集根目录",
     )
@@ -345,7 +348,9 @@ def main() -> None:
         "--window-frames", type=int, default=DEFAULT_WINDOW_FRAMES,
         help="感知窗口帧数；20Hz 下 4 帧 = 200ms = Lumine 的 5Hz",
     )
-    parser.add_argument("--frames-per-chunk", type=int, default=1, help="每个电机 chunk 的帧数")
+    parser.add_argument(
+        "--frames-per-chunk", type=int, default=1, help="每个电机 chunk 的帧数",
+    )
     parser.add_argument("--history-windows", type=int, default=0, help="额外历史观测帧数")
     parser.add_argument("--stride-frames", type=int, default=None, help="样本步长，默认等于窗口帧数")
     parser.add_argument("--frame-width", type=int, default=224, help="观测帧宽，像素")

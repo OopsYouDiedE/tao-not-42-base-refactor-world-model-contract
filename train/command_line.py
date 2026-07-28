@@ -66,6 +66,10 @@ def build_argument_parser(
         "--no-previous-action", action="store_true", help="prompt 不带上一窗口动作",
     )
     parser.add_argument("--maximum-samples", type=int, default=None, help="最多使用的样本数")
+    parser.add_argument(
+        "--subset", default="train", choices=("train", "validation"),
+        help="用于训练的子集，对应 samples_<子集>.jsonl",
+    )
     return parser
 
 
@@ -98,5 +102,6 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
         load_in_4bit=arguments.load_in_4bit,
         include_previous_action=not arguments.no_previous_action,
         maximum_samples=arguments.maximum_samples,
+        subset=arguments.subset,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

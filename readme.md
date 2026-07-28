@@ -6,6 +6,7 @@
     bc_datasets/minestudio/   批量下载 MineStudio LMDB + 转 Lumine 格式预训练数据
     machine_environment/      本机 CPU / 内存 / 磁盘 / GPU / CUDA 检测
     train/                    Unsloth 视觉 SFT：Gemma 4 与 Qwen3.6 两个入口
+    tools/                    动作编码查看器（Gradio），开发期用
     tests/                    动作编解码与时间布局的单元测试
     runs/bc_datasets/         数据集（原始 LMDB 与转换产物），Git ignored
     runs/trains/              checkpoint 与训练日志，Git ignored
@@ -17,6 +18,7 @@
     python -m venv .venv && source .venv/bin/activate
     python -m pip install -e ".[dev]"          # 数据管线
     python -m pip install -e ".[train,dev]"    # 加训练侧（CUDA 栈）
+    python -m pip install -e ".[tools,dev]"    # 加动作查看器（Gradio）
 
 数据管线不需要 CUDA，训练侧依赖单列在 `train` extra 里。
 
@@ -102,6 +104,13 @@ Lumine 原文的 6×33ms 是《原神》的 30Hz 电机步，这里按 Minecraft
 没有照抄。`--frames-per-chunk 2` 可换成 100ms 电机步（此时一个 chunk 内任一帧按下即
 记为按住，短按不丢）。
 
+### 逐帧核对编码
+
+    python -m tools.action_inspector --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110
+
+选一条轨迹拖进度条，对照画面看该窗口的按键与相机增量，以及 1 帧/chunk 与 5 帧/chunk
+两种粒度的编码串。只监听 127.0.0.1，界面无鉴权，不要用 `--share` 暴露到公网。
+
 ## 四、训练
 
     python -m train.gemma_vision_sft --model gemma-4-26B-A4B-it \
@@ -109,6 +118,8 @@ Lumine 原文的 6×33ms 是《原神》的 30Hz 电机步，这里按 Minecraft
 
     python -m train.qwen_vision_sft --model Qwen3.6-35B-A3B \
         --dataset-dir runs/bc_datasets/lumine-10xx --output-dir runs/trains/sft-qwen
+
+训练读 `samples_train.jsonl`，`--subset validation` 可切到验证集样本。
 
 两族共用同一套数据与训练流程（`train/unsloth_supervised_finetuning.py`），
 入口只差候选模型与 chat template。`--micro-batch` 默认 8：96GB 卡上实测这是

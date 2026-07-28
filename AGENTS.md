@@ -21,6 +21,7 @@
 | `bc_datasets/minestudio/` | 数据下载、LMDB 读取、Lumine 动作编解码、预训练数据构建 |
 | `machine_environment/` | 本机 CPU / 内存 / 磁盘 / GPU / CUDA 检测 |
 | `train/` | Unsloth 视觉 SFT 流程与两族主干入口 |
+| `tools/` | 开发期查看工具，不参与生产路径；依赖在 `tools` extra |
 | `tests/unit/` | 不碰真实数据集与模型的纯单元测试 |
 | `runs/bc_datasets/` | 数据集：原始 LMDB 分片与 Lumine 转换产物 |
 | `runs/trains/` | 训练产物：checkpoint、LoRA adapter、训练日志 |

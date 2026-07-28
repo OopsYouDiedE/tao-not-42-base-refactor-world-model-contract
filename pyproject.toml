@@ -30,6 +30,8 @@ train = [
     "unsloth",
     "unsloth-zoo",
 ]
+# 开发期查看工具：只有 tools/action_inspector 用，生产路径不需要。
+tools = ["gradio>=4.44"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
@@ -41,7 +43,7 @@ train-gemma-vision-sft = "train.gemma_vision_sft:main"
 train-qwen-vision-sft = "train.qwen_vision_sft:main"
 
 [tool.setuptools.packages.find]
-include = ["bc_datasets*", "machine_environment*", "train*"]
+include = ["bc_datasets*", "machine_environment*", "tools*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -55,4 +57,4 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["bc_datasets", "machine_environment", "train"]
+known_first_party = ["bc_datasets", "machine_environment", "tools", "train"]

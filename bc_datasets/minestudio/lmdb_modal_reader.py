@@ -28,14 +28,6 @@ import numpy as np
 
 ModalName = Literal["image", "action", "meta_info"]
 
-# 二值按键的规范顺序：与 VPT / CraftGround 键集一致，camera 单独处理。
-BINARY_ACTION_KEYS: tuple[str, ...] = (
-    "attack", "use", "forward", "back", "left", "right",
-    "jump", "sneak", "sprint", "drop", "inventory",
-    "hotbar.1", "hotbar.2", "hotbar.3", "hotbar.4", "hotbar.5",
-    "hotbar.6", "hotbar.7", "hotbar.8", "hotbar.9",
-)
-
 
 @dataclass(frozen=True)
 class EpisodeInfo:

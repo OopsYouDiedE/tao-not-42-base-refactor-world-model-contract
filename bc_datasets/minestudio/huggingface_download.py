@@ -184,7 +184,16 @@ def main() -> None:
     parser.add_argument(
         "--list-parts", action="store_true", help="只列出各模态分片号，不下载",
     )
+    parser.add_argument(
+        "--no-preflight", action="store_true", help="跳过开工前环境体检",
+    )
     arguments = parser.parse_args()
+
+    if not arguments.no_preflight:
+        # 下载前体检：盘不够或连不上 HuggingFace 时先看到警告，而不是下到一半失败。
+        from machine_environment.preflight import report_preflight
+
+        report_preflight([arguments.output_dir])
 
     if arguments.list_parts:
         for dataset in arguments.dataset:

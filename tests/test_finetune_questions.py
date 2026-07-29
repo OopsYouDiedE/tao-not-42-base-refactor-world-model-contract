@@ -11,6 +11,7 @@ from datasets.minestudio_finetune.generate_questions import (
     TASK_TYPES,
     automatic_quality_reasons,
     build_question_record,
+    infer_action_intent,
     normalize_gui_clicks,
     source_frames,
 )
@@ -24,6 +25,7 @@ def test_three_task_types_and_prompts_are_stable() -> None:
         "demonstration_optimization",
         "image_sequence_to_action",
         "history_to_future_action",
+        "single_frame_intent_to_action",
     )
     assert "cursor in GUI" in OUTPUT_CONTRACT["mouse"]
     assert "rising-edge click pulses" in AI_REVIEW_PROMPT
@@ -34,6 +36,7 @@ def test_task_frame_boundaries() -> None:
     assert source_frames("history_to_future_action", 20) == [8, 12, 16, 20]
     assert source_frames("image_sequence_to_action", 20) == [20, 21, 22, 23, 24]
     assert source_frames("demonstration_optimization", 20) == [20, 24, 28, 32]
+    assert source_frames("single_frame_intent_to_action", 20) == [20]
     question = build_question_record(
         "q", "demonstration_optimization", "episode", 20, ["a", "b", "c", "d"],
         [ACTION] * 4,
@@ -66,3 +69,12 @@ def test_automatic_filter_rejects_dark_and_camera_outlier() -> None:
         images, actions, [{"isGuiOpen": False}] * 4, "history_to_future_action",
     )
     assert {"image_too_dark", "camera_outlier"}.issubset(reasons)
+
+
+def test_single_frame_intent_rejects_static_and_describes_movement() -> None:
+    static = {"camera": np.zeros((4, 2)), "forward": np.zeros(4)}
+    assert infer_action_intent(static) is None
+    movement = {"camera": np.zeros((4, 2)), "forward": np.ones(4), "sprint": np.ones(4)}
+    intent, category = infer_action_intent(movement)
+    assert category == "movement"
+    assert "move forward" in intent and "sprint" in intent

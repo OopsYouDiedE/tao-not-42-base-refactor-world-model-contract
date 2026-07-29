@@ -32,6 +32,9 @@ def load_hdf5_conversations(
             raw = question.get("inputs", {}).get("raw_action_sequence")
             if raw:
                 prompt += "\nRaw action sequence:\n" + json.dumps(raw, ensure_ascii=False)
+            intent = question.get("inputs", {}).get("intent")
+            if intent:
+                prompt += f"\nIntent: {intent}"
             content.append({"type": "text", "text": prompt})
             conversations.append({"messages": [
                 {"role": "user", "content": content},

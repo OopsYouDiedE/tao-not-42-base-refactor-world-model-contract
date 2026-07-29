@@ -1,6 +1,6 @@
 # MineStudio 轨迹微调数据
 
-本目录只负责从 MineStudio 轨迹生成三类候选题、提供 AI 与人工审核标准、把最终准入题打包为
+本目录只负责从 MineStudio 轨迹生成四类候选题、提供 AI 与人工审核标准、把最终准入题打包为
 HDF5，以及把 HDF5 解析成视觉 LoRA 训练所需的多图对话。候选 JSONL 写入命令指定的外部
 输出目录，不保存在本源码目录。
 
@@ -14,13 +14,14 @@ HDF5，以及把 HDF5 解析成视觉 LoRA 训练所需的多图对话。候选 
 | `examples/` | 保存本流程真实生成的案例图片 |
 | `AGENTS.md` | 本目录后续维护约束 |
 
-## 三类题目
+## 四类题目
 
 | 题型 | 输入 | 监督目标 |
 |---|---|---|
 | `demonstration_optimization` | 图像序列与原始动作 | 经独立审核的去噪动作轨迹 |
 | `image_sequence_to_action` | 完整状态变化图像序列 | 一种能够解释变化的动作轨迹 |
 | `history_to_future_action` | 过去图像序列 | 未来 200 ms 的一种合理动作轨迹 |
+| `single_frame_intent_to_action` | 当前单帧与文字意图 | 推进该意图的未来 200 ms 动作轨迹 |
 
 动作块允许变长，每个 `;` 分隔一个 50 ms tick。`Mouse dx dy` 在普通画面表示相机相对
 移动，在 GUI 表示光标相对移动。GUI 的鼠标键使用按下沿脉冲；普通画面的持续挖掘继续使用
@@ -32,9 +33,12 @@ HDF5，以及把 HDF5 解析成视觉 LoRA 训练所需的多图对话。候选 
 python -m datasets.minestudio_finetune.generate_questions \
   --dataset-dir runs/datasets/minestudio-data-10xx-v110 \
   --output-dir runs/datasets/minestudio-trajectory-candidates \
-  --samples-per-type 10000 \
+  --samples-per-type 100 \
   --seed 20260730
 ```
+
+四类任务各生成 100 条时总数为 400。追加另一个来源时使用相同输出目录和 `--append`；生成器
+会从已有题号继续编号，并在写入后重新读取全部 JSONL、图片和动作块完成一致性校验。
 
 生成器在保存候选题之前过滤以下明显问题：
 
@@ -45,9 +49,34 @@ python -m datasets.minestudio_finetune.generate_questions \
 | `camera_outlier` | 极端鼠标位移 |
 | `insufficient_visual_change` | 视觉反推题几乎没有状态变化 |
 | `gui_change_without_click` | GUI 明显变化，但目标动作没有鼠标点击 |
+| `static_or_weak_action` | 完全静止，或只有不足以体现意图的微小鼠标运动 |
 
 输出目录包含 `questions.jsonl`、隔离的 `answer_key.jsonl`、`ai_review_requests.jsonl`、
 `human_review_templates.jsonl`、图片和生成报告。自动规则只减少明显坏题，不能替代视觉双审。
+
+## 10xx、7xx 与 1200 条计划
+
+第一批已经从 10xx 生成四类各 100 条，共 400 条。追加 7xx 时只下载动作、元信息和一个
+图像编码分片，不下载 segmentation：
+
+```bash
+python -m datasets.minestudio_data.download \
+  --dataset 7xx \
+  --modality action meta_info image \
+  --maximum-image-parts 1 \
+  --output-dir runs/datasets
+
+python -m datasets.minestudio_finetune.generate_questions \
+  --dataset-dir runs/datasets/minestudio-data-7xx-v110 \
+  --output-dir runs/datasets/minestudio-trajectory-1200 \
+  --samples-per-type 100 \
+  --seed 20260731 \
+  --append
+```
+
+部分 7xx 图像分片与完整动作/元信息取 episode 交集。若过滤后不足 400 条，生成器会把实际
+数量和各题型缺口写入 manifest，而不会用静止或弱意图动作补数。最终 1200 条由后续来源继续追加；
+每次追加都会重新验证当前目录内的全部样本。
 
 ## AI 与人工审核
 

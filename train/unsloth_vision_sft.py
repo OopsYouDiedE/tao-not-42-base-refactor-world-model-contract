@@ -262,7 +262,15 @@ def run_vision_sft(
         max_sequence_length=training_settings.max_sequence_length,
     )
     dataset_statistics: dict[str, Any] = {}
-    if streaming:
+    dataset_path = Path(dataset_directory)
+    if dataset_path.suffix.lower() in {".h5", ".hdf5"}:
+        from datasets.minestudio_finetune.load_hdf5 import load_hdf5_conversations
+
+        conversations = load_hdf5_conversations(dataset_path, maximum_samples=maximum_samples)
+        dataloader_workers = 0
+        streaming = False
+        dataset_statistics = {"format": "minestudio_trajectory_sft_v1"}
+    elif streaming:
         from train.lumine_streaming_dataset import (
             StreamingSettings,
             build_streaming_dataset,

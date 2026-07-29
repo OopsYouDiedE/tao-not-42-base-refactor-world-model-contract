@@ -37,7 +37,7 @@ def build_argument_parser(
     )
     parser.add_argument(
         "--dataset-dir", type=Path, required=True,
-        help="流式模式（默认）：MineStudio 数据集根目录；--no-streaming 时：Lumine 落盘数据目录",
+        help="MineStudio 数据集目录、Lumine 落盘目录，或轨迹题 .h5/.hdf5 文件",
     )
     parser.add_argument(
         "--output-dir", type=Path, default=Path("runs/trains/sft"),

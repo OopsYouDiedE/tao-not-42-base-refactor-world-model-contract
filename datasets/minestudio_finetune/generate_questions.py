@@ -14,12 +14,67 @@ from PIL import Image
 
 from datasets.action_codec import encode_lumine_action
 from datasets.minestudio_data.load import TrajectoryReader
-from datasets.minestudio_finetune.question_schema import (
-    OUTPUT_CONTRACT,
-    TASK_PROMPTS,
-    TASK_TYPES,
-    TaskType,
+from typing import Literal, TypeAlias
+
+TaskType: TypeAlias = Literal[
+    "demonstration_optimization",
+    "image_sequence_to_action",
+    "history_to_future_action",
+]
+TASK_TYPES: tuple[TaskType, ...] = (
+    "demonstration_optimization",
+    "image_sequence_to_action",
+    "history_to_future_action",
 )
+TASK_PROMPTS: dict[TaskType, str] = {
+    "demonstration_optimization": (
+        "The images and raw action blocks form one chronological Minecraft demonstration. "
+        "Rewrite it as a cleaner action sequence while preserving visible intent and causal "
+        "order. Return only a JSON array of valid action blocks."
+    ),
+    "image_sequence_to_action": (
+        "The images are consecutive Minecraft observations in chronological order. Infer one "
+        "reasonable action sequence that produced the transition. Return only a JSON array "
+        "containing one valid action block."
+    ),
+    "history_to_future_action": (
+        "The images are past Minecraft observations in chronological order. Infer one "
+        "reasonable action sequence for the next 200 ms. Return only a JSON array containing "
+        "one valid action block."
+    ),
+}
+OUTPUT_CONTRACT = {
+    "type": "json_array",
+    "item": "variable-length named-token action block",
+    "action_markers": ["<|action_start|>", "<|action_end|>"],
+    "chunk_count": "variable; MineStudio references use four 50 ms ticks",
+    "chunk_duration_ms": 50,
+    "mouse": "Mouse dx dy moves the camera in gameplay and the cursor in GUI",
+    "mixing_guidance": "Prefer standalone Mouse unless keys and mouse execute together",
+}
+REVIEW_DIMENSIONS = {
+    "source_integrity": "Images and actions come from one episode in chronological order.",
+    "visual_answerability": "The complete image sequence supports at least one reasonable answer.",
+    "action_grounding": "The answer explains visible changes without unsupported actions.",
+    "demonstration_quality": "The action is coherent and contains no isolated control noise.",
+    "protocol_compliance": "The answer follows variable ticks and Mouse dx dy semantics.",
+    "safety_and_privacy": "No account, chat, server address, or private data is visible.",
+}
+
+AI_REVIEW_PROMPT = """You are the visual quality gate for Minecraft trajectory SFT data.
+Inspect every image in order, the question, and the proposed answer. Score every rubric dimension
+from 1 to 5. Reject when any score is below 3, evidence is too dark or obscured, state changes do
+not support the answer, GUI transitions lack required clicks, or camera motion is an obvious
+outlier. In GUI, repeated held mouse states must become rising-edge click pulses. In gameplay,
+continuous MouseLeft may represent holding to mine. For demonstration optimization, approve only
+an independently cleaned answer, never the raw recording. Return JSON only with id, decision,
+scores, reasons, suggested_revision, and reviewed_answer_sequence."""
+
+HUMAN_REVIEW_PROMPT = """Review all images at full size and compare them with the question and
+answer. Confirm chronology, visible intent, GUI/gameplay mouse semantics, privacy, and whether a
+different reasonable answer remains allowed. Approve only when every dimension scores at least 3.
+For demonstration optimization, edit the answer into a genuinely cleaner trajectory and mark its
+reference_kind as reviewed_optimized_demonstration. Return the same JSON fields as the AI review."""
 
 WINDOW_FRAMES = 4
 HISTORY_OFFSETS = (12, 8, 4, 0)
@@ -36,6 +91,37 @@ def is_informative_action(actions: dict[str, np.ndarray]) -> bool:
         for field, values in actions.items()
         if field != "camera"
     )
+
+
+def automatic_quality_reasons(
+    images: list[np.ndarray],
+    actions: dict[str, np.ndarray],
+    metadata: list[dict[str, Any]],
+    task_type: TaskType,
+) -> list[str]:
+    """在昂贵审核前过滤明显不可作答、跨界面和动作异常的窗口。"""
+    reasons: list[str] = []
+    arrays = [np.asarray(image, dtype=np.float32) for image in images]
+    if min(float(image.mean()) for image in arrays) < 12.0:
+        reasons.append("image_too_dark")
+    gui_states = {bool(item.get("isGuiOpen")) for item in metadata}
+    if len(gui_states) > 1:
+        reasons.append("gui_state_transition_inside_context")
+    camera = np.asarray(actions["camera"], dtype=np.float64)
+    if camera.size and float(np.abs(camera).max()) > 350.0:
+        reasons.append("camera_outlier")
+    if task_type == "image_sequence_to_action":
+        changes = [float(np.abs(right - left).mean()) for left, right in zip(arrays, arrays[1:])]
+        if not changes or max(changes) < 0.8:
+            reasons.append("insufficient_visual_change")
+        in_gui = gui_states == {True}
+        has_click = any(
+            bool(np.asarray(actions.get(field, [])).astype(bool).any())
+            for field in ("attack", "use")
+        )
+        if in_gui and max(changes, default=0.0) >= 2.0 and not has_click:
+            reasons.append("gui_change_without_click")
+    return reasons
 
 
 def source_frames(task_type: TaskType, start: int) -> list[int]:
@@ -139,6 +225,15 @@ def _save_images(
         )
         paths.append(relative)
     return paths
+
+
+def _read_source_images(
+    reader: TrajectoryReader, episode: str, frames: list[int],
+) -> list[np.ndarray]:
+    return [
+        np.asarray(reader.readers["image"].read_frames(episode, frame, 1)[0], dtype=np.uint8)
+        for frame in frames
+    ]
 
 
 def _action_blocks(
@@ -265,9 +360,20 @@ def build_questions(
                 if last < first:
                     continue
                 start = randomizer.randint(first, last)
+                frames = source_frames(task_type, start)
+                source_images = _read_source_images(reader, episode, frames)
+                source_metadata = [
+                    reader.readers["meta_info"].read_frames(episode, frame, 1)[0]
+                    for frame in frames
+                ]
+                target_actions = reader.readers["action"].read_frames(
+                    episode, start, WINDOW_FRAMES,
+                )
                 reference = _action_blocks(reader, episode, start, 1)
-                if not is_informative_action(
-                    reader.readers["action"].read_frames(episode, start, WINDOW_FRAMES),
+                if not is_informative_action(target_actions):
+                    continue
+                if automatic_quality_reasons(
+                    source_images, target_actions, source_metadata, task_type,
                 ):
                     continue
                 raw_actions = None
@@ -276,7 +382,6 @@ def build_questions(
                     raw_actions = _action_blocks(reader, episode, start, OPTIMIZATION_WINDOWS)
                     answer_actions = raw_actions
                 sample_id = f"{task_type}_{generated:06d}"
-                frames = source_frames(task_type, start)
                 images = _save_images(reader, output, sample_id, episode, frames)
                 questions.append(build_question_record(
                     sample_id, task_type, episode, start, images, raw_actions,
@@ -296,6 +401,29 @@ def build_questions(
         reader.close()
     _write_jsonl(output / "questions.jsonl", questions)
     _write_jsonl(output / "answer_key.jsonl", answers)
+    _write_jsonl(output / "ai_review_requests.jsonl", [
+        {
+            "id": question["id"],
+            "system": AI_REVIEW_PROMPT,
+            "rubric": REVIEW_DIMENSIONS,
+            "question": question,
+            "answer": next(item for item in answers if item["id"] == question["id"]),
+        }
+        for question in questions
+    ])
+    _write_jsonl(output / "human_review_templates.jsonl", [
+        {
+            "id": question["id"],
+            "instructions": HUMAN_REVIEW_PROMPT,
+            "question": question,
+            "answer": next(item for item in answers if item["id"] == question["id"]),
+            "decision": "revise",
+            "scores": {dimension: 0 for dimension in REVIEW_DIMENSIONS},
+            "reasons": [],
+            "reviewed_answer_sequence": None,
+        }
+        for question in questions
+    ])
     write_dataset_readme(output, questions, answers)
     manifest = {
         "format": "minestudio_trajectory_questions_v1",
@@ -308,6 +436,10 @@ def build_questions(
         "answer_key": "answer_key.jsonl",
         "readme": "README.md",
         "initial_review_status": "pending_human_and_ai_review",
+        "automatic_filters": [
+            "image_too_dark", "gui_state_transition_inside_context", "camera_outlier",
+            "insufficient_visual_change", "gui_change_without_click",
+        ],
         "gui_click_normalization": "held mouse buttons become rising-edge pulses in GUI frames",
     }
     (output / "manifest.json").write_text(

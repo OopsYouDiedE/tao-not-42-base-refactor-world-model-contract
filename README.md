@@ -8,7 +8,7 @@
 |---|---|---|
 | `datasets/` | 动作协议、数据划分和训练数据构建 | 否 |
 | `datasets/minestudio_data/` | `CraftJarvis/minestudio-data` 数据下载与 LMDB 加载 | 否 |
-| `datasets/minestudio_finetune/` | 从 MineStudio 轨迹生成、审核并测试三类动作训练题 | 否 |
+| `datasets/minestudio_finetune/` | 生成并双审三类轨迹题，打包 HDF5 后接入视觉 LoRA 训练 | 否 |
 | `train/` | 把数据转换为模型输入并运行视觉 SFT | 否 |
 | `tools/` | 人工检查动作和图片的 Gradio 工具 | 否 |
 | `tests/` | 与源码同名的自动化测试 | 否 |
@@ -33,7 +33,7 @@
 | `datasets/pretraining_dataset.py` | 从 `minestudio-data` 构建落盘训练集 |
 | `datasets/variable_action_contract.py` | 变长动作段与动作—图片逐帧对齐校验 |
 
-`datasets/minestudio_finetune/README.md` 详细说明三类轨迹题的机器生成、人工与 AI 双审标准、
+`datasets/minestudio_finetune/README.md` 详细说明三类轨迹题的生成、人工与 AI 双审、HDF5 打包和训练加载，
 训练准入规则和模型做题测试方法。
 
 ### 训练代码

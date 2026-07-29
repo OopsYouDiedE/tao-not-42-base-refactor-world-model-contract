@@ -11,9 +11,9 @@
 """
 
 from machine_environment.hardware_report import (
-    CudaReport,
+    CUDAReport,
     DiskReport,
-    GraphicsProcessorReport,
+    GPUReport,
     MachineReport,
     MemoryReport,
     ProcessorReport,
@@ -33,9 +33,9 @@ from machine_environment.preflight import (
 __all__ = [
     "MINIMUM_FREE_DISK_BYTES",
     "MINIMUM_GRAPHICS_MEMORY_BYTES",
-    "CudaReport",
+    "CUDAReport",
     "DiskReport",
-    "GraphicsProcessorReport",
+    "GPUReport",
     "MachineReport",
     "MemoryReport",
     "PreflightWarning",

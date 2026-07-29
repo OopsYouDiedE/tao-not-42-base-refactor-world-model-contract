@@ -16,13 +16,13 @@
 | 文件 | 作用 |
 | --- | --- |
 | `generator.py` | 八类数据的采样、标签生成和 JSONL 写出 |
-| `__main__.py` | `python -m bc_datasets.training_capabillity_demo` 命令入口 |
+| `__main__.py` | `python -m bc_datasets.training_capability_demo` 命令入口 |
 | `__init__.py` | 对外导出生成 API 和确定性标签函数 |
 
 ## 运行
 
 ```bash
-python -m bc_datasets.training_capabillity_demo \
+python -m bc_datasets.training_capability_demo \
     --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110 \
     --output-dir runs/bc_datasets/training-capability-demo \
     --samples-per-aspect 100 \

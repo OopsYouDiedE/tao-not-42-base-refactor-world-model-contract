@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from machine_environment.hardware_report import (
-    CudaReport,
+    CUDAReport,
     MachineReport,
     ProcessorReport,
-    _parse_graphics_line,
+    _parse_gpu_line,
     collect_disk_reports,
     collect_machine_report,
     collect_processor_report,
@@ -27,31 +27,31 @@ def test_format_bytes_renders_unknown_for_none() -> None:
     assert format_bytes(None) == "未知"
 
 
-def test_parse_graphics_line_converts_mebibytes() -> None:
+def test_parse_gpu_line_converts_mebibytes() -> None:
     """nvidia-smi 的显存字段以 MiB 计，需换算成字节。"""
-    report = _parse_graphics_line("0, NVIDIA GeForce RTX 3070, 8192, 6800, 595.79, 8.6")
+    report = _parse_gpu_line("0, NVIDIA GeForce RTX 3070, 8192, 6800, 595.79, 8.6")
     assert report is not None
     assert report.name == "NVIDIA GeForce RTX 3070"
     assert report.total_memory_bytes == 8192 * 1024 * 1024
     assert report.compute_capability == "8.6"
 
 
-def test_parse_graphics_line_tolerates_unavailable_memory() -> None:
+def test_parse_gpu_line_tolerates_unavailable_memory() -> None:
     """驱动异常时字段可能是 [N/A]，应降级为 None 而非抛错。"""
-    report = _parse_graphics_line("1, Some GPU, [N/A], [N/A], 500.00, 9.0")
+    report = _parse_gpu_line("1, Some GPU, [N/A], [N/A], 500.00, 9.0")
     assert report is not None
     assert report.total_memory_bytes is None
     assert report.free_memory_bytes is None
 
 
-def test_parse_graphics_line_rejects_truncated_output() -> None:
+def test_parse_gpu_line_rejects_truncated_output() -> None:
     """字段不足时返回 None，不产生半填充的报告。"""
-    assert _parse_graphics_line("0, NVIDIA GeForce RTX 3070") is None
+    assert _parse_gpu_line("0, NVIDIA GeForce RTX 3070") is None
 
 
-def test_parse_graphics_line_rejects_non_numeric_index() -> None:
+def test_parse_gpu_line_rejects_non_numeric_index() -> None:
     """序号非法（如把表头当数据）时返回 None。"""
-    assert _parse_graphics_line("index, name, 100, 50, 1.0, 2.0") is None
+    assert _parse_gpu_line("index, name, 100, 50, 1.0, 2.0") is None
 
 
 def test_disk_report_walks_up_to_existing_ancestor(tmp_path: Path) -> None:
@@ -74,7 +74,7 @@ def test_format_report_marks_absent_gpu_and_torch() -> None:
             platform_description="Linux-6.6",
             python_version="3.12.0",
             processor=ProcessorReport(model=None, logical_cores=8),
-            cuda=CudaReport(),
+            cuda=CUDAReport(),
         ),
     )
     assert "未检测到 NVIDIA GPU" in text

@@ -17,15 +17,15 @@
 
 - [生成器共享基础操作](../../minestudio/action_benchmark_common.py)
 - [Easy/反事实/幅度测试生成器](../../minestudio/action_choice_benchmark.py)
-- [WASD 与鼠标程度生成器](../../minestudio/action_degree_benchmark.py)
+- [WASD 与鼠标幅度生成器](../../minestudio/action_magnitude_benchmark.py)
 - [意图保持机械切分器](../../minestudio/mechanical_segmentation_probe.py)
 - [动作选择测试](../../../tests/unit/test_action_choice_benchmark.py)
-- [程度测试](../../../tests/unit/test_action_degree_benchmark.py)
+- [幅度测试](../../../tests/unit/test_action_magnitude_benchmark.py)
 - [切分测试](../../../tests/unit/test_mechanical_segmentation_probe.py)
 
 ## 50 条图像抽样复核
 
-[机械切分抽样报告](../../minestudio/mechanical_segmentation_intent_validation/agent_visual_validation.md)
+[机械切分抽样报告](../../../artifacts/mechanical_segmentation/intent_validation_50_samples/agent_visual_validation.md)
 
 判定标准是：切分后的前后图像是否展现出一个完整、连贯、未被切断的动作意图，而不是只检查动作标签是否相同。
 
@@ -37,4 +37,4 @@
 | 不完整或无法判断 | 10 |
 | 平均置信度 | 约 0.74 |
 
-抽样图像和原始动作摘要位于 [`mechanical_segmentation_intent_validation/`](../../minestudio/mechanical_segmentation_intent_validation/)。
+抽样图像和原始动作摘要位于 [`artifacts/mechanical_segmentation/intent_validation_50_samples/`](../../../artifacts/mechanical_segmentation/intent_validation_50_samples/)。

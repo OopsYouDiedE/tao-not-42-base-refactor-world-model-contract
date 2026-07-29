@@ -2,10 +2,10 @@
 
 对外接口：
     GEMMA_MODELS, QWEN_MODELS — 两族可用主干及其 chat template。
-    LoraSettings — LoRA 注入配置。
-    TrainingSettings — 训练超参。
+    LoRASettings — LoRA 注入配置。
+    SFTSettings — 视觉监督微调超参。
     load_vision_model — 按模型名加载 FastVisionModel 并注入 LoRA。
-    run_supervised_finetuning — 端到端训练并保存 adapter。
+    run_vision_sft — 端到端视觉监督微调并保存 adapter。
 
 `import unsloth` 必须早于 transformers / trl 的重型导入，因此本模块把 unsloth 放在
 文件顶部第一组 import——这是 unsloth 的补丁顺序要求，不是风格问题。
@@ -48,7 +48,7 @@ CHAT_TEMPLATES: dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class LoraSettings:
+class LoRASettings:
     """LoRA 注入配置。
 
     Attributes
@@ -76,7 +76,7 @@ class LoraSettings:
 
 
 @dataclass(frozen=True)
-class TrainingSettings:
+class SFTSettings:
     """训练超参。
 
     Attributes
@@ -141,7 +141,7 @@ def resolve_model_name(model: str) -> tuple[str, str]:
 
 def load_vision_model(
     model: str,
-    lora: LoraSettings,
+    lora: LoRASettings,
     load_in_4bit: bool = False,
     max_sequence_length: int = 2048,
 ) -> tuple[Any, Any]:
@@ -151,7 +151,7 @@ def load_vision_model(
     ----------
     model : str
         模型短名或完整 HuggingFace 名。
-    lora : LoraSettings
+    lora : LoRASettings
         LoRA 配置。
     load_in_4bit : bool
         是否 4bit 量化加载。MoE 主干（26B-A4B / 35B-A3B）不建议开，走 bf16。
@@ -195,12 +195,12 @@ def load_vision_model(
     return loaded, processor
 
 
-def run_supervised_finetuning(
+def run_vision_sft(
     model: str,
     dataset_directory: Path,
     output_directory: Path,
-    lora: LoraSettings | None = None,
-    training: TrainingSettings | None = None,
+    lora: LoRASettings | None = None,
+    training: SFTSettings | None = None,
     load_in_4bit: bool = False,
     include_previous_action: bool = True,
     maximum_samples: int | None = None,
@@ -218,12 +218,12 @@ def run_supervised_finetuning(
     model : str
         模型短名或完整 HuggingFace 名。
     dataset_directory : Path
-        Lumine 预训练数据目录（``build_pretrain_dataset`` 的输出）。
+        Lumine 预训练数据目录（``build_pretraining_dataset`` 的输出）。
     output_directory : Path
         checkpoint 与 LoRA adapter 的输出目录。
-    lora : LoraSettings or None
+    lora : LoRASettings or None
         LoRA 配置，None 用默认。
-    training : TrainingSettings or None
+    training : SFTSettings or None
         训练超参，None 用默认。
     load_in_4bit : bool
         是否 4bit 加载。
@@ -237,7 +237,7 @@ def run_supervised_finetuning(
     streaming : bool
         True（默认）时直接从 LMDB 流式加载，不需要预先落盘中间产物，
         ``dataset_directory`` 指向 MineStudio 数据集根目录。
-        False 时读 ``lumine_pretrain_builder`` 的落盘产物。
+        False 时读 ``lumine_pretraining_dataset`` 的落盘产物。
     dataloader_workers : int or None
         DataLoader 并行 worker 数，None 时按 CPU 核心数与可用内存推算。仅流式模式生效。
     holdout_level : str
@@ -252,8 +252,8 @@ def run_supervised_finetuning(
     dict
         训练统计：``train_runtime``、``train_loss`` 等 TRL 原始字段，加 ``num_samples``。
     """
-    lora_settings = lora if lora is not None else LoraSettings()
-    training_settings = training if training is not None else TrainingSettings()
+    lora_settings = lora if lora is not None else LoRASettings()
+    training_settings = training if training is not None else SFTSettings()
 
     loaded_model, processor = load_vision_model(
         model,

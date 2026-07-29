@@ -1,15 +1,15 @@
 """把 MineStudio 轨迹批量预处理成 Lumine 格式的预训练数据。
 
 对外接口：
-    PretrainSample — 一条预训练样本的结构。
+    PretrainingSample — 一条预训练样本的结构。
     WindowLayout — 感知窗口 / 历史帧 / 步长的时间布局。
-    build_pretrain_dataset — 遍历 episode 产出 Lumine 样本，写 JSONL + 帧图。
+    build_pretraining_dataset — 遍历 episode 产出 Lumine 样本，写 JSONL + 帧图。
     main — 命令行入口。
 
 产物布局::
 
     <输出目录>/
-        samples_train.jsonl        训练集，每行一条 PretrainSample
+        samples_train.jsonl        训练集，每行一条 PretrainingSample
         samples_validation.jsonl   验证集，同格式
         frames/<episode>/<起始帧>_<历史序号>.jpg
         dataset_info.json          时间布局、键表、划分统计
@@ -31,7 +31,7 @@ import cv2
 import numpy as np
 
 from bc_datasets.minestudio.episode_split import HoldoutLevel, SplitResult, build_split
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 from bc_datasets.minestudio.lumine_action_codec import (
     MINECRAFT_KEYMAP,
     encode_lumine_action,
@@ -92,7 +92,7 @@ class WindowLayout:
 
 
 @dataclass(frozen=True)
-class PretrainSample:
+class PretrainingSample:
     """一条 Lumine 格式预训练样本。
 
     Attributes
@@ -162,7 +162,7 @@ def _iterate_episode_samples(
     layout: WindowLayout,
     frames_directory: Path | None,
     jpeg_quality: int,
-) -> Iterator[PretrainSample]:
+) -> Iterator[PretrainingSample]:
     """对单条 episode 逐窗口产出样本。"""
     has_image = "image" in reader.readers
     total_frames = reader.episode_length(episode)
@@ -197,7 +197,7 @@ def _iterate_episode_samples(
                 frames, episode, start, frames_directory, jpeg_quality,
             )
 
-        yield PretrainSample(
+        yield PretrainingSample(
             episode=episode,
             start_frame=start,
             image_paths=image_paths,
@@ -206,7 +206,7 @@ def _iterate_episode_samples(
         )
 
 
-def build_pretrain_dataset(
+def build_pretraining_dataset(
     dataset_directories: list[Path],
     output_directory: Path,
     layout: WindowLayout | None = None,
@@ -261,10 +261,10 @@ def build_pretrain_dataset(
     resolved = layout if layout is not None else WindowLayout()
     if not 1 <= jpeg_quality <= 100:
         raise ValueError("jpeg_quality 必须在 1–100")
-    modals = ["action", "image"] if include_images else ["action"]
+    modalities = ["action", "image"] if include_images else ["action"]
     reader = TrajectoryReader(
         dataset_directories=dataset_directories,
-        modals=modals,
+        modalities=modalities,
         frame_width=frame_width,
         frame_height=frame_height,
     )
@@ -382,7 +382,7 @@ def main() -> None:
             else arguments.window_frames
         ),
     )
-    info = build_pretrain_dataset(
+    info = build_pretraining_dataset(
         dataset_directories=arguments.dataset_dir,
         output_directory=arguments.output_dir,
         layout=layout,

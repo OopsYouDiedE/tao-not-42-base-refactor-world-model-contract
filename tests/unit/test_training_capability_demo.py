@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from bc_datasets.minestudio.lmdb_modal_reader import ModalKernelReader
-from bc_datasets.training_capabillity_demo import (
+from bc_datasets.minestudio.lmdb_modality_reader import LMDBModalityReader
+from bc_datasets.training_capability_demo import (
     CAPABILITY_ASPECTS,
     action_contract_text,
     action_ticks,
@@ -109,8 +109,8 @@ def test_coarse_inverse_dynamics_avoids_unobservable_tick_sequence() -> None:
 
 
 def test_meta_info_chunks_merge_as_frame_lists() -> None:
-    reader = object.__new__(ModalKernelReader)
-    reader.modal = "meta_info"
+    reader = object.__new__(LMDBModalityReader)
+    reader.modality = "meta_info"
     assert reader._merge_chunks([[{"frame": 0}], [{"frame": 1}]]) == [
         {"frame": 0}, {"frame": 1},
     ]

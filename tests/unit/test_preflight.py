@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from machine_environment.hardware_report import (
     DiskReport,
-    GraphicsProcessorReport,
+    GPUReport,
     MachineReport,
 )
 from machine_environment.preflight import (
@@ -22,8 +22,8 @@ _GIBIBYTE = 1024 ** 3
 def _report_with_graphics(*memory_gibibytes: int) -> MachineReport:
     """造一个只填了 GPU 显存的报告。"""
     return MachineReport(
-        graphics_processors=[
-            GraphicsProcessorReport(
+        gpus=[
+            GPUReport(
                 index=index, name=f"GPU{index}", total_memory_bytes=size * _GIBIBYTE,
             )
             for index, size in enumerate(memory_gibibytes)

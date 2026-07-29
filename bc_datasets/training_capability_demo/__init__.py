@@ -1,6 +1,6 @@
 """MineStudio 八方面 LoRA 多任务训练数据生成。"""
 
-from bc_datasets.training_capabillity_demo.generator import (
+from bc_datasets.training_capability_demo.generator import (
     CAPABILITY_ASPECTS,
     action_contract_text,
     action_ticks,

@@ -89,7 +89,7 @@ def check_graphics_memory(
     """
     candidates = [
         graphics.total_memory_bytes
-        for graphics in report.graphics_processors
+        for graphics in report.gpus
         if graphics.total_memory_bytes is not None
     ]
     if not candidates:

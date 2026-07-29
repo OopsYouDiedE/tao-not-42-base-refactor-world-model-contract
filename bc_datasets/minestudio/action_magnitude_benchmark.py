@@ -23,7 +23,7 @@ from bc_datasets.minestudio.action_benchmark_common import (
     serialized_action_signature,
     shuffled_choices,
 )
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 
 TARGET_TYPES = ("key_W", "key_A", "key_S", "key_D", "mouse_yaw", "mouse_pitch")
 KEY_FIELDS = {"key_W": "forward", "key_A": "left", "key_S": "back", "key_D": "right"}
@@ -91,7 +91,7 @@ def build_key_frame_distractors(
     if len(signatures) != 4:
         raise ValueError("按键帧数扰动没有生成四个互异候选")
     return distractors, {
-        "degree_kind": "key_total_pressed_frames",
+        "magnitude_kind": "key_total_pressed_frames",
         "target": field,
         "true_value": base_count,
         "deltas": selected,
@@ -131,7 +131,7 @@ def build_mouse_local_distractors(
     if len(signatures) != 4:
         raise ValueError("鼠标幅度扰动没有生成四个互异候选")
     return distractors, {
-        "degree_kind": "mouse_local_scale",
+        "magnitude_kind": "mouse_local_scale",
         "target": "pitch" if axis == 0 else "yaw",
         "selected_frame_offsets": selected_positions,
         "factor": factor,
@@ -141,7 +141,7 @@ def build_mouse_local_distractors(
     }
 
 
-def build_action_degree_benchmark(
+def build_action_magnitude_benchmark(
     dataset_directory: Path,
     output_directory: Path,
     sample_count: int = 100,
@@ -261,7 +261,7 @@ def main() -> None:
     parser.add_argument("--episode-file", type=Path)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    manifest = build_action_degree_benchmark(
+    manifest = build_action_magnitude_benchmark(
         args.dataset_dir, args.output_dir, args.samples, args.min_gap, args.max_gap,
         args.seed, args.image_width, args.image_height, args.episode_file, args.overwrite,
     )

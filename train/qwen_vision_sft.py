@@ -17,7 +17,7 @@ Qwen3.6 的注意点：原生多模态（Causal LM + Vision Encoder），思考�
 from __future__ import annotations
 
 from train.command_line import build_argument_parser, run_from_arguments
-from train.unsloth_supervised_finetuning import QWEN_MODELS
+from train.unsloth_vision_sft import QWEN_MODELS
 
 
 def main() -> None:

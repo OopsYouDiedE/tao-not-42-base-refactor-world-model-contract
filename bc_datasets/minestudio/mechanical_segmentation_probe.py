@@ -11,25 +11,18 @@ from typing import TypeAlias
 import numpy as np
 from PIL import Image, ImageDraw
 
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 
 
 KEYS = ("forward", "back", "left", "right", "jump", "attack", "use")
 IntentLabel: TypeAlias = tuple[tuple[str, ...], tuple[int, int]]
 
 
-def frame_label(actions: dict[str, np.ndarray], index: int) -> IntentLabel:
-    keys = tuple(name for name in KEYS if int(actions[name][index]) != 0)
-    pitch, yaw = actions["camera"][index]
-    direction = (int(np.sign(pitch)), int(np.sign(yaw)))
-    return keys, direction
-
-
 def mechanical_segments(
     actions: dict[str, np.ndarray],
     minimum_length: int = 4,
 ) -> list[tuple[int, int]]:
-    labels = [frame_label(actions, index) for index in range(len(actions["camera"]))]
+    labels = [intent_label(actions, index) for index in range(len(actions["camera"]))]
     boundaries = [0]
     for index in range(1, len(labels)):
         if labels[index] != labels[index - 1]:

@@ -103,9 +103,9 @@ def load_lumine_conversations(
     Parameters
     ----------
     dataset_directory : Path
-        ``build_pretrain_dataset`` 的输出目录，需含 ``samples_<子集>.jsonl``。
+        ``build_pretraining_dataset`` 的输出目录，需含 ``samples_<子集>.jsonl``。
     subset : {"train", "validation"}
-        要读取的子集。文件名与 ``build_pretrain_dataset`` 的产物一致。
+        要读取的子集。文件名与 ``build_pretraining_dataset`` 的产物一致。
     instruction : str
         任务指令文本。
     include_previous_action : bool
@@ -128,7 +128,7 @@ def load_lumine_conversations(
     samples_path = Path(dataset_directory) / f"samples_{subset}.jsonl"
     if not samples_path.is_file():
         raise FileNotFoundError(
-            f"找不到 {samples_path}；先跑 bc_datasets.minestudio.lumine_pretrain_builder",
+            f"找不到 {samples_path}；先跑 bc_datasets.minestudio.lumine_pretraining_dataset",
         )
     conversations: list[dict[str, list[dict[str, Any]]]] = []
     with samples_path.open("r", encoding="utf-8") as handle:

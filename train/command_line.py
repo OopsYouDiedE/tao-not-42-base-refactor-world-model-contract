@@ -73,7 +73,7 @@ def build_argument_parser(
     )
     parser.add_argument(
         "--no-streaming", action="store_true",
-        help="改读 lumine_pretrain_builder 的落盘产物；默认直接从 LMDB 流式加载",
+        help="改读 lumine_pretraining_dataset 的落盘产物；默认直接从 LMDB 流式加载",
     )
     parser.add_argument(
         "--dataloader-workers", type=int, default=None,
@@ -107,22 +107,22 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
         )
 
     # unsloth 必须在 transformers 之前完成补丁，因此训练模块延迟到此处导入。
-    from train.unsloth_supervised_finetuning import (
-        LoraSettings,
-        TrainingSettings,
-        run_supervised_finetuning,
+    from train.unsloth_vision_sft import (
+        LoRASettings,
+        SFTSettings,
+        run_vision_sft,
     )
 
-    result = run_supervised_finetuning(
+    result = run_vision_sft(
         model=arguments.model,
         dataset_directory=arguments.dataset_dir,
         output_directory=arguments.output_dir,
-        lora=LoraSettings(
+        lora=LoRASettings(
             rank=arguments.lora_rank,
             alpha=arguments.lora_alpha,
             finetune_vision_layers=not arguments.freeze_vision,
         ),
-        training=TrainingSettings(
+        training=SFTSettings(
             micro_batch_size=arguments.micro_batch,
             gradient_accumulation_steps=arguments.gradient_accumulation,
             learning_rate=arguments.learning_rate,

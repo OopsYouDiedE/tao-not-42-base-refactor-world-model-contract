@@ -353,4 +353,4 @@ condition
 9. 分割掩码和图像分辨率不同，需显式解码、缩放并验证坐标方向。
 10. pickle 只应从可信数据源加载。本快照来自指定 Hugging Face 数据集仓库。
 
-项目内可使用 `bc_datasets/minestudio/lmdb_modal_reader.py` 读取 `image`、`action` 和 `meta_info`，并按轨迹名建立多模态交集。
+项目内可使用 `bc_datasets/minestudio/lmdb_modality_reader.py` 读取 `image`、`action` 和 `meta_info`，并按轨迹名建立多模态交集。

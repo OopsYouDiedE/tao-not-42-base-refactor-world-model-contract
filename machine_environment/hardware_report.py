@@ -1,7 +1,7 @@
 """采集 CPU / 内存 / 磁盘 / GPU / CUDA 信息。
 
 对外接口：
-    ProcessorReport, MemoryReport, DiskReport, GraphicsProcessorReport, CudaReport
+    ProcessorReport, MemoryReport, DiskReport, GPUReport, CUDAReport
     MachineReport — 汇总以上各项。
     collect_machine_report — 采集。
     format_machine_report — 渲染为对齐文本。
@@ -116,7 +116,7 @@ class DiskReport:
 
 
 @dataclass
-class GraphicsProcessorReport:
+class GPUReport:
     """单块 GPU 的信息。
 
     Attributes
@@ -142,7 +142,7 @@ class GraphicsProcessorReport:
 
 
 @dataclass
-class CudaReport:
+class CUDAReport:
     """CUDA 环境。三个版本号来源不同，通常不相等。
 
     Attributes
@@ -182,9 +182,9 @@ class MachineReport:
         内存信息。
     disks : list of DiskReport
         各被检查路径的卷容量。
-    graphics_processors : list of GraphicsProcessorReport
+    gpus : list of GPUReport
         各 GPU 信息；检测不到时为空列表。
-    cuda : CudaReport
+    cuda : CUDAReport
         CUDA 环境。
     """
 
@@ -193,8 +193,8 @@ class MachineReport:
     processor: ProcessorReport = field(default_factory=ProcessorReport)
     memory: MemoryReport = field(default_factory=MemoryReport)
     disks: list[DiskReport] = field(default_factory=list)
-    graphics_processors: list[GraphicsProcessorReport] = field(default_factory=list)
-    cuda: CudaReport = field(default_factory=CudaReport)
+    gpus: list[GPUReport] = field(default_factory=list)
+    cuda: CUDAReport = field(default_factory=CUDAReport)
 
 
 def _read_processor_model_from_proc() -> tuple[str | None, int | None]:
@@ -368,13 +368,13 @@ def collect_disk_reports(paths: list[Path]) -> list[DiskReport]:
     return reports
 
 
-# nvidia-smi 的 CSV 查询字段，顺序与 _parse_graphics_line 的解包一致。
+# nvidia-smi 的 CSV 查询字段，顺序与 _parse_gpu_line 的解包一致。
 _SMI_FIELDS = (
     "index,name,memory.total,memory.free,driver_version,compute_cap"
 )
 
 
-def _parse_graphics_line(line: str) -> GraphicsProcessorReport | None:
+def _parse_gpu_line(line: str) -> GPUReport | None:
     """解析一行 nvidia-smi CSV 输出，字段不足或序号非法时返回 None。"""
     cells = [cell.strip() for cell in line.split(",")]
     if len(cells) < 6:
@@ -391,7 +391,7 @@ def _parse_graphics_line(line: str) -> GraphicsProcessorReport | None:
         except ValueError:
             return None
 
-    return GraphicsProcessorReport(
+    return GPUReport(
         index=index,
         name=cells[1],
         total_memory_bytes=megabytes_to_bytes(cells[2]),
@@ -401,7 +401,7 @@ def _parse_graphics_line(line: str) -> GraphicsProcessorReport | None:
     )
 
 
-def collect_graphics_processor_reports() -> list[GraphicsProcessorReport]:
+def collect_gpu_reports() -> list[GPUReport]:
     """用 ``nvidia-smi`` 采集各 GPU 信息；无 NVIDIA 驱动时返回空列表。"""
     output = _run_command(
         [
@@ -416,7 +416,7 @@ def collect_graphics_processor_reports() -> list[GraphicsProcessorReport]:
         report
         for line in output.splitlines()
         if line.strip()
-        if (report := _parse_graphics_line(line)) is not None
+        if (report := _parse_gpu_line(line)) is not None
     ]
     return sorted(reports, key=lambda report: report.index)
 
@@ -439,9 +439,9 @@ def _read_toolkit_version() -> str | None:
     return matched.group(1) if matched else None
 
 
-def collect_cuda_report() -> CudaReport:
+def collect_cuda_report() -> CUDAReport:
     """采集 CUDA 环境。torch 未安装时相关字段为 None，不视为错误。"""
-    report = CudaReport(
+    report = CUDAReport(
         driver_maximum_version=_read_driver_maximum_cuda_version(),
         toolkit_version=_read_toolkit_version(),
     )
@@ -481,7 +481,7 @@ def collect_machine_report(paths: list[Path] | None = None) -> MachineReport:
         processor=collect_processor_report(),
         memory=collect_memory_report(),
         disks=collect_disk_reports(paths),
-        graphics_processors=collect_graphics_processor_reports(),
+        gpus=collect_gpu_reports(),
         cuda=collect_cuda_report(),
     )
 
@@ -526,9 +526,9 @@ def format_machine_report(report: MachineReport) -> str:
 
     lines.append("")
     lines.append("GPU")
-    if not report.graphics_processors:
+    if not report.gpus:
         lines.append("  未检测到 NVIDIA GPU（nvidia-smi 不可用）")
-    for graphics in report.graphics_processors:
+    for graphics in report.gpus:
         lines.append(f"  [{graphics.index}] {graphics.name}")
         lines.append(
             f"    显存 {format_bytes(graphics.total_memory_bytes)}  "

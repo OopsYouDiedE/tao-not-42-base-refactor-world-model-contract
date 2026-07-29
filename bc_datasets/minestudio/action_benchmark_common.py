@@ -12,7 +12,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 from bc_datasets.minestudio.lumine_action_codec import MINECRAFT_KEYMAP, encode_lumine_action
 
 CHOICE_LABELS = ("A", "B", "C", "D")

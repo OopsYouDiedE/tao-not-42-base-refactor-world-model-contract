@@ -18,7 +18,7 @@ from PIL import Image
 
 from bc_datasets.minestudio.action_benchmark_common import prepare_output
 from bc_datasets.minestudio.action_choice_benchmark import is_informative_action
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 from bc_datasets.minestudio.lumine_action_codec import (
     DEGREES_PER_PIXEL,
     MINECRAFT_KEYMAP,

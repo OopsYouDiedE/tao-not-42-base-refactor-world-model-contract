@@ -16,7 +16,7 @@ content 必须是列表而非裸字符串（本项目的对话构造已满足）
 from __future__ import annotations
 
 from train.command_line import build_argument_parser, run_from_arguments
-from train.unsloth_supervised_finetuning import GEMMA_MODELS
+from train.unsloth_vision_sft import GEMMA_MODELS
 
 
 def main() -> None:

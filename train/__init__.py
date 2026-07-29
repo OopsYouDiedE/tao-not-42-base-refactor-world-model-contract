@@ -2,13 +2,13 @@
 
 对外接口：
     GEMMA_MODELS, QWEN_MODELS — 两族可用主干的模型名。
-    LoraSettings, TrainingSettings — LoRA 与训练超参配置对象。
+    LoRASettings, SFTSettings — LoRA 与视觉监督微调超参配置对象。
     DEFAULT_INSTRUCTION — 动作预测任务的默认指令文本。
     build_conversation, load_lumine_conversations — Lumine 落盘样本 → 对话格式数据集。
     StreamingSettings, LumineStreamingDataset, build_streaming_dataset —
         从 LMDB 流式产出对话样本，不落盘中间产物（训练默认路径）。
     resolve_worker_count — 按 CPU 核心数与可用内存推算数据加载 worker 数。
-    run_supervised_finetuning — 通用视觉 SFT 训练循环。
+    run_vision_sft — 通用视觉 SFT 训练循环。
 
 两族主干共用同一套数据与训练流程，差别只在模型名与 chat template，因此
 ``gemma_vision_sft.py`` 与 ``qwen_vision_sft.py`` 只是两个命令行入口。
@@ -35,11 +35,11 @@ from train.lumine_streaming_dataset import (
 
 # 名字 → 所在模块。取用时才导入，见上方说明。
 _LAZY_EXPORTS = {
-    "GEMMA_MODELS": "train.unsloth_supervised_finetuning",
-    "QWEN_MODELS": "train.unsloth_supervised_finetuning",
-    "LoraSettings": "train.unsloth_supervised_finetuning",
-    "TrainingSettings": "train.unsloth_supervised_finetuning",
-    "run_supervised_finetuning": "train.unsloth_supervised_finetuning",
+    "GEMMA_MODELS": "train.unsloth_vision_sft",
+    "QWEN_MODELS": "train.unsloth_vision_sft",
+    "LoRASettings": "train.unsloth_vision_sft",
+    "SFTSettings": "train.unsloth_vision_sft",
+    "run_vision_sft": "train.unsloth_vision_sft",
 }
 
 
@@ -57,13 +57,13 @@ __all__ = [
     "DEFAULT_INSTRUCTION",
     "GEMMA_MODELS",
     "QWEN_MODELS",
-    "LoraSettings",
+    "LoRASettings",
     "LumineStreamingDataset",
     "StreamingSettings",
-    "TrainingSettings",
+    "SFTSettings",
     "build_conversation",
     "build_streaming_dataset",
     "load_lumine_conversations",
     "resolve_worker_count",
-    "run_supervised_finetuning",
+    "run_vision_sft",
 ]

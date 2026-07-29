@@ -4,7 +4,7 @@ import pytest
 from bc_datasets.minestudio.mechanical_segmentation_probe import intent_preserving_segments
 
 
-def make_actions(length: int = 20) -> dict[str, np.ndarray]:
+def _make_actions(length: int = 20) -> dict[str, np.ndarray]:
     actions = {name: np.zeros(length, dtype=np.int64) for name in (
         "forward", "back", "left", "right", "jump", "attack", "use",
     )}
@@ -13,7 +13,7 @@ def make_actions(length: int = 20) -> dict[str, np.ndarray]:
 
 
 def test_short_mouse_pause_does_not_split_intent() -> None:
-    actions = make_actions()
+    actions = _make_actions()
     actions["camera"][:8, 1] = 1.0
     actions["camera"][10:18, 1] = 1.0
     segments = intent_preserving_segments(actions, minimum_length=4, bridge_frames=2)
@@ -21,7 +21,7 @@ def test_short_mouse_pause_does_not_split_intent() -> None:
 
 
 def test_different_key_intents_remain_separate() -> None:
-    actions = make_actions()
+    actions = _make_actions()
     actions["forward"][:8] = 1
     actions["right"][8:16] = 1
     segments = intent_preserving_segments(actions, minimum_length=4, bridge_frames=2)
@@ -30,7 +30,7 @@ def test_different_key_intents_remain_separate() -> None:
 
 
 def test_segmentation_parameters_are_validated() -> None:
-    actions = make_actions()
+    actions = _make_actions()
     with pytest.raises(ValueError, match="minimum_length"):
         intent_preserving_segments(actions, minimum_length=0)
     with pytest.raises(ValueError, match="bridge_frames"):

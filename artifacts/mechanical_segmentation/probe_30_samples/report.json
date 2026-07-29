@@ -21,7 +21,7 @@
     ],
     "core_purity": 0.8333333333333334,
     "expansion_label_changes": 6,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_00.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_00.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-f153ac423f61-20220422-232504",
@@ -43,7 +43,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 6,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_01.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_01.jpg"
   },
   {
     "episode": "shabby-viridian-beaver-87267f247bfe-20220421-002011",
@@ -67,7 +67,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 4,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_02.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_02.jpg"
   },
   {
     "episode": "pokey-cyan-spitz-19fdcb5129a3-20220418-000412",
@@ -91,7 +91,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 3,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_03.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_03.jpg"
   },
   {
     "episode": "shabby-viridian-beaver-8e148bcbdae4-20220421-221029",
@@ -115,7 +115,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 2,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_04.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_04.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-cdd7cdcf2ee7-20220419-160618",
@@ -139,7 +139,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 6,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_05.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_05.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-1654ae366c37-20220422-141149",
@@ -161,7 +161,7 @@
     ],
     "core_purity": 0.8823529411764706,
     "expansion_label_changes": 6,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_06.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_06.jpg"
   },
   {
     "episode": "cheeky-cornflower-setter-f153ac423f61-20220417-220757",
@@ -185,7 +185,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_07.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_07.jpg"
   },
   {
     "episode": "cheeky-cornflower-setter-0af0903eb6f4-20220415-183319",
@@ -209,7 +209,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 1,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_08.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_08.jpg"
   },
   {
     "episode": "squeaky-magnolia-ocelot-f153ac423f61-20220415-083209",
@@ -233,7 +233,7 @@
     ],
     "core_purity": 0.875,
     "expansion_label_changes": 9,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_09.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_09.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-31e7f88a96bd-20220415-213028",
@@ -257,7 +257,7 @@
     ],
     "core_purity": 0.9875,
     "expansion_label_changes": 2,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_10.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_10.jpg"
   },
   {
     "episode": "cheeky-cornflower-setter-3174e27044c4-20220421-173930",
@@ -281,7 +281,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 2,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_11.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_11.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-34e052d104c7-20220415-050919",
@@ -305,7 +305,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_12.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_12.jpg"
   },
   {
     "episode": "shabby-pink-molly-b4d769163550-20220414-093031",
@@ -327,7 +327,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_13.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_13.jpg"
   },
   {
     "episode": "gimpy-jade-panda-ec818f707c1c-20220416-110111",
@@ -349,7 +349,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_14.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_14.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-f153ac423f61-20220419-200147",
@@ -371,7 +371,7 @@
     ],
     "core_purity": 0.6666666666666666,
     "expansion_label_changes": 8,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_15.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_15.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-f153ac423f61-20220414-020538",
@@ -393,7 +393,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 4,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_16.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_16.jpg"
   },
   {
     "episode": "shabby-viridian-beaver-aed0f89b8e7b-20220421-133225",
@@ -417,7 +417,7 @@
     ],
     "core_purity": 0.5,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_17.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_17.jpg"
   },
   {
     "episode": "shabby-viridian-beaver-f153ac423f61-20220416-161021",
@@ -441,7 +441,7 @@
     ],
     "core_purity": 0.9333333333333333,
     "expansion_label_changes": 8,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_18.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_18.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-8cb1a92f3ff1-20220415-054155",
@@ -463,7 +463,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 4,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_19.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_19.jpg"
   },
   {
     "episode": "shabby-viridian-beaver-e93be360fa26-20220422-190703",
@@ -488,7 +488,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 2,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_20.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_20.jpg"
   },
   {
     "episode": "thirsty-lavender-koala-f153ac423f61-20220415-220216",
@@ -512,7 +512,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 4,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_21.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_21.jpg"
   },
   {
     "episode": "cheeky-cornflower-setter-f153ac423f61-20220418-120640",
@@ -537,7 +537,7 @@
     ],
     "core_purity": 0.875,
     "expansion_label_changes": 6,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_22.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_22.jpg"
   },
   {
     "episode": "squeaky-magnolia-ocelot-f153ac423f61-20220422-152429",
@@ -561,7 +561,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 3,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_23.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_23.jpg"
   },
   {
     "episode": "lovely-persimmon-angora-82b80f21cf6e-20220421-032231",
@@ -585,7 +585,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_24.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_24.jpg"
   },
   {
     "episode": "cheeky-cornflower-setter-93b6aeff27cc-20220418-134529",
@@ -609,7 +609,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 2,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_25.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_25.jpg"
   },
   {
     "episode": "shabby-pink-molly-2f0d7ce69f89-20220416-122853",
@@ -633,7 +633,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 4,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_26.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_26.jpg"
   },
   {
     "episode": "woozy-ruby-ostrich-f153ac423f61-20220419-053352",
@@ -657,7 +657,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 6,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_27.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_27.jpg"
   },
   {
     "episode": "shabby-viridian-beaver-ffde53b7eae1-20220420-001147",
@@ -681,7 +681,7 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 3,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_28.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_28.jpg"
   },
   {
     "episode": "squeaky-magnolia-ocelot-eab3e7650201-20220418-172912",
@@ -703,6 +703,6 @@
     ],
     "core_purity": 1.0,
     "expansion_label_changes": 5,
-    "image": "runs/mechanical_segmentation_probe_intent2/sample_29.jpg"
+    "image": "artifacts/mechanical_segmentation/probe_30_samples/sample_29.jpg"
   }
 ]

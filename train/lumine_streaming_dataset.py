@@ -53,7 +53,7 @@ import numpy as np
 from PIL import Image
 
 from bc_datasets.minestudio.episode_split import HoldoutLevel, build_split
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 from bc_datasets.minestudio.lumine_action_codec import encode_lumine_action
 from train.lumine_conversation_dataset import DEFAULT_INSTRUCTION, build_conversation
 
@@ -242,10 +242,10 @@ class LumineStreamingDataset:
     def _ensure_reader(self) -> TrajectoryReader:
         """取本进程的 reader，尚未打开时打开。"""
         if self._reader is None:
-            modals = ["action", "image"] if self.include_images else ["action"]
+            modalities = ["action", "image"] if self.include_images else ["action"]
             self._reader = TrajectoryReader(
                 dataset_directories=self.dataset_directories,
-                modals=modals,
+                modalities=modalities,
                 frame_width=self.settings.frame_width,
                 frame_height=self.settings.frame_height,
             )
@@ -349,10 +349,10 @@ def build_streaming_dataset(
     ``build_split``，不让它再开一次。
     """
     resolved = settings if settings is not None else StreamingSettings()
-    modals = ["action", "image"] if include_images else ["action"]
+    modalities = ["action", "image"] if include_images else ["action"]
     reader = TrajectoryReader(
         dataset_directories=dataset_directories,
-        modals=modals,
+        modalities=modalities,
         frame_width=resolved.frame_width,
         frame_height=resolved.frame_height,
     )

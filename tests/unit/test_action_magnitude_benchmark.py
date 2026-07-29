@@ -6,7 +6,7 @@ import random
 
 import numpy as np
 
-from bc_datasets.minestudio.action_degree_benchmark import (
+from bc_datasets.minestudio.action_magnitude_benchmark import (
     build_key_frame_distractors,
     build_mouse_local_distractors,
 )

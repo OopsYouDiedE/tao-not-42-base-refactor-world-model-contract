@@ -18,8 +18,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 #下载项目，cd，安装依赖。
 git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
 cd tao-not-42-base-refactor-world-model-contract
-sh sys_tests/sys_env_test.sh
+sh tests/system/environment_test.sh
 uv venv --python 3.13
 uv pip install unsloth lmdb av pillow opencv-python-headless pytest
 ```
-

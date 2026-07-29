@@ -12,12 +12,12 @@ DATASET_REPOSITORIES = {
     name: f"CraftJarvis/minestudio-data-{name}-v110"
     for name in ("6xx", "7xx", "8xx", "9xx", "10xx")
 }
-MODAL_NAMES = ("image", "action", "meta_info", "event", "segmentation", "motion")
+MODALITY_NAMES = ("image", "action", "meta_info", "event", "segmentation", "motion")
 
 
 def download_datasets(
     datasets: list[str],
-    modals: list[str],
+    modalities: list[str],
     output_directory: Path,
     maximum_workers: int = 4,
     token: str | None = None,
@@ -38,7 +38,7 @@ def download_datasets(
             repo_id=repository,
             repo_type="dataset",
             local_dir=target,
-            allow_patterns=[f"{modal}/*" for modal in modals],
+            allow_patterns=[f"{modality}/*" for modality in modalities],
             max_workers=maximum_workers,
             token=token,
         )
@@ -50,7 +50,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="下载 MineStudio 数据集")
     parser.add_argument("--dataset", nargs="+", default=["10xx"], choices=DATASET_REPOSITORIES)
     parser.add_argument(
-        "--model", "--modal", dest="models", nargs="+", choices=MODAL_NAMES,
+        "--modality", dest="modalities", nargs="+", choices=MODALITY_NAMES,
         help="下载指定模态；不设置时下载全部模态",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("runs/bc_datasets"))
@@ -61,7 +61,7 @@ def main() -> None:
 
     results = download_datasets(
         arguments.dataset,
-        arguments.models or list(MODAL_NAMES),
+        arguments.modalities or list(MODALITY_NAMES),
         arguments.output_dir,
         arguments.maximum_workers,
         arguments.token,

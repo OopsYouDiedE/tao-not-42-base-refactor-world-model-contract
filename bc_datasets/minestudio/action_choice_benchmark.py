@@ -25,7 +25,7 @@ from bc_datasets.minestudio.action_benchmark_common import (
     serialized_action_signature,
     shuffled_choices,
 )
-from bc_datasets.minestudio.lmdb_modal_reader import TrajectoryReader
+from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
 from bc_datasets.minestudio.lumine_action_codec import MINECRAFT_KEYMAP
 
 ACTION_TYPES = ("camera_only", "movement", "interaction", "mixed")

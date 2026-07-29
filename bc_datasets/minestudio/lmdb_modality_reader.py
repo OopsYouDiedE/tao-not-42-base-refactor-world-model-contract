@@ -2,7 +2,7 @@
 
 对外接口：
     EpisodeInfo — 一条 episode 在某模态分片中的定位信息。
-    ModalKernelReader — 单模态读取：列 episode、按帧区间取数据。
+    LMDBModalityReader — 单模态 LMDB 读取：列 episode、按帧区间取数据。
     TrajectoryReader — 多模态按 episode 名对齐读取。
 
 MineStudio v1.1.0 布局：每个模态一组 LMDB 分片，分片内以
@@ -27,7 +27,7 @@ import cv2
 import lmdb
 import numpy as np
 
-ModalName = Literal["image", "action", "meta_info"]
+ModalityName = Literal["image", "action", "meta_info"]
 
 
 @dataclass(frozen=True)
@@ -52,14 +52,14 @@ class EpisodeInfo:
     part_directory: Path
 
 
-class ModalKernelReader:
+class LMDBModalityReader:
     """单模态 LMDB 分片组的读取器。
 
     Parameters
     ----------
     part_directories : list of Path
         同一模态下的分片目录列表，每个目录含 ``data.mdb``。
-    modal : {"image", "action", "meta_info"}
+    modality : {"image", "action", "meta_info"}
         模态名，决定 value 的解码方式。
     frame_width, frame_height : int
         仅 ``image`` 模态使用：解码后缩放到的尺寸，单位像素。
@@ -75,7 +75,7 @@ class ModalKernelReader:
     def __init__(
         self,
         part_directories: list[Path],
-        modal: ModalName,
+        modality: ModalityName,
         frame_width: int = 224,
         frame_height: int = 224,
         decode_workers: int = 4,
@@ -85,7 +85,7 @@ class ModalKernelReader:
             raise ValueError("part_directories 不能为空")
         if cache_size < 0:
             raise ValueError("cache_size 不能为负")
-        self.modal = modal
+        self.modality = modality
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.decode_workers = decode_workers
@@ -138,7 +138,7 @@ class ModalKernelReader:
         try:
             return self._episodes[episode]
         except KeyError:
-            raise KeyError(f"模态 {self.modal} 中没有 episode {episode!r}") from None
+            raise KeyError(f"模态 {self.modality} 中没有 episode {episode!r}") from None
 
     def close(self) -> None:
         """关闭全部 LMDB 环境并清空缓存。"""
@@ -195,15 +195,15 @@ class ModalKernelReader:
 
     def _decode_chunk(self, chunk: bytes) -> Any:
         """按模态解码单个 LMDB value。"""
-        if self.modal == "image":
+        if self.modality == "image":
             return self._decode_image_chunk(chunk)
         return pickle.loads(chunk)
 
     def _merge_chunks(self, decoded: list[Any]) -> Any:
         """把连续若干块沿时间轴拼接。"""
-        if self.modal == "image":
+        if self.modality == "image":
             return np.concatenate(decoded, axis=0)
-        if self.modal == "meta_info":
+        if self.modality == "meta_info":
             return [frame for chunk in decoded for frame in chunk]
         merged: dict[str, list[np.ndarray]] = {}
         for item in decoded:
@@ -264,30 +264,30 @@ class ModalKernelReader:
             # 单块命中：直接切片省掉逐字段 concatenate，这是顺序扫描的主路径。
             # 必须 copy——切片是缓存对象的视图，调用方若原地修改会污染缓存。
             single = decoded[0]
-            if self.modal == "image":
+            if self.modality == "image":
                 return np.array(single[offset:offset + count], copy=True)
-            if self.modal == "meta_info":
+            if self.modality == "meta_info":
                 return [dict(frame) for frame in single[offset:offset + count]]
             return {
                 key: np.array(value[offset:offset + count], copy=True)
                 for key, value in single.items()
             }
         merged = self._merge_chunks(decoded)
-        if self.modal == "image":
+        if self.modality == "image":
             return merged[offset:offset + count]
-        if self.modal == "meta_info":
+        if self.modality == "meta_info":
             return [dict(frame) for frame in merged[offset:offset + count]]
         return {key: value[offset:offset + count] for key, value in merged.items()}
 
 
-def discover_part_directories(dataset_directory: Path, modal: str) -> list[Path]:
+def discover_part_directories(dataset_directory: Path, modality: str) -> list[Path]:
     """列出某数据集目录下指定模态的全部可用分片（含 ``data.mdb`` 的才算）。"""
-    modal_root = Path(dataset_directory) / modal
-    if not modal_root.is_dir():
+    modality_root = Path(dataset_directory) / modality
+    if not modality_root.is_dir():
         return []
     return sorted(
         directory
-        for directory in modal_root.iterdir()
+        for directory in modality_root.iterdir()
         if directory.is_dir() and (directory / "data.mdb").is_file()
     )
 
@@ -299,7 +299,7 @@ class TrajectoryReader:
     ----------
     dataset_directories : list of Path
         数据集根目录列表，例如 ``[Path("runs/bc_datasets/minestudio-data-10xx-v110")]``。
-    modals : list of str
+    modalities : list of str
         要读取的模态，必须包含 ``"action"``；``"image"`` 可选（缺失时只出动作）。
     frame_width, frame_height : int
         图像解码尺寸，单位像素。
@@ -313,30 +313,30 @@ class TrajectoryReader:
     def __init__(
         self,
         dataset_directories: list[Path],
-        modals: list[str],
+        modalities: list[str],
         frame_width: int = 224,
         frame_height: int = 224,
     ) -> None:
-        if "action" not in modals:
-            raise ValueError("modals 必须包含 'action'")
-        self.readers: dict[str, ModalKernelReader] = {}
-        for modal in modals:
+        if "action" not in modalities:
+            raise ValueError("modalities 必须包含 'action'")
+        self.readers: dict[str, LMDBModalityReader] = {}
+        for modality in modalities:
             parts: list[Path] = []
             for dataset_directory in dataset_directories:
-                parts.extend(discover_part_directories(Path(dataset_directory), modal))
+                parts.extend(discover_part_directories(Path(dataset_directory), modality))
             if not parts:
                 raise FileNotFoundError(
-                    f"模态 {modal} 没有找到任何含 data.mdb 的分片；先用 "
+                    f"模态 {modality} 没有找到任何含 data.mdb 的分片；先用 "
                     f"bc_datasets.minestudio.huggingface_download 下载",
                 )
-            self.readers[modal] = ModalKernelReader(
+            self.readers[modality] = LMDBModalityReader(
                 part_directories=parts,
-                modal=modal,  # type: ignore[arg-type]
+                modality=modality,  # type: ignore[arg-type]
                 frame_width=frame_width,
                 frame_height=frame_height,
             )
         common = set(self.readers["action"].episode_names())
-        for modal, reader in self.readers.items():
+        for modality, reader in self.readers.items():
             common &= set(reader.episode_names())
         self._episodes = sorted(common)
 
@@ -363,8 +363,8 @@ class TrajectoryReader:
             raise ValueError(f"start {start} 越过 episode {episode} 的可用长度")
         span = min(length, available)
         return {
-            modal: reader.read_frames(episode, start, span)
-            for modal, reader in self.readers.items()
+            modality: reader.read_frames(episode, start, span)
+            for modality, reader in self.readers.items()
         }
 
     def close(self) -> None:

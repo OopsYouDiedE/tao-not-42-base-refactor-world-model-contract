@@ -15,8 +15,7 @@ from pathlib import Path
 import gradio as gr
 import numpy as np
 
-from bc_datasets.minestudio.lmdb_modal_reader import (
-    ModalKernelReader,
+from bc_datasets.minestudio.lmdb_modality_reader import (
     TrajectoryReader,
     discover_part_directories,
 )
@@ -45,14 +44,14 @@ class InspectorState:
         可查看的 episode 名，已按名称排序并截到 ``MAX_EPISODES``。
     """
 
-    def __init__(self, dataset_dir: Path) -> None:
-        modals = ["action"]
-        if discover_part_directories(dataset_dir, "image"):
-            modals.append("image")
+    def __init__(self, dataset_directory: Path) -> None:
+        modalities = ["action"]
+        if discover_part_directories(dataset_directory, "image"):
+            modalities.append("image")
         # TrajectoryReader 取各模态 episode 的交集，只有部分 image 分片时会自动落到
         # 那些分片对应的 episode 上。
-        self.reader = TrajectoryReader([dataset_dir], modals)
-        self.has_images = "image" in modals
+        self.reader = TrajectoryReader([dataset_directory], modalities)
+        self.has_images = "image" in modalities
         names = sorted(self.reader.episode_names())
         self.episodes = names[:MAX_EPISODES]
 

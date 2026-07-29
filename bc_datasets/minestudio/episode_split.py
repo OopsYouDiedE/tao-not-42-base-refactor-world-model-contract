@@ -30,8 +30,8 @@ from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
-from bc_datasets.minestudio.lmdb_modal_reader import (
-    ModalKernelReader,
+from bc_datasets.minestudio.lmdb_modality_reader import (
+    LMDBModalityReader,
     discover_part_directories,
 )
 
@@ -173,7 +173,7 @@ def read_episode_frames(dataset_directories: list[Path]) -> dict[str, int]:
         parts.extend(discover_part_directories(Path(directory), "action"))
     if not parts:
         raise FileNotFoundError("没找到任何含 data.mdb 的 action 分片")
-    reader = ModalKernelReader(parts, "action")
+    reader = LMDBModalityReader(parts, "action")
     try:
         return {name: reader.episode_info(name).num_frames for name in reader.episode_names()}
     finally:
@@ -207,7 +207,7 @@ def build_split(
     output_path : Path or None
         给定时把结果写成 JSON。
     episode_frames : dict of str to int or None
-        预先读好的 episode → 帧数。调用方已持有打开的 ``ModalKernelReader`` 时必须
+        预先读好的 episode → 帧数。调用方已持有打开的 ``LMDBModalityReader`` 时必须
         走这条路径：LMDB 不允许同进程重复打开同一环境。
 
     Returns

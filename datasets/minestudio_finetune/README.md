@@ -110,7 +110,7 @@ AI 和人工提示词分别是 `generate_questions.py` 中的 `AI_REVIEW_PROMPT`
 | `human_reviews.jsonl` | 人工的批准或拒绝决定，以及简短理由 |
 
 打包器会把双审通过的候选题在 HDF5 内标记为 `approved`。审核文件不得包含模型隐藏推理。
-演示优化题仍需在打包前补充 `reviewed_answer_sequence`，保证训练标签是真正清理后的动作轨迹。
+四类题型都必须在打包前补充一致的 AI 与人工 `reviewed_answer_sequence`，保证训练标签使用第二轮规范答案。
 
 题目审核全部完成后，第二轮使用 `tools.trajectory_action_review` 只加载第一轮通过题。该轮审核的是
 题目设计和最终回答的准确性。界面同时展示完整图像轨迹、录制真值动作、AI 压缩回答和优化依据。
@@ -141,7 +141,7 @@ python -m datasets.minestudio_finetune.pack_hdf5 \
   --output runs/datasets/minestudio-trajectory-train.h5
 ```
 
-打包器逐题检查 AI 与人工均批准、可选评分不低于 3、答案存在、图片存在和优化答案类型。HDF5 内每个样本保存
+打包器逐题检查 AI 与人工均批准、双方最终动作一致、可选评分不低于 3、答案存在、图片存在和优化答案类型。HDF5 内每个样本保存
 题面 JSON、答案 JSON 和原始 JPEG 字节，因此训练时不依赖旁边的图片目录。
 
 ## 加载与训练

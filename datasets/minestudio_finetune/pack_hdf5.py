@@ -65,15 +65,23 @@ def pack_approved_questions(
             answer = answers.get(sample_id)
             if answer is None:
                 raise ValueError(f"题目 {sample_id} 缺少答案")
-            if question["task_type"] == "demonstration_optimization":
-                reviewed_sequence = human_reviews[sample_id].get("reviewed_answer_sequence")
-                if not reviewed_sequence:
-                    raise ValueError(f"优化题 {sample_id} 没有审核后的优化答案")
-                answer = {
-                    **answer,
-                    "reference_action_sequence": reviewed_sequence,
-                    "reference_kind": "reviewed_optimized_demonstration",
-                }
+            ai_sequence = ai_reviews[sample_id].get("reviewed_answer_sequence")
+            reviewed_sequence = human_reviews[sample_id].get("reviewed_answer_sequence")
+            if not ai_sequence or not reviewed_sequence:
+                raise ValueError(f"题目 {sample_id} 没有 AI 与人工双审后的动作答案")
+            if ai_sequence != reviewed_sequence:
+                raise ValueError(f"题目 {sample_id} 的 AI 与人工最终动作答案不一致")
+            reference_kind = (
+                "reviewed_optimized_demonstration"
+                if question["task_type"] == "demonstration_optimization"
+                else "reviewed_optimized_action_sequence"
+            )
+            answer = {
+                **answer,
+                "reference_action_sequence": reviewed_sequence,
+                "answer_reason": human_reviews[sample_id].get("reason", ""),
+                "reference_kind": reference_kind,
+            }
             question = {
                 **question, "review_status": "approved", "include_in_training": True,
             }

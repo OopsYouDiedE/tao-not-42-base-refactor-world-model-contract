@@ -31,7 +31,10 @@ def _dataset(root: Path, task_type: str = "image_sequence_to_action") -> None:
         "id": "q", "reference_action_sequence": [ACTION],
         "reference_kind": "recorded_human_demonstration",
     }
-    review = {"id": "q", "decision": "approve", "scores": {"quality": 5}}
+    review = {
+        "id": "q", "decision": "approve", "scores": {"quality": 5},
+        "reason": "动作与图像一致", "reviewed_answer_sequence": [ACTION],
+    }
     _write_jsonl(root / "questions.jsonl", [question])
     _write_jsonl(root / "answer_key.jsonl", [answer])
     _write_jsonl(root / "ai_reviews.jsonl", [review])
@@ -47,9 +50,11 @@ def test_pack_and_load_multimodal_messages(tmp_path: Path) -> None:
     assert json.loads(conversation["messages"][1]["content"][0]["text"]) == [ACTION]
 
 
-def test_pack_rejects_raw_optimization_answer(tmp_path: Path) -> None:
+def test_pack_rejects_missing_reviewed_answer(tmp_path: Path) -> None:
     _dataset(tmp_path, "demonstration_optimization")
-    with pytest.raises(ValueError, match="审核后的优化答案"):
+    review = {"id": "q", "decision": "approve", "reason": "动作与图像一致"}
+    _write_jsonl(tmp_path / "human_reviews.jsonl", [review])
+    with pytest.raises(ValueError, match="双审后的动作答案"):
         pack_approved_questions(tmp_path, tmp_path / "train.h5")
 
 
@@ -64,10 +69,28 @@ def test_pack_rejects_unapproved_question(tmp_path: Path) -> None:
 
 def test_pack_accepts_approval_without_scores(tmp_path: Path) -> None:
     _dataset(tmp_path)
-    review = {"id": "q", "decision": "approve", "reason": "画面与动作一致"}
+    review = {
+        "id": "q", "decision": "approve", "reason": "画面与动作一致",
+        "reviewed_answer_sequence": [ACTION],
+    }
     _write_jsonl(tmp_path / "ai_reviews.jsonl", [review])
     _write_jsonl(tmp_path / "human_reviews.jsonl", [review])
     assert pack_approved_questions(tmp_path, tmp_path / "train.h5")["sample_count"] == 1
+
+
+def test_pack_uses_reviewed_answer_for_every_task(tmp_path: Path) -> None:
+    _dataset(tmp_path)
+    reviewed = "<|action_start|> ; W ; W ; W <|action_end|>"
+    review = {
+        "id": "q", "decision": "approve", "reason": "采用规范移动动作",
+        "reviewed_answer_sequence": [reviewed],
+    }
+    _write_jsonl(tmp_path / "ai_reviews.jsonl", [review])
+    _write_jsonl(tmp_path / "human_reviews.jsonl", [review])
+    archive = tmp_path / "train.h5"
+    pack_approved_questions(tmp_path, archive)
+    answer_text = load_hdf5_conversations(archive)[0]["messages"][1]["content"][0]["text"]
+    assert json.loads(answer_text) == [reviewed]
 
 
 def test_format_question_prompt_includes_public_timing() -> None:

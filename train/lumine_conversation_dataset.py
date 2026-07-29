@@ -23,8 +23,9 @@ SubsetName = Literal["train", "validation"]
 DEFAULT_INSTRUCTION = (
     "You are controlling a Minecraft player. Given the current view"
     " (and preceding frames if provided), output the actions to execute over the next"
-    " 200 ms in Lumine format: mouse dx dy dz, then one key set per 50 ms chunk"
-    " separated by ';'. Keys held across consecutive chunks stay pressed."
+    " 200 ms as semicolon-separated action ticks. Tick count may vary. Write relative"
+    " mouse motion as Mouse dx dy inside its tick. Keep Mouse separate unless keys and"
+    " mouse must execute together continuously. Keys repeated across ticks stay pressed."
 )
 
 
@@ -128,7 +129,7 @@ def load_lumine_conversations(
     samples_path = Path(dataset_directory) / f"samples_{subset}.jsonl"
     if not samples_path.is_file():
         raise FileNotFoundError(
-            f"找不到 {samples_path}；先跑 bc_datasets.minestudio.lumine_pretraining_dataset",
+            f"找不到 {samples_path}；先跑 datasets.pretraining_dataset",
         )
     conversations: list[dict[str, list[dict[str, Any]]]] = []
     with samples_path.open("r", encoding="utf-8") as handle:

@@ -52,9 +52,9 @@ from typing import Any, Iterator
 import numpy as np
 from PIL import Image
 
-from bc_datasets.minestudio.episode_split import HoldoutLevel, build_split
-from bc_datasets.minestudio.lmdb_modality_reader import TrajectoryReader
-from bc_datasets.minestudio.lumine_action_codec import encode_lumine_action
+from datasets.episode_split import HoldoutLevel, build_split
+from datasets.minestudio_data.load import TrajectoryReader
+from datasets.action_codec import encode_lumine_action
 from train.lumine_conversation_dataset import DEFAULT_INSTRUCTION, build_conversation
 
 # MineStudio / Minecraft 的采样率：20 帧每秒，50ms 一帧。
@@ -159,11 +159,7 @@ def resolve_worker_count(
     by_cores = max(1, cores - 1)
 
     if available_memory_bytes is None:
-        from machine_environment.hardware_report import collect_memory_report
-
-        available_memory_bytes = collect_memory_report().available_bytes
-    if available_memory_bytes is None:
-        # 内存读不到时不猜测，只按核心数决定，并保守压到上限之内。
+        # 调用方不提供内存数据时只按核心数决定，并受硬上限约束。
         return min(by_cores, maximum_workers)
 
     by_memory = max(1, int(available_memory_bytes // memory_budget_per_worker_bytes))
@@ -329,7 +325,7 @@ def build_streaming_dataset(
     include_images : bool
         是否读取观测帧。视觉 SFT 必须为 True；False 仅用于无 image 模态的调试。
     holdout_level : {"prefix", "episode"}
-        验证集留出粒度，见 ``bc_datasets.minestudio.episode_split.build_split``。
+        验证集留出粒度，见 ``datasets.episode_split.build_split``。
     validation_ratio : float
         验证集目标帧数占比。
     split_seed : int

@@ -87,24 +87,11 @@ def build_argument_parser(
         "--validation-ratio", type=float, default=0.1, help="验证集目标帧数占比",
     )
     parser.add_argument("--split-seed", type=int, default=3407, help="episode 粒度打散种子")
-    parser.add_argument(
-        "--no-preflight", action="store_true", help="跳过开工前环境体检",
-    )
     return parser
 
 
 def run_from_arguments(arguments: argparse.Namespace) -> None:
-    """按解析结果跑训练并打印统计。
-
-    体检在加载模型之前跑：显存不足要尽早看到，不该等到权重下载完才发现。
-    """
-    warnings: list[object] = []
-    if not arguments.no_preflight:
-        from machine_environment.preflight import report_preflight
-
-        warnings = list(
-            report_preflight([arguments.dataset_dir, arguments.output_dir]),
-        )
+    """按解析结果跑训练并打印统计。"""
 
     # unsloth 必须在 transformers 之前完成补丁，因此训练模块延迟到此处导入。
     from train.unsloth_vision_sft import (
@@ -140,8 +127,4 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
         validation_ratio=arguments.validation_ratio,
         split_seed=arguments.split_seed,
     )
-    if warnings:
-        result["preflight_warnings"] = [
-            f"{warning.category}：{warning.message}" for warning in warnings  # type: ignore[attr-defined]
-        ]
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

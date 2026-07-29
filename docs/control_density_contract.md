@@ -28,7 +28,7 @@ chunk，header 为位置式三整数（鼠标 `Δx Δy`，范围开区间 ±1000
 
 | token | 值个数 | 含义 | 缺席时 |
 |---|---|---|---|
-| `Mouse` | 2 | 像素增量 Δx Δy，本 tick 内移动该数值 | 无移动 |
+| `Mouse` | 2 | 像素增量 Δx Δy；游戏内移动相机，GUI 内移动光标 | 无移动 |
 | `Scroll` | 1 | 滚轮档数，等价于重复写 `Scroll` 该次数 | 无滚动 |
 | `LS` / `RS` | 2 | 摇杆偏移量，每轴 −100 到 100 | 0 0，即回中 |
 
@@ -113,14 +113,15 @@ run-length 语义与 chunk 总数无关。按键在相邻 chunk 连续出现即�
 
 ## 四、落地清单
 
-以下各项尚未实现，仅记录改动范围。
+正式键鼠编解码器已经完成命名 Mouse token、tick 级作用域、CamelCase 鼠标键名和变长
+chunk。手柄设备档与模拟量扳机仍待实现。
 
-- [ ] `lumine_action_codec.py`：位置式 header 改为命名 token 解析。值个数按 token
+- [x] `action_codec.py`：位置式 header 改为命名 token 解析。值个数按 token
       确定，缺值补 0，多值丢弃
-- [ ] `LumineWindowAction`：`mouse_delta_*` 与 `scroll_delta` 由窗口级改为 chunk 级
+- [x] `LumineWindowAction`：`mouse_delta_*` 与 `scroll_delta` 由窗口级改为 chunk 级
 - [ ] 手柄键名表与设备档白名单。面键与字母键同名，白名单按档给出
-- [ ] `mouse_left` 与 `mouse_right` 改名为 `MouseLeft` 与 `MouseRight`
-- [ ] `decode_lumine_action`：`expected_chunks` 默认为 None 时不再对齐，超长丢弃
+- [x] `mouse_left` 与 `mouse_right` 改名为 `MouseLeft` 与 `MouseRight`
+- [x] `decode_lumine_action`：`expected_chunks` 默认为 None 时不再对齐，超长丢弃
 - [ ] `frames_per_chunk` 改为可由 `chunk_ms` 推导，并校验与数据源帧率相容
-- [ ] 单元测试：`Scroll 5` 与五个 `Scroll` 等价、带值 token 往返恒等、变长 chunk
-      往返恒等、手柄档白名单拒绝键盘键、摇杆缺席回中
+- [x] 单元测试：带值 Mouse token 往返恒等、变长 chunk 往返恒等
+- [ ] 单元测试：`Scroll 5` 与五个 `Scroll` 等价、手柄档白名单拒绝键盘键、摇杆缺席回中

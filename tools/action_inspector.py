@@ -2,7 +2,7 @@
 
 用法::
 
-    python -m tools.action_inspector --dataset-dir runs/bc_datasets/minestudio-data-10xx-v110
+    python -m tools.action_inspector --dataset-dir runs/datasets/minestudio-data-10xx-v110
 
 image 模态可用时同时显示画面。尾部帧数不足一个窗口时不显示，不做补齐。
 """
@@ -15,11 +15,11 @@ from pathlib import Path
 import gradio as gr
 import numpy as np
 
-from bc_datasets.minestudio.lmdb_modality_reader import (
+from datasets.minestudio_data.load import (
     TrajectoryReader,
     discover_part_directories,
 )
-from bc_datasets.minestudio.lumine_action_codec import (
+from datasets.action_codec import (
     DEGREES_PER_PIXEL,
     MINECRAFT_KEYMAP,
     encode_lumine_action,
@@ -223,7 +223,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Lumine 动作编码查看器")
     parser.add_argument(
         "--dataset-dir", type=Path,
-        default=Path("runs/bc_datasets/minestudio-data-10xx-v110"),
+        default=Path("runs/datasets/minestudio-data-10xx-v110"),
         help="MineStudio 数据集根目录",
     )
     parser.add_argument("--port", type=int, default=7860, help="监听端口")

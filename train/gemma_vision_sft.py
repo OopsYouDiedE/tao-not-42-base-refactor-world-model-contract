@@ -6,7 +6,7 @@
 用法::
 
     python -m train.gemma_vision_sft --model gemma-4-26B-A4B-it \
-        --dataset-dir runs/bc_datasets/lumine-10xx --output-dir runs/trains/sft-gemma
+        --dataset-dir runs/datasets/lumine-10xx --output-dir runs/trains/sft-gemma
 
 Gemma 4 的注意点：MoE 主干（26B-A4B）无官方 4bit 变体，走 bf16 LoRA；chat template 的
 content 必须是列表而非裸字符串（本项目的对话构造已满足）。E2B/E4B 的训练 loss 落在

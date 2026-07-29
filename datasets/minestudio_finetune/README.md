@@ -98,8 +98,21 @@ episode 对齐与时间窗口采样
 [帧 7801](luna_eval/images/demonstration_optimization_000001_02.jpg) ·
 [帧 7805](luna_eval/images/demonstration_optimization_000001_03.jpg)
 
-![演示优化起点](luna_eval/images/demonstration_optimization_000001_00.jpg)
-![演示优化终点](luna_eval/images/demonstration_optimization_000001_03.jpg)
+**图 1，帧 7793**
+
+![演示优化帧 7793](luna_eval/images/demonstration_optimization_000001_00.jpg)
+
+**图 2，帧 7797**
+
+![演示优化帧 7797](luna_eval/images/demonstration_optimization_000001_01.jpg)
+
+**图 3，帧 7801**
+
+![演示优化帧 7801](luna_eval/images/demonstration_optimization_000001_02.jpg)
+
+**图 4，帧 7805**
+
+![演示优化帧 7805](luna_eval/images/demonstration_optimization_000001_03.jpg)
 
 原始轨迹第一个 tick 含有孤立的小幅鼠标抖动：
 
@@ -129,8 +142,25 @@ MouseLeft
 [帧 8284](luna_eval/images/image_sequence_to_action_000001_03.jpg) ·
 [帧 8285](luna_eval/images/image_sequence_to_action_000001_04.jpg)
 
-![GUI 状态转移起点](luna_eval/images/image_sequence_to_action_000001_00.jpg)
-![GUI 状态转移终点](luna_eval/images/image_sequence_to_action_000001_04.jpg)
+**图 1，帧 8281**
+
+![GUI 状态转移帧 8281](luna_eval/images/image_sequence_to_action_000001_00.jpg)
+
+**图 2，帧 8282**
+
+![GUI 状态转移帧 8282](luna_eval/images/image_sequence_to_action_000001_01.jpg)
+
+**图 3，帧 8283**
+
+![GUI 状态转移帧 8283](luna_eval/images/image_sequence_to_action_000001_02.jpg)
+
+**图 4，帧 8284**
+
+![GUI 状态转移帧 8284](luna_eval/images/image_sequence_to_action_000001_03.jpg)
+
+**图 5，帧 8285**
+
+![GUI 状态转移帧 8285](luna_eval/images/image_sequence_to_action_000001_04.jpg)
 
 题面不提供动作，只提供五张连续 GUI 图像。SubAgent 回答：
 
@@ -159,8 +189,21 @@ MouseLeft
 [帧 13798](luna_eval/images/history_to_future_action_000000_02.jpg) ·
 [帧 13802](luna_eval/images/history_to_future_action_000000_03.jpg)
 
-![历史预测起点](luna_eval/images/history_to_future_action_000000_00.jpg)
-![历史预测当前帧](luna_eval/images/history_to_future_action_000000_03.jpg)
+**图 1，帧 13790**
+
+![历史预测帧 13790](luna_eval/images/history_to_future_action_000000_00.jpg)
+
+**图 2，帧 13794**
+
+![历史预测帧 13794](luna_eval/images/history_to_future_action_000000_01.jpg)
+
+**图 3，帧 13798**
+
+![历史预测帧 13798](luna_eval/images/history_to_future_action_000000_02.jpg)
+
+**图 4，帧 13802**
+
+![历史预测帧 13802](luna_eval/images/history_to_future_action_000000_03.jpg)
 
 SubAgent 根据物品栏管理状态预测：
 
@@ -424,8 +467,21 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 [帧 4173](examples/images/demonstration_optimization_000001_02.jpg) ·
 [帧 4177](examples/images/demonstration_optimization_000001_03.jpg)
 
-![连续移动演示起点](examples/images/demonstration_optimization_000001_00.jpg)
-![连续移动演示终点](examples/images/demonstration_optimization_000001_03.jpg)
+**图 1，帧 4165**
+
+![连续移动演示帧 4165](examples/images/demonstration_optimization_000001_00.jpg)
+
+**图 2，帧 4169**
+
+![连续移动演示帧 4169](examples/images/demonstration_optimization_000001_01.jpg)
+
+**图 3，帧 4173**
+
+![连续移动演示帧 4173](examples/images/demonstration_optimization_000001_02.jpg)
+
+**图 4，帧 4177**
+
+![连续移动演示帧 4177](examples/images/demonstration_optimization_000001_03.jpg)
 
 问题：根据按时间排列的图像和原始动作块，清理动作序列中的孤立噪声，同时保留连续前进、
 冲刺、跳跃和转向的可见意图，输出变长动作块数组。
@@ -453,8 +509,21 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 [帧 2772](examples/images/demonstration_optimization_000002_02.jpg) ·
 [帧 2776](examples/images/demonstration_optimization_000002_03.jpg)
 
-![GUI 演示起点](examples/images/demonstration_optimization_000002_00.jpg)
-![GUI 演示终点](examples/images/demonstration_optimization_000002_03.jpg)
+**图 1，帧 2764**
+
+![GUI 演示帧 2764](examples/images/demonstration_optimization_000002_00.jpg)
+
+**图 2，帧 2768**
+
+![GUI 演示帧 2768](examples/images/demonstration_optimization_000002_01.jpg)
+
+**图 3，帧 2772**
+
+![GUI 演示帧 2772](examples/images/demonstration_optimization_000002_02.jpg)
+
+**图 4，帧 2776**
+
+![GUI 演示帧 2776](examples/images/demonstration_optimization_000002_03.jpg)
 
 问题：优化工作台 GUI 操作轨迹，保留相对光标移动、shift 状态和点击顺序，输出更清晰的
 动作演示。
@@ -483,8 +552,25 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 [帧 18436](examples/images/image_sequence_to_action_000000_03.jpg) ·
 [帧 18437](examples/images/image_sequence_to_action_000000_04.jpg)
 
-![挖掘状态转移起点](examples/images/image_sequence_to_action_000000_00.jpg)
-![挖掘状态转移终点](examples/images/image_sequence_to_action_000000_04.jpg)
+**图 1，帧 18433**
+
+![挖掘状态转移帧 18433](examples/images/image_sequence_to_action_000000_00.jpg)
+
+**图 2，帧 18434**
+
+![挖掘状态转移帧 18434](examples/images/image_sequence_to_action_000000_01.jpg)
+
+**图 3，帧 18435**
+
+![挖掘状态转移帧 18435](examples/images/image_sequence_to_action_000000_02.jpg)
+
+**图 4，帧 18436**
+
+![挖掘状态转移帧 18436](examples/images/image_sequence_to_action_000000_03.jpg)
+
+**图 5，帧 18437**
+
+![挖掘状态转移帧 18437](examples/images/image_sequence_to_action_000000_04.jpg)
 
 问题：五张图像是按时间排列的连续状态，不提供动作标签。根据镐击、裂纹变化和方块破坏，
 反推出一种能够产生该状态转移的动作序列。
@@ -510,8 +596,25 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 [帧 975](examples/images/image_sequence_to_action_000002_03.jpg) ·
 [帧 976](examples/images/image_sequence_to_action_000002_04.jpg)
 
-![GUI 状态转移起点](examples/images/image_sequence_to_action_000002_00.jpg)
-![GUI 状态转移终点](examples/images/image_sequence_to_action_000002_04.jpg)
+**图 1，帧 972**
+
+![GUI 状态转移帧 972](examples/images/image_sequence_to_action_000002_00.jpg)
+
+**图 2，帧 973**
+
+![GUI 状态转移帧 973](examples/images/image_sequence_to_action_000002_01.jpg)
+
+**图 3，帧 974**
+
+![GUI 状态转移帧 974](examples/images/image_sequence_to_action_000002_02.jpg)
+
+**图 4，帧 975**
+
+![GUI 状态转移帧 975](examples/images/image_sequence_to_action_000002_03.jpg)
+
+**图 5，帧 976**
+
+![GUI 状态转移帧 976](examples/images/image_sequence_to_action_000002_04.jpg)
 
 问题：根据五张连续工作台界面的输出格变化，在没有动作标签的情况下反推 GUI 动作。
 
@@ -535,8 +638,21 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 [帧 16418](examples/images/history_to_future_action_000002_02.jpg) ·
 [帧 16422](examples/images/history_to_future_action_000002_03.jpg)
 
-![历史挖掘起点](examples/images/history_to_future_action_000002_00.jpg)
-![历史挖掘终点](examples/images/history_to_future_action_000002_03.jpg)
+**图 1，帧 16410**
+
+![历史挖掘帧 16410](examples/images/history_to_future_action_000002_00.jpg)
+
+**图 2，帧 16414**
+
+![历史挖掘帧 16414](examples/images/history_to_future_action_000002_01.jpg)
+
+**图 3，帧 16418**
+
+![历史挖掘帧 16418](examples/images/history_to_future_action_000002_02.jpg)
+
+**图 4，帧 16422**
+
+![历史挖掘帧 16422](examples/images/history_to_future_action_000002_03.jpg)
 
 问题：四张图片是过去观测且不提供动作，根据裂纹加深和方块破坏过程，推导未来 200 ms 的
 一种合理动作序列。

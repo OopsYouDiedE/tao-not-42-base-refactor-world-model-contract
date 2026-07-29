@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from datasets.minestudio_finetune.load_hdf5 import load_hdf5_conversations
+from datasets.minestudio_finetune.load_hdf5 import format_question_prompt, load_hdf5_conversations
 from datasets.minestudio_finetune.pack_hdf5 import pack_approved_questions
 
 
@@ -60,3 +60,20 @@ def test_pack_rejects_unapproved_question(tmp_path: Path) -> None:
     _write_jsonl(tmp_path / "human_reviews.jsonl", [review])
     with pytest.raises(ValueError, match="没有同时通过"):
         pack_approved_questions(tmp_path, tmp_path / "train.h5")
+
+
+def test_pack_accepts_approval_without_scores(tmp_path: Path) -> None:
+    _dataset(tmp_path)
+    review = {"id": "q", "decision": "approve", "reason": "画面与动作一致"}
+    _write_jsonl(tmp_path / "ai_reviews.jsonl", [review])
+    _write_jsonl(tmp_path / "human_reviews.jsonl", [review])
+    assert pack_approved_questions(tmp_path, tmp_path / "train.h5")["sample_count"] == 1
+
+
+def test_format_question_prompt_includes_public_timing() -> None:
+    prompt = format_question_prompt({
+        "prompt": "infer", "inputs": {"action_block_ticks": [5, 8], "intent": "挖掘石块"},
+    })
+    assert "Required action-block tick counts: [5, 8]" in prompt
+    assert "Intent: 挖掘石块" in prompt
+    assert "do not return nested tick arrays" in prompt

@@ -8,12 +8,15 @@ from datasets.minestudio_finetune.generate_questions import (
     AI_REVIEW_PROMPT,
     HUMAN_REVIEW_PROMPT,
     OUTPUT_CONTRACT,
+    TASK_PROMPTS,
     TASK_TYPES,
+    action_node_frames,
     automatic_quality_reasons,
     build_question_record,
     infer_action_intent,
     normalize_gui_clicks,
     source_frames,
+    target_interval_for,
 )
 
 
@@ -30,6 +33,9 @@ def test_three_task_types_and_prompts_are_stable() -> None:
     assert "cursor in GUI" in OUTPUT_CONTRACT["mouse"]
     assert "rising-edge click pulses" in AI_REVIEW_PROMPT
     assert "reviewed_optimized_demonstration" in HUMAN_REVIEW_PROMPT
+    assert "one valid action block for each adjacent image pair" in TASK_PROMPTS[
+        "image_sequence_to_action"
+    ]
 
 
 def test_task_frame_boundaries() -> None:
@@ -41,7 +47,26 @@ def test_task_frame_boundaries() -> None:
         "q", "demonstration_optimization", "episode", 20, ["a", "b", "c", "d"],
         [ACTION] * 4,
     )
-    assert question["target_interval"] == [20, 36]
+    assert question["target_interval"] == [20, 32]
+    assert target_interval_for("image_sequence_to_action", 20) == [20, 24]
+    assert target_interval_for("history_to_future_action", 20) == [20, 24]
+    assert target_interval_for("single_frame_intent_to_action", 20) == [20, 24]
+
+
+def test_reference_action_source_covers_target_interval() -> None:
+    question = build_question_record(
+        "q", "history_to_future_action", "episode", 20, ["a", "b", "c", "d"],
+    )
+    assert question["target_interval"] == [20, 24]
+
+
+def test_action_segments_follow_each_image_gap() -> None:
+    assert action_node_frames(
+        "image_sequence_to_action", [10, 15, 18], [10, 18],
+    ) == [10, 15, 18]
+    assert action_node_frames(
+        "history_to_future_action", [2, 7, 12], [12, 19],
+    ) == [12, 19]
 
 
 def test_gui_held_click_becomes_pulses_but_gameplay_is_held() -> None:

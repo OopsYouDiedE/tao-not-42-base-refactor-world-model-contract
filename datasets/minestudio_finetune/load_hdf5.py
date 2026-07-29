@@ -12,6 +12,26 @@ import h5py
 from PIL import Image
 
 
+def format_question_prompt(question: dict[str, Any]) -> str:
+    """构造训练和盲测共用的公开模型提示词。"""
+    prompt = question["prompt"]
+    ticks = question.get("inputs", {}).get("action_block_ticks")
+    if ticks:
+        prompt += "\nRequired action-block tick counts: " + json.dumps(ticks)
+    prompt += (
+        "\nAction format example for a 3-tick block: "
+        '"<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". '
+        "Each JSON array item must be one string action block; do not return nested tick arrays."
+    )
+    raw = question.get("inputs", {}).get("raw_action_sequence")
+    if raw:
+        prompt += "\nRaw action sequence:\n" + json.dumps(raw, ensure_ascii=False)
+    intent = question.get("inputs", {}).get("intent")
+    if intent:
+        prompt += f"\nIntent: {intent}"
+    return prompt
+
+
 def load_hdf5_conversations(
     archive_path: Path,
     maximum_samples: int | None = None,
@@ -28,13 +48,7 @@ def load_hdf5_conversations(
             for dataset in group["images"].values():
                 image = Image.open(io.BytesIO(dataset[()].tobytes())).convert("RGB")
                 content.append({"type": "image", "image": image})
-            prompt = question["prompt"]
-            raw = question.get("inputs", {}).get("raw_action_sequence")
-            if raw:
-                prompt += "\nRaw action sequence:\n" + json.dumps(raw, ensure_ascii=False)
-            intent = question.get("inputs", {}).get("intent")
-            if intent:
-                prompt += f"\nIntent: {intent}"
+            prompt = format_question_prompt(question)
             content.append({"type": "text", "text": prompt})
             conversations.append({"messages": [
                 {"role": "user", "content": content},

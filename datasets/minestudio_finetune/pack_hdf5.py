@@ -19,12 +19,15 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def _approved_review(record: dict[str, Any]) -> bool:
     scores = record.get("scores")
-    return (
-        record.get("decision") == "approve"
-        and isinstance(scores, dict)
-        and bool(scores)
-        and all(isinstance(score, int) and score >= 3 for score in scores.values())
+    scores_are_valid = (
+        scores is None
+        or (
+            isinstance(scores, dict)
+            and bool(scores)
+            and all(isinstance(score, int) and score >= 3 for score in scores.values())
+        )
     )
+    return record.get("decision") == "approve" and scores_are_valid
 
 
 def pack_approved_questions(

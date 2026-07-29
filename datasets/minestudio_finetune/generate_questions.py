@@ -32,29 +32,42 @@ TASK_PROMPTS: dict[TaskType, str] = {
     "demonstration_optimization": (
         "The images and raw action blocks form one chronological Minecraft demonstration. "
         "Rewrite it as a cleaner action sequence while preserving visible intent and causal "
-        "order. Return only a JSON array of valid action blocks."
+        "order. Return one block per adjacent image pair and exactly match the supplied tick count "
+        "for every block. One semicolon is one 50 ms tick. Do not shorten duration-sensitive held "
+        "actions such as mining, attacking, moving, drawing a bow, eating, or continuous use. "
+        "Remove only visually unsupported camera jitter; preserve GUI click order. Return only the "
+        "JSON array of action blocks."
     ),
     "image_sequence_to_action": (
         "The images are consecutive Minecraft observations in chronological order. Infer one "
-        "reasonable action sequence that produced the transition. Return only a JSON array "
-        "containing one valid action block."
+        "reasonable action sequence that produced every adjacent transition. Return only a JSON "
+        "array containing one valid action block for each adjacent image pair, with each block "
+        "exactly matching its supplied tick count. One semicolon is one 50 ms tick. Keep movement, "
+        "mining, attacking, drawing, eating, and continuous use held for the required duration. "
+        "Use visible camera displacement to infer meaningful mouse direction, omit unsupported "
+        "1-2 pixel jitter, and preserve GUI click order."
     ),
     "history_to_future_action": (
         "The images are past Minecraft observations in chronological order. Infer one "
-        "reasonable action sequence for the next 200 ms. Return only a JSON array containing "
-        "one valid action block."
+        "reasonable action sequence for the supplied future horizon. Return one valid action block "
+        "with exactly the supplied number of 50 ms ticks. Continue visually established held "
+        "actions for a plausible duration, omit unsupported 1-2 pixel camera jitter, and do not "
+        "invent GUI clicks or auxiliary keys without visual evidence. Return only a JSON array."
     ),
     "single_frame_intent_to_action": (
         "The image is the current Minecraft observation and the intent is supplied as text. "
-        "Infer one reasonable action sequence for the next 200 ms that advances this intent. "
-        "Return only a JSON array containing one valid action block."
+        "Infer one reasonable action sequence for the supplied future horizon that advances this "
+        "intent. Return one valid action block with exactly the supplied number of 50 ms ticks. "
+        "Preserve the required duration of mining, movement, bow drawing, eating, or continuous "
+        "use; omit unsupported 1-2 pixel camera jitter and preserve GUI click order. Return only a "
+        "JSON array."
     ),
 }
 OUTPUT_CONTRACT = {
     "type": "json_array",
     "item": "variable-length named-token action block",
     "action_markers": ["<|action_start|>", "<|action_end|>"],
-    "chunk_count": "variable; MineStudio references use four 50 ms ticks",
+    "chunk_count": "variable; use one action block per task-required action interval",
     "chunk_duration_ms": 50,
     "mouse": "Mouse dx dy moves the camera in gameplay and the cursor in GUI",
     "mixing_guidance": "Prefer standalone Mouse unless keys and mouse execute together",
@@ -69,19 +82,18 @@ REVIEW_DIMENSIONS = {
 }
 
 AI_REVIEW_PROMPT = """You are the visual quality gate for Minecraft trajectory SFT data.
-Inspect every image in order, the question, and the proposed answer. Score every rubric dimension
-from 1 to 5. Reject when any score is below 3, evidence is too dark or obscured, state changes do
-not support the answer, GUI transitions lack required clicks, or camera motion is an obvious
-outlier. In GUI, repeated held mouse states must become rising-edge click pulses. In gameplay,
-continuous MouseLeft may represent holding to mine. For demonstration optimization, approve only
-an independently cleaned answer, never the raw recording. Return JSON only with id, decision,
-scores, reasons, suggested_revision, and reviewed_answer_sequence."""
+Inspect every image in order, the question, and the proposed answer. Return only approve or reject
+with one concise reason. Reject when evidence is too dark or obscured, state changes do not support
+the answer, GUI transitions lack required clicks, or camera motion is an obvious outlier. In GUI,
+repeated held mouse states must become rising-edge click pulses. In gameplay, continuous MouseLeft
+may represent holding to mine. For demonstration optimization, approve only an independently
+cleaned answer, never the raw recording. Return JSON only with id, decision, and reason."""
 
 HUMAN_REVIEW_PROMPT = """Review all images at full size and compare them with the question and
 answer. Confirm chronology, visible intent, GUI/gameplay mouse semantics, privacy, and whether a
-different reasonable answer remains allowed. Approve only when every dimension scores at least 3.
-For demonstration optimization, edit the answer into a genuinely cleaner trajectory and mark its
-reference_kind as reviewed_optimized_demonstration. Return the same JSON fields as the AI review."""
+different reasonable answer remains allowed. Return only approve or reject with one concise reason.
+Demonstration optimization answers still require a separately cleaned trajectory with reference_kind
+reviewed_optimized_demonstration before packing."""
 
 WINDOW_FRAMES = 4
 HISTORY_OFFSETS = (12, 8, 4, 0)
@@ -192,6 +204,29 @@ def source_frames(task_type: TaskType, start: int) -> list[int]:
     return [start + offset for offset in range(0, OPTIMIZATION_WINDOWS * WINDOW_FRAMES, WINDOW_FRAMES)]
 
 
+def target_interval_for(task_type: TaskType, start: int) -> list[int]:
+    """根据题面输入帧定义动作边界；预测题的终点是唯一未来关键帧。"""
+    frames = source_frames(task_type, start)
+    if task_type in {"demonstration_optimization", "image_sequence_to_action"}:
+        return [frames[0], frames[-1]]
+    return [frames[-1], frames[-1] + WINDOW_FRAMES]
+
+
+def action_node_frames(
+    task_type: TaskType,
+    image_frames: list[int],
+    target_interval: list[int],
+) -> list[int]:
+    """返回动作分段节点；每段 tick 数严格等于相邻节点帧差。"""
+    if task_type in {"demonstration_optimization", "image_sequence_to_action"}:
+        nodes = list(image_frames)
+    else:
+        nodes = [image_frames[-1], target_interval[1]]
+    if len(nodes) < 2 or any(right <= left for left, right in zip(nodes, nodes[1:])):
+        raise ValueError("动作节点必须至少有两个，并且帧号严格递增")
+    return nodes
+
+
 def _prepare_output(output: Path, overwrite: bool, append: bool = False) -> None:
     if append:
         (output / "images").mkdir(parents=True, exist_ok=True)
@@ -229,17 +264,46 @@ def validate_generated_dataset(output: Path) -> dict[str, int]:
         answer = answers.get(question["id"])
         if answer is None:
             raise ValueError(f"题目 {question['id']} 缺少答案")
+        interval = question["target_interval"]
+        action_nodes = action_node_frames(
+            question["task_type"], question["source"]["image_frames"], interval,
+        )
+        answer_source = answer.get("source", {})
+        if answer_source.get("action_start_frame") != interval[0]:
+            raise ValueError(f"题目 {question['id']} 的参考动作起点与目标区间不一致")
+        if answer_source.get("action_end_frame") != interval[1]:
+            raise ValueError(f"题目 {question['id']} 的参考动作终点与目标区间不一致")
         for relative in question["images"]:
             path = output / relative
             with Image.open(path) as image:
                 image.verify()
             image_count += 1
-        for block in answer["reference_action_sequence"]:
-            if not decode_lumine_action(block).chunks:
+        reference_blocks = answer["reference_action_sequence"]
+        if len(reference_blocks) != len(action_nodes) - 1:
+            raise ValueError(f"题目 {question['id']} 的参考动作段数与图像间隔数不一致")
+        action_ticks = 0
+        for segment_index, block in enumerate(reference_blocks):
+            chunks = decode_lumine_action(block).chunks
+            if not chunks:
                 raise ValueError(f"题目 {question['id']} 包含空动作块")
+            expected_ticks = action_nodes[segment_index + 1] - action_nodes[segment_index]
+            if len(chunks) != expected_ticks:
+                raise ValueError(
+                    f"题目 {question['id']} 第 {segment_index + 1} 段动作长度为 {len(chunks)}，"
+                    f"对应图像间隔为 {expected_ticks} 帧"
+                )
+            action_ticks += len(chunks)
+        if action_ticks != interval[1] - interval[0]:
+            raise ValueError(
+                f"题目 {question['id']} 的参考动作共 {action_ticks} tick，"
+                f"但目标区间长度为 {interval[1] - interval[0]} 帧"
+            )
         if question["task_type"] == "single_frame_intent_to_action":
-            if len(question["images"]) != 1 or not question.get("inputs", {}).get("intent"):
+            inputs = question.get("inputs", {})
+            if len(question["images"]) != 1 or "intent" not in inputs:
                 raise ValueError(f"单帧意图题 {question['id']} 输入不完整")
+            if not inputs["intent"] and inputs.get("intent_status") != "pending_human_authoring":
+                raise ValueError(f"单帧意图题 {question['id']} 缺少人工意图状态")
     return {"sample_count": len(questions), "image_count": image_count}
 
 
@@ -332,24 +396,24 @@ def _read_source_images(
     ]
 
 
-def _action_blocks(
+def _action_blocks_between(
     reader: TrajectoryReader,
     episode: str,
-    start: int,
-    count: int,
+    nodes: list[int],
 ) -> list[str]:
-    total_frames = count * WINDOW_FRAMES
+    if len(nodes) < 2 or any(right <= left for left, right in zip(nodes, nodes[1:])):
+        raise ValueError("动作节点必须至少有两个，并且帧号严格递增")
+    start = nodes[0]
+    total_frames = nodes[-1] - start
     actions = reader.readers["action"].read_frames(episode, start, total_frames)
     metadata = reader.readers["meta_info"].read_frames(episode, start, total_frames)
     normalized = normalize_gui_clicks(actions, metadata)
     return [
         encode_lumine_action({
-            field: np.asarray(values)[
-                index * WINDOW_FRAMES:(index + 1) * WINDOW_FRAMES
-            ]
+            field: np.asarray(values)[left - start:right - start]
             for field, values in normalized.items()
         }).to_text()
-        for index in range(count)
+        for left, right in zip(nodes, nodes[1:])
     ]
 
 
@@ -393,11 +457,16 @@ def build_question_record(
 ) -> dict[str, Any]:
     """构造公开题面。来源定位保留给审核，目标动作只进入独立答案文件。"""
     frames = source_frames(task_type, start)
+    interval = target_interval_for(task_type, start)
+    nodes = action_node_frames(task_type, frames, interval)
     inputs: dict[str, Any] = {"images_chronological": True}
+    inputs["action_block_ticks"] = [right - left for left, right in zip(nodes, nodes[1:])]
     if raw_actions is not None:
         inputs["raw_action_sequence"] = raw_actions
     if intent is not None:
         inputs["intent"] = intent
+        if task_type == "single_frame_intent_to_action" and not intent:
+            inputs["intent_status"] = "pending_human_authoring"
     return {
         "id": sample_id,
         "task_type": task_type,
@@ -406,13 +475,7 @@ def build_question_record(
         "inputs": inputs,
         "output_contract": OUTPUT_CONTRACT,
         "source": {"episode": episode, "image_frames": frames},
-        "target_interval": [
-            start,
-            start + (
-                OPTIMIZATION_WINDOWS * WINDOW_FRAMES
-                if task_type == "demonstration_optimization" else WINDOW_FRAMES
-            ),
-        ],
+        "target_interval": interval,
         "reference_is_unique": False,
         "review_status": "pending_human_and_ai_review",
         "include_in_training": False,
@@ -458,7 +521,9 @@ def build_questions(
                 episode = randomizer.choice(episodes)
                 first = max(HISTORY_OFFSETS) if task_type == "history_to_future_action" else 0
                 needed = {
-                    "demonstration_optimization": OPTIMIZATION_WINDOWS * WINDOW_FRAMES,
+                    "demonstration_optimization": (
+                        (OPTIMIZATION_WINDOWS - 1) * WINDOW_FRAMES + 1
+                    ),
                     "image_sequence_to_action": WINDOW_FRAMES + 1,
                     "history_to_future_action": WINDOW_FRAMES,
                     "single_frame_intent_to_action": WINDOW_FRAMES,
@@ -469,22 +534,24 @@ def build_questions(
                 start = randomizer.randint(first, last)
                 frames = source_frames(task_type, start)
                 source_images = _read_source_images(reader, episode, frames)
-                source_metadata = [
-                    reader.readers["meta_info"].read_frames(episode, frame, 1)[0]
-                    for frame in frames
-                ]
+                target_interval = target_interval_for(task_type, start)
+                action_frame_count = target_interval[1] - target_interval[0]
+                action_nodes = action_node_frames(task_type, frames, target_interval)
                 target_actions = reader.readers["action"].read_frames(
-                    episode, start, WINDOW_FRAMES,
+                    episode, start, action_frame_count,
                 )
-                reference = _action_blocks(reader, episode, start, 1)
+                target_metadata = reader.readers["meta_info"].read_frames(
+                    episode, start, action_frame_count,
+                )
+                reference = _action_blocks_between(reader, episode, action_nodes)
                 if not is_informative_action(target_actions):
                     continue
                 if automatic_quality_reasons(
-                    source_images, target_actions, source_metadata, task_type,
+                    source_images, target_actions, target_metadata, task_type,
                 ):
                     continue
                 inferred_intent = infer_action_intent(target_actions)
-                intent = inferred_intent[0] if task_type == "single_frame_intent_to_action" else None
+                intent = "" if task_type == "single_frame_intent_to_action" else None
                 if task_type == "single_frame_intent_to_action":
                     if inferred_intent is None:
                         continue
@@ -495,7 +562,7 @@ def build_questions(
                 raw_actions = None
                 answer_actions = reference
                 if task_type == "demonstration_optimization":
-                    raw_actions = _action_blocks(reader, episode, start, OPTIMIZATION_WINDOWS)
+                    raw_actions = reference
                     answer_actions = raw_actions
                 sample_id = f"{task_type}_{existing_type_count + generated:06d}"
                 images = _save_images(reader, output, sample_id, episode, frames)
@@ -508,7 +575,11 @@ def build_questions(
                     "reference_action_sequence": answer_actions,
                     "reference_kind": "recorded_human_demonstration",
                     "reference_is_unique": False,
-                    "source": {"episode": episode, "action_start_frame": start},
+                    "source": {
+                        "episode": episode,
+                        "action_start_frame": start,
+                        "action_end_frame": start + action_frame_count,
+                    },
                 })
                 generated += 1
                 if task_type == "single_frame_intent_to_action" and inferred_intent is not None:
@@ -535,10 +606,8 @@ def build_questions(
             "instructions": HUMAN_REVIEW_PROMPT,
             "question": question,
             "answer": next(item for item in answers if item["id"] == question["id"]),
-            "decision": "revise",
-            "scores": {dimension: 0 for dimension in REVIEW_DIMENSIONS},
-            "reasons": [],
-            "reviewed_answer_sequence": None,
+            "decision": "pending",
+            "reason": "",
         }
         for question in questions
     ])

@@ -15,5 +15,6 @@
   "questions": "questions.jsonl",
   "answer_key": "answer_key.jsonl",
   "readme": "README.md",
-  "initial_review_status": "pending_human_and_ai_review"
+  "initial_review_status": "pending_human_and_ai_review",
+  "gui_click_normalization": "held mouse buttons become rising-edge pulses in GUI frames"
 }

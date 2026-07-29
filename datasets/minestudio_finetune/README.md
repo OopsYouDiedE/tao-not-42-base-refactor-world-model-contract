@@ -437,140 +437,109 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 `questions.jsonl` 是机器生成的候选池，不能直接用于训练。`questions_approved.jsonl` 才是完成
 结构、AI 和人工审核后的准入结果。
 
+现有训练器可通过 `train/trajectory_question_dataset.py` 中的
+`load_approved_question_conversations()` 将准入题转换为 Unsloth 风格的多图 `messages`。加载器
+强制检查 `review_status == "approved"` 和 `include_in_training == true`。演示优化题还要求答案的
+`reference_kind` 为 `reviewed_optimized_demonstration`，因此不能把未经优化的原始人类轨迹当作
+监督目标。
+
+这些约束说明数据已经具备接入训练代码的接口，但尚不能据此断言训练有效。有效性需要用固定
+验证集比较基线与加入三类轨迹题后的动作协议通过率、视觉语义正确率和实际回放成功率。
+
 ## 真实生成案例
 
 以下案例使用 MineStudio 10xx 真实轨迹生成，随机种子为 `20260730`。本轮每类生成 3 道，
-共 9 道。9 道全部通过结构校验和动作协议回放测试，其中 5 道通过视觉语义审核。这里的
-“合格”表示可以进入人工复核队列，不表示已经完成最终人工准入。
+共 9 道、39 张图片。9 道全部通过结构校验和参考动作协议回放；视觉语义审核批准 2 道、
+要求修改 3 道、拒绝 4 道。审核批准仍需人工复核，当前批次没有写入
+`questions_approved.jsonl`。
 
 | 项目 | 结果 |
 |---|---:|
 | 候选题目 | 9 |
 | 轨迹图片 | 39 |
-| 结构校验通过 | 9 |
-| 动作协议回放通过 | 9 |
-| 视觉语义审核通过 | 5 |
-| 视觉语义审核拒绝 | 4 |
+| 结构与协议通过 | 9 |
+| 视觉语义批准 | 2 |
+| 要求修改 | 3 |
+| 拒绝 | 4 |
 
 完整生成文件位于 [`examples/`](examples/README.md)，逐题语义审核位于
 [`examples/semantic_reviews.jsonl`](examples/semantic_reviews.jsonl)，协议测试结果位于
 [`examples/answer_test_results.jsonl`](examples/answer_test_results.jsonl)。
 
-### 合格案例一：连续移动演示优化
-
-题号：`demonstration_optimization_000001`
-
-轨迹图片按时间顺序：
-
-[帧 4165](examples/images/demonstration_optimization_000001_00.jpg) ·
-[帧 4169](examples/images/demonstration_optimization_000001_01.jpg) ·
-[帧 4173](examples/images/demonstration_optimization_000001_02.jpg) ·
-[帧 4177](examples/images/demonstration_optimization_000001_03.jpg)
-
-**图 1，帧 4165**
-
-![连续移动演示帧 4165](examples/images/demonstration_optimization_000001_00.jpg)
-
-**图 2，帧 4169**
-
-![连续移动演示帧 4169](examples/images/demonstration_optimization_000001_01.jpg)
-
-**图 3，帧 4173**
-
-![连续移动演示帧 4173](examples/images/demonstration_optimization_000001_02.jpg)
-
-**图 4，帧 4177**
-
-![连续移动演示帧 4177](examples/images/demonstration_optimization_000001_03.jpg)
-
-问题：根据按时间排列的图像和原始动作块，清理动作序列中的孤立噪声，同时保留连续前进、
-冲刺、跳跃和转向的可见意图，输出变长动作块数组。
-
-参考答案轨迹：
-
-```text
-<|action_start|> ; W ctrl ; Mouse -3 -2 W ctrl ; Mouse 22 21 W ctrl ; Mouse 0 1 W ctrl <|action_end|>
-<|action_start|> ; Mouse -1 0 W space ctrl ; Mouse -8 -6 W space ctrl ; Mouse 0 1 W ctrl ; Mouse -11 0 W ctrl <|action_end|>
-<|action_start|> ; Mouse -21 12 W ctrl ; Mouse -52 13 W space ctrl ; Mouse -36 6 W space ctrl ; Mouse -10 3 W ctrl <|action_end|>
-<|action_start|> ; W space ctrl ; Mouse 0 1 W space ctrl ; W space ctrl ; W space ctrl <|action_end|>
-```
-
-合格依据：矿道、火把和移动方向清晰。鼠标与 `W`、`space`、`ctrl` 在同一 tick 混写，
-符合需要连续移动和转向的场景。
-
-### 合格案例二：GUI 演示优化
+### 待修改案例：GUI 间断点击
 
 题号：`demonstration_optimization_000002`
 
 轨迹图片按时间顺序：
 
-[帧 2764](examples/images/demonstration_optimization_000002_00.jpg) ·
-[帧 2768](examples/images/demonstration_optimization_000002_01.jpg) ·
-[帧 2772](examples/images/demonstration_optimization_000002_02.jpg) ·
-[帧 2776](examples/images/demonstration_optimization_000002_03.jpg)
+[帧 554](examples/images/demonstration_optimization_000002_00.jpg) ·
+[帧 558](examples/images/demonstration_optimization_000002_01.jpg) ·
+[帧 562](examples/images/demonstration_optimization_000002_02.jpg) ·
+[帧 566](examples/images/demonstration_optimization_000002_03.jpg)
 
-**图 1，帧 2764**
+**图 1，帧 554**
 
-![GUI 演示帧 2764](examples/images/demonstration_optimization_000002_00.jpg)
+![GUI 演示帧 554](examples/images/demonstration_optimization_000002_00.jpg)
 
-**图 2，帧 2768**
+**图 2，帧 558**
 
-![GUI 演示帧 2768](examples/images/demonstration_optimization_000002_01.jpg)
+![GUI 演示帧 558](examples/images/demonstration_optimization_000002_01.jpg)
 
-**图 3，帧 2772**
+**图 3，帧 562**
 
-![GUI 演示帧 2772](examples/images/demonstration_optimization_000002_02.jpg)
+![GUI 演示帧 562](examples/images/demonstration_optimization_000002_02.jpg)
 
-**图 4，帧 2776**
+**图 4，帧 566**
 
-![GUI 演示帧 2776](examples/images/demonstration_optimization_000002_03.jpg)
+![GUI 演示帧 566](examples/images/demonstration_optimization_000002_03.jpg)
 
-问题：优化工作台 GUI 操作轨迹，保留相对光标移动、shift 状态和点击顺序，输出更清晰的
-动作演示。
+问题：优化物品栏配方 GUI 操作轨迹，保留相对光标移动和点击顺序，输出更清晰的动作演示。
 
 参考答案轨迹：
 
 ```text
-<|action_start|> ; Mouse 8 -2 ; Mouse 15 -8 ; Mouse 8 -8 ; Mouse 5 -7 shift <|action_end|>
-<|action_start|> ; Mouse 2 -8 shift ; Mouse 0 -8 shift ; Mouse 0 -2 shift ; shift <|action_end|>
-<|action_start|> ; Mouse 0 -1 shift ; shift MouseLeft ; shift MouseLeft ; shift MouseLeft <|action_end|>
-<|action_start|> ; shift ; shift ; shift ; shift <|action_end|>
+<|action_start|> ; Mouse -2 6 MouseLeft ; Mouse -2 6 ; Mouse -5 7 ; Mouse -20 12 <|action_end|>
+<|action_start|> ; Mouse -12 6 ; Mouse 3 -7 ; Mouse 16 -18 ; Mouse 8 -5 <|action_end|>
+<|action_start|> ; Mouse 2 -1 MouseLeft ; Mouse 1 -2 ;  ; Mouse -4 7 <|action_end|>
+<|action_start|> ; Mouse -14 10 ; Mouse -23 10 ; Mouse -11 2 ; Mouse -18 -2 <|action_end|>
 ```
 
-合格依据：配方格、输出格和物品变化清晰。`Mouse dx dy` 表达 GUI 内的相对光标移动，
-`MouseLeft` 表达点击，协议足以描述该轨迹。
+协议结论：GUI 内连续 held 状态已经归一化为按下沿脉冲。第一段首 tick 点击一次，第三段
+首 tick 再点击一次，中间 tick 只保留相对光标移动。这比重复写四次 `MouseLeft` 更清楚地
+表达“两次离散点击”。该答案仍是归一化后的原始轨迹，尚未成为审核后的优化答案，因此本题
+状态为 `revise`，不能进入训练。
 
-### 合格案例三：连续图像反推挖掘动作
+### 批准案例：连续图像反推挖掘动作
 
-题号：`image_sequence_to_action_000000`
+题号：`image_sequence_to_action_000001`
 
-五张图片逐帧覆盖 `18433` 到 `18437`，展示动作造成的完整状态转移：
+五张图片逐帧覆盖 `4606` 到 `4610`，展示动作造成的完整状态转移：
 
-[帧 18433](examples/images/image_sequence_to_action_000000_00.jpg) ·
-[帧 18434](examples/images/image_sequence_to_action_000000_01.jpg) ·
-[帧 18435](examples/images/image_sequence_to_action_000000_02.jpg) ·
-[帧 18436](examples/images/image_sequence_to_action_000000_03.jpg) ·
-[帧 18437](examples/images/image_sequence_to_action_000000_04.jpg)
+[帧 4606](examples/images/image_sequence_to_action_000001_00.jpg) ·
+[帧 4607](examples/images/image_sequence_to_action_000001_01.jpg) ·
+[帧 4608](examples/images/image_sequence_to_action_000001_02.jpg) ·
+[帧 4609](examples/images/image_sequence_to_action_000001_03.jpg) ·
+[帧 4610](examples/images/image_sequence_to_action_000001_04.jpg)
 
-**图 1，帧 18433**
+**图 1，帧 4606**
 
-![挖掘状态转移帧 18433](examples/images/image_sequence_to_action_000000_00.jpg)
+![挖掘状态转移帧 4606](examples/images/image_sequence_to_action_000001_00.jpg)
 
-**图 2，帧 18434**
+**图 2，帧 4607**
 
-![挖掘状态转移帧 18434](examples/images/image_sequence_to_action_000000_01.jpg)
+![挖掘状态转移帧 4607](examples/images/image_sequence_to_action_000001_01.jpg)
 
-**图 3，帧 18435**
+**图 3，帧 4608**
 
-![挖掘状态转移帧 18435](examples/images/image_sequence_to_action_000000_02.jpg)
+![挖掘状态转移帧 4608](examples/images/image_sequence_to_action_000001_02.jpg)
 
-**图 4，帧 18436**
+**图 4，帧 4609**
 
-![挖掘状态转移帧 18436](examples/images/image_sequence_to_action_000000_03.jpg)
+![挖掘状态转移帧 4609](examples/images/image_sequence_to_action_000001_03.jpg)
 
-**图 5，帧 18437**
+**图 5，帧 4610**
 
-![挖掘状态转移帧 18437](examples/images/image_sequence_to_action_000000_04.jpg)
+![挖掘状态转移帧 4610](examples/images/image_sequence_to_action_000001_04.jpg)
 
 问题：五张图像是按时间排列的连续状态，不提供动作标签。根据镐击、裂纹变化和方块破坏，
 反推出一种能够产生该状态转移的动作序列。
@@ -578,81 +547,39 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 参考答案轨迹：
 
 ```text
-<|action_start|> ; MouseLeft ; Mouse 0 12 MouseLeft ; Mouse -9 49 MouseLeft ; Mouse -10 40 MouseLeft <|action_end|>
+<|action_start|> ; Mouse -438 -186 MouseLeft ; Mouse -242 -137 MouseLeft ; Mouse 0 -10 MouseLeft ; Mouse 2 -11 MouseLeft <|action_end|>
 ```
 
 合格依据：状态变化清晰显示连续挖掘已经发生，因此持续 `MouseLeft` 和逐 tick 视角调整有
-直接视觉证据。这是动作反推题，不是对尚未发生动作的预测题。
+直接视觉证据。这是普通游戏中的持续按住，并非 GUI 多次点击。两个很大的初始鼠标位移会在
+正式人工准入时再次检查，以排除采集设备离群值。
 
-### 合格案例四：连续 GUI 图像反推动作
+### 批准案例：历史图像预测继续挖掘
 
-题号：`image_sequence_to_action_000002`
-
-五张连续 GUI 图片：
-
-[帧 972](examples/images/image_sequence_to_action_000002_00.jpg) ·
-[帧 973](examples/images/image_sequence_to_action_000002_01.jpg) ·
-[帧 974](examples/images/image_sequence_to_action_000002_02.jpg) ·
-[帧 975](examples/images/image_sequence_to_action_000002_03.jpg) ·
-[帧 976](examples/images/image_sequence_to_action_000002_04.jpg)
-
-**图 1，帧 972**
-
-![GUI 状态转移帧 972](examples/images/image_sequence_to_action_000002_00.jpg)
-
-**图 2，帧 973**
-
-![GUI 状态转移帧 973](examples/images/image_sequence_to_action_000002_01.jpg)
-
-**图 3，帧 974**
-
-![GUI 状态转移帧 974](examples/images/image_sequence_to_action_000002_02.jpg)
-
-**图 4，帧 975**
-
-![GUI 状态转移帧 975](examples/images/image_sequence_to_action_000002_03.jpg)
-
-**图 5，帧 976**
-
-![GUI 状态转移帧 976](examples/images/image_sequence_to_action_000002_04.jpg)
-
-问题：根据五张连续工作台界面的输出格变化，在没有动作标签的情况下反推 GUI 动作。
-
-参考答案轨迹：
-
-```text
-<|action_start|> ; shift MouseLeft ; shift ; shift ; shift <|action_end|>
-```
-
-合格依据：工作台 GUI、配方内容和输出格均可辨认。`shift MouseLeft` 可以表达快速点击，
-不需要绝对光标坐标。
-
-### 合格案例五：历史图像预测继续挖掘
-
-题号：`history_to_future_action_000002`
+题号：`history_to_future_action_000001`
 
 历史轨迹图片：
 
-[帧 16410](examples/images/history_to_future_action_000002_00.jpg) ·
-[帧 16414](examples/images/history_to_future_action_000002_01.jpg) ·
-[帧 16418](examples/images/history_to_future_action_000002_02.jpg) ·
-[帧 16422](examples/images/history_to_future_action_000002_03.jpg)
+[帧 2334](examples/images/history_to_future_action_000001_00.jpg) ·
+[帧 2338](examples/images/history_to_future_action_000001_01.jpg) ·
+[帧 2342](examples/images/history_to_future_action_000001_02.jpg) ·
+[帧 2346](examples/images/history_to_future_action_000001_03.jpg)
 
-**图 1，帧 16410**
+**图 1，帧 2334**
 
-![历史挖掘帧 16410](examples/images/history_to_future_action_000002_00.jpg)
+![历史挖掘帧 2334](examples/images/history_to_future_action_000001_00.jpg)
 
-**图 2，帧 16414**
+**图 2，帧 2338**
 
-![历史挖掘帧 16414](examples/images/history_to_future_action_000002_01.jpg)
+![历史挖掘帧 2338](examples/images/history_to_future_action_000001_01.jpg)
 
-**图 3，帧 16418**
+**图 3，帧 2342**
 
-![历史挖掘帧 16418](examples/images/history_to_future_action_000002_02.jpg)
+![历史挖掘帧 2342](examples/images/history_to_future_action_000001_02.jpg)
 
-**图 4，帧 16422**
+**图 4，帧 2346**
 
-![历史挖掘帧 16422](examples/images/history_to_future_action_000002_03.jpg)
+![历史挖掘帧 2346](examples/images/history_to_future_action_000001_03.jpg)
 
 问题：四张图片是过去观测且不提供动作，根据裂纹加深和方块破坏过程，推导未来 200 ms 的
 一种合理动作序列。
@@ -666,14 +593,16 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 合格依据：历史图片清晰显示镐击、裂纹加深和方块破坏。未来继续按住 `MouseLeft` 与已经
 形成的行为趋势一致。
 
-### 被拒绝的案例
+### 其余案例的审核结论
 
-| 题号 | 拒绝原因 |
-|---|---|
-| `demonstration_optimization_000000` | 四张矿洞图片整体过暗，无法可靠判断优化是否保留原意 |
-| `image_sequence_to_action_000001` | 五张连续图均接近全黑，状态变化不足以支持可靠动作反推 |
-| `history_to_future_action_000000` | 调试信息覆盖大部分画面，场景目标不够清晰 |
-| `history_to_future_action_000001` | 四张历史图均过暗，无法可靠判断持续攻击对象 |
+| 题号 | 决定 | 原因 |
+|---|---|---|
+| `demonstration_optimization_000000` | 修改 | 挖掘意图清楚，但缺少审核后的优化答案 |
+| `demonstration_optimization_000001` | 修改 | 战斗意图清楚，但缺少审核后的优化答案 |
+| `image_sequence_to_action_000000` | 拒绝 | 视觉变化太小，无法区分前进、跳跃和冲刺组合 |
+| `image_sequence_to_action_000002` | 拒绝 | GUI 发生合成变化，参考标签却只有光标移动而没有点击 |
+| `history_to_future_action_000000` | 拒绝 | 调试信息覆盖过多 |
+| `history_to_future_action_000002` | 拒绝 | 历史跨越物品栏与游戏画面，未来复合动作依据不足 |
 
 ## 5.6 Luna 盲测批次
 

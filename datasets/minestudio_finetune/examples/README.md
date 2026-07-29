@@ -16,29 +16,29 @@
 | 字段 | 内容 |
 |---|---|
 | 题型 | `demonstration_optimization` |
-| 来源 episode | `sleepy-sangria-bat-fa0de4ef2478-20220423-082844` |
-| 图片帧 | `[9796, 9800, 9804, 9808]` |
-| 目标动作区间 | `[9796, 9812]` |
+| 来源 episode | `snippy-chartreuse-mastiff-68b5723ce118-20220418-220340` |
+| 图片帧 | `[2864, 2868, 2872, 2876]` |
+| 目标动作区间 | `[2864, 2880]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 9796**
+**图 1，帧 2864**
 
-![demonstration_optimization_000000 frame 9796](images/demonstration_optimization_000000_00.jpg)
+![demonstration_optimization_000000 frame 2864](images/demonstration_optimization_000000_00.jpg)
 
-**图 2，帧 9800**
+**图 2，帧 2868**
 
-![demonstration_optimization_000000 frame 9800](images/demonstration_optimization_000000_01.jpg)
+![demonstration_optimization_000000 frame 2868](images/demonstration_optimization_000000_01.jpg)
 
-**图 3，帧 9804**
+**图 3，帧 2872**
 
-![demonstration_optimization_000000 frame 9804](images/demonstration_optimization_000000_02.jpg)
+![demonstration_optimization_000000 frame 2872](images/demonstration_optimization_000000_02.jpg)
 
-**图 4，帧 9808**
+**图 4，帧 2876**
 
-![demonstration_optimization_000000 frame 9808](images/demonstration_optimization_000000_03.jpg)
+![demonstration_optimization_000000 frame 2876](images/demonstration_optimization_000000_03.jpg)
 
 ### 问题
 
@@ -49,25 +49,25 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 动作块 1：
 
 ```text
-<|action_start|> ; Mouse -2 44 MouseLeft ; Mouse -3 24 MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
+<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
 ```
 
 动作块 2：
 
 ```text
-<|action_start|> ; MouseLeft ; MouseLeft ; W MouseLeft ; W MouseLeft <|action_end|>
+<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
 ```
 
 动作块 3：
 
 ```text
-<|action_start|> ; W MouseLeft ; W MouseLeft ; Mouse 0 -9 W MouseLeft ; Mouse 9 -26 MouseLeft <|action_end|>
+<|action_start|> ; W MouseLeft ; W MouseLeft ; W MouseLeft ; W MouseLeft <|action_end|>
 ```
 
 动作块 4：
 
 ```text
-<|action_start|> ; Mouse 8 -26 MouseLeft ; Mouse 2 -22 MouseLeft ; Mouse 0 -14 MouseLeft ; Mouse 0 -6 MouseLeft <|action_end|>
+<|action_start|> ; Mouse 0 6 W MouseLeft ; Mouse 1 22 W MouseLeft ; Mouse 0 26 MouseLeft ; Mouse 0 33 MouseLeft <|action_end|>
 ```
 
 ### 参考答案轨迹
@@ -77,25 +77,25 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 动作块 1：
 
 ```text
-<|action_start|> ; Mouse -2 44 MouseLeft ; Mouse -3 24 MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
+<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
 ```
 
 动作块 2：
 
 ```text
-<|action_start|> ; MouseLeft ; MouseLeft ; W MouseLeft ; W MouseLeft <|action_end|>
+<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
 ```
 
 动作块 3：
 
 ```text
-<|action_start|> ; W MouseLeft ; W MouseLeft ; Mouse 0 -9 W MouseLeft ; Mouse 9 -26 MouseLeft <|action_end|>
+<|action_start|> ; W MouseLeft ; W MouseLeft ; W MouseLeft ; W MouseLeft <|action_end|>
 ```
 
 动作块 4：
 
 ```text
-<|action_start|> ; Mouse 8 -26 MouseLeft ; Mouse 2 -22 MouseLeft ; Mouse 0 -14 MouseLeft ; Mouse 0 -6 MouseLeft <|action_end|>
+<|action_start|> ; Mouse 0 6 W MouseLeft ; Mouse 1 22 W MouseLeft ; Mouse 0 26 MouseLeft ; Mouse 0 33 MouseLeft <|action_end|>
 ```
 
 ### 结构校验结果
@@ -115,29 +115,29 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 | 字段 | 内容 |
 |---|---|
 | 题型 | `demonstration_optimization` |
-| 来源 episode | `gimpy-jade-panda-48eadb8bd054-20220413-210137` |
-| 图片帧 | `[4165, 4169, 4173, 4177]` |
-| 目标动作区间 | `[4165, 4181]` |
+| 来源 episode | `lanky-flax-dormouse-f569f2c0c2df-20220422-170154` |
+| 图片帧 | `[8745, 8749, 8753, 8757]` |
+| 目标动作区间 | `[8745, 8761]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 4165**
+**图 1，帧 8745**
 
-![demonstration_optimization_000001 frame 4165](images/demonstration_optimization_000001_00.jpg)
+![demonstration_optimization_000001 frame 8745](images/demonstration_optimization_000001_00.jpg)
 
-**图 2，帧 4169**
+**图 2，帧 8749**
 
-![demonstration_optimization_000001 frame 4169](images/demonstration_optimization_000001_01.jpg)
+![demonstration_optimization_000001 frame 8749](images/demonstration_optimization_000001_01.jpg)
 
-**图 3，帧 4173**
+**图 3，帧 8753**
 
-![demonstration_optimization_000001 frame 4173](images/demonstration_optimization_000001_02.jpg)
+![demonstration_optimization_000001 frame 8753](images/demonstration_optimization_000001_02.jpg)
 
-**图 4，帧 4177**
+**图 4，帧 8757**
 
-![demonstration_optimization_000001 frame 4177](images/demonstration_optimization_000001_03.jpg)
+![demonstration_optimization_000001 frame 8757](images/demonstration_optimization_000001_03.jpg)
 
 ### 问题
 
@@ -148,25 +148,25 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 动作块 1：
 
 ```text
-<|action_start|> ; W ctrl ; Mouse -3 -2 W ctrl ; Mouse 22 21 W ctrl ; Mouse 0 1 W ctrl <|action_end|>
+<|action_start|> ; Mouse 1 6 MouseRight ; MouseRight ; Mouse 1 -1 MouseRight ; Mouse 5 -12 <|action_end|>
 ```
 
 动作块 2：
 
 ```text
-<|action_start|> ; Mouse -1 0 W space ctrl ; Mouse -8 -6 W space ctrl ; Mouse 0 1 W ctrl ; Mouse -11 0 W ctrl <|action_end|>
+<|action_start|> ; Mouse 10 -28 ; Mouse 14 -35 ; Mouse 16 -33 ; Mouse 12 -25 W <|action_end|>
 ```
 
 动作块 3：
 
 ```text
-<|action_start|> ; Mouse -21 12 W ctrl ; Mouse -52 13 W space ctrl ; Mouse -36 6 W space ctrl ; Mouse -10 3 W ctrl <|action_end|>
+<|action_start|> ; Mouse 5 -14 W ; Mouse 3 -9 W ; Mouse 1 -8 W ; Mouse -3 -3 W <|action_end|>
 ```
 
 动作块 4：
 
 ```text
-<|action_start|> ; W space ctrl ; Mouse 0 1 W space ctrl ; W space ctrl ; W space ctrl <|action_end|>
+<|action_start|> ; Mouse -3 0 W ; Mouse -6 7 MouseLeft ; Mouse -1 1 MouseLeft ; S MouseLeft <|action_end|>
 ```
 
 ### 参考答案轨迹
@@ -176,25 +176,25 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 动作块 1：
 
 ```text
-<|action_start|> ; W ctrl ; Mouse -3 -2 W ctrl ; Mouse 22 21 W ctrl ; Mouse 0 1 W ctrl <|action_end|>
+<|action_start|> ; Mouse 1 6 MouseRight ; MouseRight ; Mouse 1 -1 MouseRight ; Mouse 5 -12 <|action_end|>
 ```
 
 动作块 2：
 
 ```text
-<|action_start|> ; Mouse -1 0 W space ctrl ; Mouse -8 -6 W space ctrl ; Mouse 0 1 W ctrl ; Mouse -11 0 W ctrl <|action_end|>
+<|action_start|> ; Mouse 10 -28 ; Mouse 14 -35 ; Mouse 16 -33 ; Mouse 12 -25 W <|action_end|>
 ```
 
 动作块 3：
 
 ```text
-<|action_start|> ; Mouse -21 12 W ctrl ; Mouse -52 13 W space ctrl ; Mouse -36 6 W space ctrl ; Mouse -10 3 W ctrl <|action_end|>
+<|action_start|> ; Mouse 5 -14 W ; Mouse 3 -9 W ; Mouse 1 -8 W ; Mouse -3 -3 W <|action_end|>
 ```
 
 动作块 4：
 
 ```text
-<|action_start|> ; W space ctrl ; Mouse 0 1 W space ctrl ; W space ctrl ; W space ctrl <|action_end|>
+<|action_start|> ; Mouse -3 0 W ; Mouse -6 7 MouseLeft ; Mouse -1 1 MouseLeft ; S MouseLeft <|action_end|>
 ```
 
 ### 结构校验结果
@@ -214,29 +214,29 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 | 字段 | 内容 |
 |---|---|
 | 题型 | `demonstration_optimization` |
-| 来源 episode | `shabby-pink-molly-f35fc91db4d3-20220414-081351` |
-| 图片帧 | `[2764, 2768, 2772, 2776]` |
-| 目标动作区间 | `[2764, 2780]` |
+| 来源 episode | `gimpy-jade-panda-3f668b9b9a16-20220417-181524` |
+| 图片帧 | `[554, 558, 562, 566]` |
+| 目标动作区间 | `[554, 570]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 2764**
+**图 1，帧 554**
 
-![demonstration_optimization_000002 frame 2764](images/demonstration_optimization_000002_00.jpg)
+![demonstration_optimization_000002 frame 554](images/demonstration_optimization_000002_00.jpg)
 
-**图 2，帧 2768**
+**图 2，帧 558**
 
-![demonstration_optimization_000002 frame 2768](images/demonstration_optimization_000002_01.jpg)
+![demonstration_optimization_000002 frame 558](images/demonstration_optimization_000002_01.jpg)
 
-**图 3，帧 2772**
+**图 3，帧 562**
 
-![demonstration_optimization_000002 frame 2772](images/demonstration_optimization_000002_02.jpg)
+![demonstration_optimization_000002 frame 562](images/demonstration_optimization_000002_02.jpg)
 
-**图 4，帧 2776**
+**图 4，帧 566**
 
-![demonstration_optimization_000002 frame 2776](images/demonstration_optimization_000002_03.jpg)
+![demonstration_optimization_000002 frame 566](images/demonstration_optimization_000002_03.jpg)
 
 ### 问题
 
@@ -247,25 +247,25 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 动作块 1：
 
 ```text
-<|action_start|> ; Mouse 8 -2 ; Mouse 15 -8 ; Mouse 8 -8 ; Mouse 5 -7 shift <|action_end|>
+<|action_start|> ; Mouse -2 6 MouseLeft ; Mouse -2 6 ; Mouse -5 7 ; Mouse -20 12 <|action_end|>
 ```
 
 动作块 2：
 
 ```text
-<|action_start|> ; Mouse 2 -8 shift ; Mouse 0 -8 shift ; Mouse 0 -2 shift ; shift <|action_end|>
+<|action_start|> ; Mouse -12 6 ; Mouse 3 -7 ; Mouse 16 -18 ; Mouse 8 -5 <|action_end|>
 ```
 
 动作块 3：
 
 ```text
-<|action_start|> ; Mouse 0 -1 shift ; shift MouseLeft ; shift MouseLeft ; shift MouseLeft <|action_end|>
+<|action_start|> ; Mouse 2 -1 MouseLeft ; Mouse 1 -2 ;  ; Mouse -4 7 <|action_end|>
 ```
 
 动作块 4：
 
 ```text
-<|action_start|> ; shift ; shift ; shift ; shift <|action_end|>
+<|action_start|> ; Mouse -14 10 ; Mouse -23 10 ; Mouse -11 2 ; Mouse -18 -2 <|action_end|>
 ```
 
 ### 参考答案轨迹
@@ -275,25 +275,25 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 动作块 1：
 
 ```text
-<|action_start|> ; Mouse 8 -2 ; Mouse 15 -8 ; Mouse 8 -8 ; Mouse 5 -7 shift <|action_end|>
+<|action_start|> ; Mouse -2 6 MouseLeft ; Mouse -2 6 ; Mouse -5 7 ; Mouse -20 12 <|action_end|>
 ```
 
 动作块 2：
 
 ```text
-<|action_start|> ; Mouse 2 -8 shift ; Mouse 0 -8 shift ; Mouse 0 -2 shift ; shift <|action_end|>
+<|action_start|> ; Mouse -12 6 ; Mouse 3 -7 ; Mouse 16 -18 ; Mouse 8 -5 <|action_end|>
 ```
 
 动作块 3：
 
 ```text
-<|action_start|> ; Mouse 0 -1 shift ; shift MouseLeft ; shift MouseLeft ; shift MouseLeft <|action_end|>
+<|action_start|> ; Mouse 2 -1 MouseLeft ; Mouse 1 -2 ;  ; Mouse -4 7 <|action_end|>
 ```
 
 动作块 4：
 
 ```text
-<|action_start|> ; shift ; shift ; shift ; shift <|action_end|>
+<|action_start|> ; Mouse -14 10 ; Mouse -23 10 ; Mouse -11 2 ; Mouse -18 -2 <|action_end|>
 ```
 
 ### 结构校验结果
@@ -313,33 +313,33 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 | 字段 | 内容 |
 |---|---|
 | 题型 | `image_sequence_to_action` |
-| 来源 episode | `cheeky-cornflower-setter-6b3831c95bf8-20220417-112336` |
-| 图片帧 | `[18433, 18434, 18435, 18436, 18437]` |
-| 目标动作区间 | `[18433, 18437]` |
+| 来源 episode | `squeaky-magnolia-ocelot-d4a075adc507-20220421-210034` |
+| 图片帧 | `[1152, 1153, 1154, 1155, 1156]` |
+| 目标动作区间 | `[1152, 1156]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 18433**
+**图 1，帧 1152**
 
-![image_sequence_to_action_000000 frame 18433](images/image_sequence_to_action_000000_00.jpg)
+![image_sequence_to_action_000000 frame 1152](images/image_sequence_to_action_000000_00.jpg)
 
-**图 2，帧 18434**
+**图 2，帧 1153**
 
-![image_sequence_to_action_000000 frame 18434](images/image_sequence_to_action_000000_01.jpg)
+![image_sequence_to_action_000000 frame 1153](images/image_sequence_to_action_000000_01.jpg)
 
-**图 3，帧 18435**
+**图 3，帧 1154**
 
-![image_sequence_to_action_000000 frame 18435](images/image_sequence_to_action_000000_02.jpg)
+![image_sequence_to_action_000000 frame 1154](images/image_sequence_to_action_000000_02.jpg)
 
-**图 4，帧 18436**
+**图 4，帧 1155**
 
-![image_sequence_to_action_000000 frame 18436](images/image_sequence_to_action_000000_03.jpg)
+![image_sequence_to_action_000000 frame 1155](images/image_sequence_to_action_000000_03.jpg)
 
-**图 5，帧 18437**
+**图 5，帧 1156**
 
-![image_sequence_to_action_000000 frame 18437](images/image_sequence_to_action_000000_04.jpg)
+![image_sequence_to_action_000000 frame 1156](images/image_sequence_to_action_000000_04.jpg)
 
 ### 问题
 
@@ -352,7 +352,7 @@ The five images are consecutive Minecraft observations in chronological order ac
 动作块 1：
 
 ```text
-<|action_start|> ; MouseLeft ; Mouse 0 12 MouseLeft ; Mouse -9 49 MouseLeft ; Mouse -10 40 MouseLeft <|action_end|>
+<|action_start|> ; Mouse 1 4 W space ctrl ; Mouse 2 1 W space ctrl ; Mouse 1 0 W space ctrl ; Mouse 2 1 W space ctrl <|action_end|>
 ```
 
 ### 结构校验结果
@@ -372,33 +372,33 @@ The five images are consecutive Minecraft observations in chronological order ac
 | 字段 | 内容 |
 |---|---|
 | 题型 | `image_sequence_to_action` |
-| 来源 episode | `lovely-persimmon-angora-e10920a66232-20220416-140321` |
-| 图片帧 | `[9213, 9214, 9215, 9216, 9217]` |
-| 目标动作区间 | `[9213, 9217]` |
+| 来源 episode | `lovely-persimmon-angora-e118fb40d762-20220414-220127` |
+| 图片帧 | `[4606, 4607, 4608, 4609, 4610]` |
+| 目标动作区间 | `[4606, 4610]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 9213**
+**图 1，帧 4606**
 
-![image_sequence_to_action_000001 frame 9213](images/image_sequence_to_action_000001_00.jpg)
+![image_sequence_to_action_000001 frame 4606](images/image_sequence_to_action_000001_00.jpg)
 
-**图 2，帧 9214**
+**图 2，帧 4607**
 
-![image_sequence_to_action_000001 frame 9214](images/image_sequence_to_action_000001_01.jpg)
+![image_sequence_to_action_000001 frame 4607](images/image_sequence_to_action_000001_01.jpg)
 
-**图 3，帧 9215**
+**图 3，帧 4608**
 
-![image_sequence_to_action_000001 frame 9215](images/image_sequence_to_action_000001_02.jpg)
+![image_sequence_to_action_000001 frame 4608](images/image_sequence_to_action_000001_02.jpg)
 
-**图 4，帧 9216**
+**图 4，帧 4609**
 
-![image_sequence_to_action_000001 frame 9216](images/image_sequence_to_action_000001_03.jpg)
+![image_sequence_to_action_000001 frame 4609](images/image_sequence_to_action_000001_03.jpg)
 
-**图 5，帧 9217**
+**图 5，帧 4610**
 
-![image_sequence_to_action_000001 frame 9217](images/image_sequence_to_action_000001_04.jpg)
+![image_sequence_to_action_000001 frame 4610](images/image_sequence_to_action_000001_04.jpg)
 
 ### 问题
 
@@ -411,7 +411,7 @@ The five images are consecutive Minecraft observations in chronological order ac
 动作块 1：
 
 ```text
-<|action_start|> ; Mouse -5 1 MouseLeft ; Mouse -4 1 MouseLeft ; Mouse -2 0 MouseLeft ; MouseLeft <|action_end|>
+<|action_start|> ; Mouse -438 -186 MouseLeft ; Mouse -242 -137 MouseLeft ; Mouse 0 -10 MouseLeft ; Mouse 2 -11 MouseLeft <|action_end|>
 ```
 
 ### 结构校验结果
@@ -431,33 +431,33 @@ The five images are consecutive Minecraft observations in chronological order ac
 | 字段 | 内容 |
 |---|---|
 | 题型 | `image_sequence_to_action` |
-| 来源 episode | `shabby-viridian-beaver-922bac605e0c-20220419-172533` |
-| 图片帧 | `[972, 973, 974, 975, 976]` |
-| 目标动作区间 | `[972, 976]` |
+| 来源 episode | `shabby-viridian-beaver-92ea1f7fac67-20220419-182607` |
+| 图片帧 | `[1945, 1946, 1947, 1948, 1949]` |
+| 目标动作区间 | `[1945, 1949]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 972**
+**图 1，帧 1945**
 
-![image_sequence_to_action_000002 frame 972](images/image_sequence_to_action_000002_00.jpg)
+![image_sequence_to_action_000002 frame 1945](images/image_sequence_to_action_000002_00.jpg)
 
-**图 2，帧 973**
+**图 2，帧 1946**
 
-![image_sequence_to_action_000002 frame 973](images/image_sequence_to_action_000002_01.jpg)
+![image_sequence_to_action_000002 frame 1946](images/image_sequence_to_action_000002_01.jpg)
 
-**图 3，帧 974**
+**图 3，帧 1947**
 
-![image_sequence_to_action_000002 frame 974](images/image_sequence_to_action_000002_02.jpg)
+![image_sequence_to_action_000002 frame 1947](images/image_sequence_to_action_000002_02.jpg)
 
-**图 4，帧 975**
+**图 4，帧 1948**
 
-![image_sequence_to_action_000002 frame 975](images/image_sequence_to_action_000002_03.jpg)
+![image_sequence_to_action_000002 frame 1948](images/image_sequence_to_action_000002_03.jpg)
 
-**图 5，帧 976**
+**图 5，帧 1949**
 
-![image_sequence_to_action_000002 frame 976](images/image_sequence_to_action_000002_04.jpg)
+![image_sequence_to_action_000002 frame 1949](images/image_sequence_to_action_000002_04.jpg)
 
 ### 问题
 
@@ -470,7 +470,7 @@ The five images are consecutive Minecraft observations in chronological order ac
 动作块 1：
 
 ```text
-<|action_start|> ; shift MouseLeft ; shift ; shift ; shift <|action_end|>
+<|action_start|> ; Mouse 12 4 ; Mouse 44 8 ; Mouse 76 4 ; Mouse 24 1 <|action_end|>
 ```
 
 ### 结构校验结果
@@ -545,29 +545,29 @@ The images are past observations in chronological order and contain no action la
 | 字段 | 内容 |
 |---|---|
 | 题型 | `history_to_future_action` |
-| 来源 episode | `lovely-persimmon-angora-738809e79cc7-20220416-150446` |
-| 图片帧 | `[9339, 9343, 9347, 9351]` |
-| 目标动作区间 | `[9351, 9355]` |
+| 来源 episode | `lovely-persimmon-angora-743ac0c64519-20220416-212236` |
+| 图片帧 | `[2334, 2338, 2342, 2346]` |
+| 目标动作区间 | `[2346, 2350]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 9339**
+**图 1，帧 2334**
 
-![history_to_future_action_000001 frame 9339](images/history_to_future_action_000001_00.jpg)
+![history_to_future_action_000001 frame 2334](images/history_to_future_action_000001_00.jpg)
 
-**图 2，帧 9343**
+**图 2，帧 2338**
 
-![history_to_future_action_000001 frame 9343](images/history_to_future_action_000001_01.jpg)
+![history_to_future_action_000001 frame 2338](images/history_to_future_action_000001_01.jpg)
 
-**图 3，帧 9347**
+**图 3，帧 2342**
 
-![history_to_future_action_000001 frame 9347](images/history_to_future_action_000001_02.jpg)
+![history_to_future_action_000001 frame 2342](images/history_to_future_action_000001_02.jpg)
 
-**图 4，帧 9351**
+**图 4，帧 2346**
 
-![history_to_future_action_000001 frame 9351](images/history_to_future_action_000001_03.jpg)
+![history_to_future_action_000001 frame 2346](images/history_to_future_action_000001_03.jpg)
 
 ### 问题
 
@@ -600,29 +600,29 @@ The images are past observations in chronological order and contain no action la
 | 字段 | 内容 |
 |---|---|
 | 题型 | `history_to_future_action` |
-| 来源 episode | `shabby-viridian-beaver-90117de50fa9-20220417-153308` |
-| 图片帧 | `[16410, 16414, 16418, 16422]` |
-| 目标动作区间 | `[16422, 16426]` |
+| 来源 episode | `shabby-viridian-beaver-922bac605e0c-20220419-172533` |
+| 图片帧 | `[8205, 8209, 8213, 8217]` |
+| 目标动作区间 | `[8217, 8221]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
 
 ### 图片
 
-**图 1，帧 16410**
+**图 1，帧 8205**
 
-![history_to_future_action_000002 frame 16410](images/history_to_future_action_000002_00.jpg)
+![history_to_future_action_000002 frame 8205](images/history_to_future_action_000002_00.jpg)
 
-**图 2，帧 16414**
+**图 2，帧 8209**
 
-![history_to_future_action_000002 frame 16414](images/history_to_future_action_000002_01.jpg)
+![history_to_future_action_000002 frame 8209](images/history_to_future_action_000002_01.jpg)
 
-**图 3，帧 16418**
+**图 3，帧 8213**
 
-![history_to_future_action_000002 frame 16418](images/history_to_future_action_000002_02.jpg)
+![history_to_future_action_000002 frame 8213](images/history_to_future_action_000002_02.jpg)
 
-**图 4，帧 16422**
+**图 4，帧 8217**
 
-![history_to_future_action_000002 frame 16422](images/history_to_future_action_000002_03.jpg)
+![history_to_future_action_000002 frame 8217](images/history_to_future_action_000002_03.jpg)
 
 ### 问题
 
@@ -635,7 +635,7 @@ The images are past observations in chronological order and contain no action la
 动作块 1：
 
 ```text
-<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
+<|action_start|> ; Mouse 40 -12 ; Mouse 26 -11 ; Mouse 1 0 MouseLeft ; S MouseLeft <|action_end|>
 ```
 
 ### 结构校验结果

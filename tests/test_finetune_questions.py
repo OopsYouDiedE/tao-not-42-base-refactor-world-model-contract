@@ -8,6 +8,7 @@ from PIL import Image
 
 from datasets.minestudio_finetune.generate_questions import (
     build_question_record,
+    normalize_gui_clicks,
     source_frames,
     write_dataset_readme,
 )
@@ -34,6 +35,30 @@ def test_prediction_frames_do_not_cross_target_start() -> None:
 
 def test_image_sequence_covers_observed_transition() -> None:
     assert source_frames("image_sequence_to_action", 20) == [20, 21, 22, 23, 24]
+
+
+def test_gui_held_click_becomes_single_pulse() -> None:
+    import numpy as np
+
+    actions = {
+        "camera": np.zeros((5, 2)),
+        "attack": np.asarray([1, 1, 1, 0, 1]),
+    }
+    metadata = [{"isGuiOpen": True} for _ in range(5)]
+    normalized = normalize_gui_clicks(actions, metadata)
+    assert normalized["attack"].tolist() == [1, 0, 0, 0, 1]
+
+
+def test_world_held_click_keeps_held_semantics() -> None:
+    import numpy as np
+
+    actions = {
+        "camera": np.zeros((4, 2)),
+        "attack": np.asarray([1, 1, 1, 1]),
+    }
+    metadata = [{"isGuiOpen": False} for _ in range(4)]
+    normalized = normalize_gui_clicks(actions, metadata)
+    assert normalized["attack"].tolist() == [1, 1, 1, 1]
 
 
 def test_optimization_frames_cover_chronological_sequence() -> None:

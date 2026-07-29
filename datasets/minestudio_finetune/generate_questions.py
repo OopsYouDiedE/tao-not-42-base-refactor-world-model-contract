@@ -147,14 +147,48 @@ def _action_blocks(
     start: int,
     count: int,
 ) -> list[str]:
+    total_frames = count * WINDOW_FRAMES
+    actions = reader.readers["action"].read_frames(episode, start, total_frames)
+    metadata = reader.readers["meta_info"].read_frames(episode, start, total_frames)
+    normalized = normalize_gui_clicks(actions, metadata)
     return [
-        encode_lumine_action(
-            reader.readers["action"].read_frames(
-                episode, start + index * WINDOW_FRAMES, WINDOW_FRAMES,
-            ),
-        ).to_text()
+        encode_lumine_action({
+            field: np.asarray(values)[
+                index * WINDOW_FRAMES:(index + 1) * WINDOW_FRAMES
+            ]
+            for field, values in normalized.items()
+        }).to_text()
         for index in range(count)
     ]
+
+
+def normalize_gui_clicks(
+    actions: dict[str, np.ndarray],
+    metadata: list[dict[str, Any]],
+) -> dict[str, np.ndarray]:
+    """把 GUI 内连续鼠标键 held 状态转换为离散按下沿脉冲。
+
+    普通游戏画面保留原始 held 语义。GUI 中一次物理点击在采样数据里可能连续保持多个 tick；
+    训练标签只在该连续段的首 tick 写鼠标键，后续 tick 留空，以显式表达释放间隔。
+    """
+    normalized = {field: np.array(values, copy=True) for field, values in actions.items()}
+    if len(metadata) != len(np.asarray(actions["camera"])):
+        raise ValueError("meta_info 与 action 帧数不一致")
+    for field in ("attack", "use"):
+        if field not in normalized:
+            continue
+        original = np.asarray(actions[field]).astype(bool)
+        pulses = np.array(normalized[field], copy=True)
+        previously_active = False
+        for index, active in enumerate(original):
+            in_gui = bool(metadata[index].get("isGuiOpen"))
+            if in_gui:
+                pulses[index] = int(active and not previously_active)
+            else:
+                pulses[index] = int(active)
+            previously_active = bool(active) if in_gui else False
+        normalized[field] = pulses
+    return normalized
 
 
 def build_question_record(
@@ -207,7 +241,7 @@ def build_questions(
     _prepare_output(output, overwrite)
     randomizer = random.Random(seed)
     reader = TrajectoryReader(
-        dataset_directories, ["action", "image"], frame_width, frame_height,
+        dataset_directories, ["action", "image", "meta_info"], frame_width, frame_height,
     )
     questions: list[dict[str, Any]] = []
     answers: list[dict[str, Any]] = []
@@ -274,6 +308,7 @@ def build_questions(
         "answer_key": "answer_key.jsonl",
         "readme": "README.md",
         "initial_review_status": "pending_human_and_ai_review",
+        "gui_click_normalization": "held mouse buttons become rising-edge pulses in GUI frames",
     }
     (output / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",

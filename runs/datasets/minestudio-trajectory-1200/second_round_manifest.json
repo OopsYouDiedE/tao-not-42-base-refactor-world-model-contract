@@ -1,0 +1,19 @@
+{
+  "format": "minestudio_trajectory_second_round_review_candidate_v1",
+  "status": "pending_human_second_round_review",
+  "candidate_count": 237,
+  "task_counts": {
+    "demonstration_optimization": 46,
+    "image_sequence_to_action": 66,
+    "history_to_future_action": 67,
+    "single_frame_intent_to_action": 58
+  },
+  "answer_source": "subagent_canonical_predictable_answer",
+  "questions_file": "questions.jsonl",
+  "answer_key_file": "answer_key.jsonl",
+  "question_reviews_file": "question_reviews.jsonl",
+  "candidate_answers_file": "second_round_preannotations.jsonl",
+  "human_action_reviews_file": "action_reviews.jsonl",
+  "training_ready": false,
+  "training_gate": "Each sample requires an approved human second-round action review before HDF5 packing."
+}

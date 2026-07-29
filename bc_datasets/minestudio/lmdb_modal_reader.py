@@ -7,7 +7,8 @@
 
 MineStudio v1.1.0 布局：每个模态一组 LMDB 分片，分片内以
 ``str((episode_idx, chunk_id))`` 为 key，value 是固定 ``__chunk_size__`` 帧的一段数据。
-``action`` / ``meta_info`` 的 value 是 pickle 字典，``image`` 的 value 是视频字节流。
+``action`` 的 value 是字段到数组的 pickle 字典，``meta_info`` 是逐帧字典列表，
+``image`` 的 value 是视频字节流。
 不同模态的分片切分边界不同，跨模态必须按 episode 名对齐，不能按分片号配对。
 """
 
@@ -202,6 +203,8 @@ class ModalKernelReader:
         """把连续若干块沿时间轴拼接。"""
         if self.modal == "image":
             return np.concatenate(decoded, axis=0)
+        if self.modal == "meta_info":
+            return [frame for chunk in decoded for frame in chunk]
         merged: dict[str, list[np.ndarray]] = {}
         for item in decoded:
             for key, value in item.items():
@@ -224,7 +227,8 @@ class ModalKernelReader:
         -------
         numpy.ndarray or dict
             ``image`` 模态返回 shape (T, H, W, 3)、dtype uint8 的 RGB 帧数组；
-            ``action`` / ``meta_info`` 返回字段名 → 长度 T 数组的字典。
+            ``action`` 返回字段名 → 长度 T 数组的字典；``meta_info`` 返回长度 T 的
+            逐帧字典列表。
             实际 T 为 ``min(length, num_frames - start)``。
         """
         if start < 0:
@@ -262,6 +266,8 @@ class ModalKernelReader:
             single = decoded[0]
             if self.modal == "image":
                 return np.array(single[offset:offset + count], copy=True)
+            if self.modal == "meta_info":
+                return [dict(frame) for frame in single[offset:offset + count]]
             return {
                 key: np.array(value[offset:offset + count], copy=True)
                 for key, value in single.items()
@@ -269,6 +275,8 @@ class ModalKernelReader:
         merged = self._merge_chunks(decoded)
         if self.modal == "image":
             return merged[offset:offset + count]
+        if self.modal == "meta_info":
+            return [dict(frame) for frame in merged[offset:offset + count]]
         return {key: value[offset:offset + count] for key, value in merged.items()}
 
 

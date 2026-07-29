@@ -1,0 +1,30 @@
+{"id":"demonstration_optimization_000000","task_type":"demonstration_optimization","decision":"correct","confidence":5,"reason":"画面显示玩家在平原持续冲刺前进并随后跳跃；回答完整保留了连贯的 W、ctrl 与 space 时序，原轨迹本身已较整洁，保持不变不会损害演示意图。"}
+{"id":"demonstration_optimization_000001","task_type":"demonstration_optimization","decision":"correct","confidence":4,"reason":"昏暗矿道画面仍可辨认出持续前进、挖掘和转向；回答仅删除开头幅度为 2、-2 的孤立微小鼠标抖动，保留后续必要转向、W 和 MouseLeft，属于保守且有益的清理。"}
+{"id":"demonstration_optimization_000002","task_type":"demonstration_optimization","decision":"correct","confidence":5,"reason":"四帧均显示对准露天矿坑中的方块持续挖掘，视角基本稳定；回答删除全部零星 1 到 3 单位鼠标噪声并保留连续 MouseLeft，清理后更能表达稳定挖掘意图。"}
+{"id":"demonstration_optimization_000003","task_type":"demonstration_optimization","decision":"correct","confidence":5,"reason":"矿道中持续挥镐且中段视角明显调整；回答删除幅度很小的 Mouse 0 2，同时保留 Mouse 14 -25 与 Mouse 3 -8 的可见转向及全部 MouseLeft，符合有益清理。"}
+{"id":"demonstration_optimization_000004","task_type":"demonstration_optimization","decision":"correct","confidence":5,"reason":"画面显示近距离持续挖掘石块，中段存在明显纵向视角调整；回答移除 1 到 2 单位微动，保留 Mouse 1 -13、Mouse 1 -9 与持续 MouseLeft，保持了可见意图。"}
+{"id":"demonstration_optimization_000005","task_type":"demonstration_optimization","decision":"correct","confidence":4,"reason":"前三帧表现 GUI 中连续点击，末帧退出或转移视角；回答保留连续 MouseLeft 和最后显著的连续鼠标移动，删除点击结束处孤立 Mouse 0 2 与一个冗余空拍，因果顺序仍完整。"}
+{"id":"demonstration_optimization_000006","task_type":"demonstration_optimization","decision":"correct","confidence":4,"reason":"树叶间对准木块持续采集，画面伴随调整和短暂后退侧移；回答保留 MouseLeft、显著视角变化以及 S D，只删除少量开头和中间微动，未改变采集意图。"}
+{"id":"demonstration_optimization_000007","task_type":"demonstration_optimization","decision":"correct","confidence":4,"reason":"平原中连续冲刺跳跃并在末段快速转向、使用物品；回答删除数个 1 到 2 单位鼠标抖动，保留大幅转向、W space ctrl 与 MouseRight，动作主线和末段交互完整。"}
+{"id":"demonstration_optimization_000008","task_type":"demonstration_optimization","decision":"correct","confidence":4,"reason":"画面从平原快速移动转入较暗矿区，存在明显连续转向；回答仅删除 Mouse 3 -2 这一微小调整，保留冲刺跳跃和其余显著 Mouse 轨迹，属于低风险清理。"}
+{"id":"demonstration_optimization_000009","task_type":"demonstration_optimization","decision":"correct","confidence":5,"reason":"林地画面显示持续向前移动、连续左转并在末段跳跃；回答删除两个幅度极小的 Mouse -2 0 与 Mouse -2 -1，保留其余转向、W、ctrl、space，轨迹更简洁且意图不变。"}
+{"id":"image_sequence_to_action_000000","task_type":"image_sequence_to_action","decision":"unanswerable","confidence":5,"reason":"五帧几乎全黑，仅能看到准星和状态栏，无法观察 W 前进应产生的场景位移，也无法据视觉变化反推动作。"}
+{"id":"image_sequence_to_action_000001","task_type":"image_sequence_to_action","decision":"correct","confidence":3,"reason":"五帧显示物品栏 GUI，槽位或物品状态发生细微变化；连续 MouseLeft 是能够造成此类界面变化的合法相对光标点击轨迹，具体点击位置虽有多解但语义合理。"}
+{"id":"image_sequence_to_action_000002","task_type":"image_sequence_to_action","decision":"correct","confidence":4,"reason":"明亮平原中的连续帧呈现向前推进的轻微视差，视角方向基本稳定；持续 W ctrl 能合理解释快速直线位移。"}
+{"id":"image_sequence_to_action_000003","task_type":"image_sequence_to_action","decision":"correct","confidence":4,"reason":"玩家手持可食用物品，连续帧中手部物品保持在使用姿态且场景基本静止；持续 MouseRight 可合理解释连续进食或使用物品。"}
+{"id":"image_sequence_to_action_000004","task_type":"image_sequence_to_action","decision":"correct","confidence":5,"reason":"矿洞五帧清晰显示钻石镐反复挥动并破坏前方方块，连续 MouseLeft 直接解释可见的挖掘动画与方块变化。"}
+{"id":"image_sequence_to_action_000005","task_type":"image_sequence_to_action","decision":"correct","confidence":3,"reason":"矿洞结构在五帧中持续发生小幅视角平移，未见明确按键移动或交互；连续小幅 Mouse 10 5 是一种能够解释该相机变化的合法轨迹。"}
+{"id":"image_sequence_to_action_000006","task_type":"image_sequence_to_action","decision":"correct","confidence":5,"reason":"五帧中镐的挥动位置连续变化，目标是矿道方块；持续 MouseLeft 能直接产生所见挖掘动画。"}
+{"id":"image_sequence_to_action_000007","task_type":"image_sequence_to_action","decision":"correct","confidence":5,"reason":"目标矿石的裂纹和镐挥动在连续帧中可见，持续 MouseLeft 是对这段状态变化的直接且充分解释。"}
+{"id":"image_sequence_to_action_000008","task_type":"image_sequence_to_action","decision":"correct","confidence":5,"reason":"煤矿石表面裂纹逐步加深且镐持续挥动，四个 MouseLeft tick 与可见挖掘过程一致。"}
+{"id":"image_sequence_to_action_000009","task_type":"image_sequence_to_action","decision":"unanswerable","confidence":4,"reason":"大量调试文字覆盖画面且场景极暗，五帧中的空间变化难以可靠辨认；无法确认持续 W 是否实际解释了可见状态转移。"}
+{"id":"history_to_future_action_000000","task_type":"history_to_future_action","decision":"correct","confidence":3,"reason":"历史帧均处于物品栏 GUI，界面内容表现为正在管理物品；在光标已位于目标附近时继续 MouseLeft 是合法且合理的短期后续操作。"}
+{"id":"history_to_future_action_000001","task_type":"history_to_future_action","decision":"correct","confidence":4,"reason":"尽管调试文字较多，历史帧仍可见矿洞中镐持续挥动和方块状态变化；未来继续 MouseLeft 符合已经建立的挖掘趋势。"}
+{"id":"history_to_future_action_000002","task_type":"history_to_future_action","decision":"unanswerable","confidence":5,"reason":"四帧矿洞几乎全黑，主要变化是快捷栏选中物品名称，无法从视觉确认先右转再前进的空间依据，也无法形成可靠未来动作判断。"}
+{"id":"history_to_future_action_000003","task_type":"history_to_future_action","decision":"unanswerable","confidence":5,"reason":"四帧主体区域接近全黑，只隐约可见手部和准星，目标方块及行为进展不可辨认，因此无法判断未来持续 MouseLeft 是否合理。"}
+{"id":"history_to_future_action_000004","task_type":"history_to_future_action","decision":"correct","confidence":5,"reason":"历史帧清晰显示镐连续破坏红石与铁矿附近方块，方块碎屑和视角变化表明挖掘仍在进行；未来继续 MouseLeft 合理。"}
+{"id":"history_to_future_action_000005","task_type":"history_to_future_action","decision":"correct","confidence":3,"reason":"矿道历史帧朝向前方通路，场景没有需要立即交互的障碍，持续 W 是一种自然的短期探索动作；未来任务允许多种合理选择。"}
+{"id":"history_to_future_action_000006","task_type":"history_to_future_action","decision":"correct","confidence":5,"reason":"四帧显示玩家靠近并对准红石矿脉，镐和方块位置支持继续采掘；连续 MouseLeft 是合理未来动作。"}
+{"id":"history_to_future_action_000007","task_type":"history_to_future_action","decision":"correct","confidence":4,"reason":"历史帧中煤矿石位于准星附近且镐已开始挥动，虽有调试文字覆盖，持续 MouseLeft 仍符合明显的挖矿趋势。"}
+{"id":"history_to_future_action_000008","task_type":"history_to_future_action","decision":"correct","confidence":4,"reason":"雪地村庄历史帧显示玩家沿道路绕过木柱向前观察，前方道路可通行；持续 W 是合理的短期延续动作。"}
+{"id":"history_to_future_action_000009","task_type":"history_to_future_action","decision":"correct","confidence":4,"reason":"四帧持续仰视同一树干且树干位于准星中心，场景意图明显是采集木材；未来连续 MouseLeft 能合理延续该行为。"}

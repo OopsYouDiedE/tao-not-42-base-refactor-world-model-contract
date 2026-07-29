@@ -40,8 +40,8 @@ def is_informative_action(actions: dict[str, np.ndarray]) -> bool:
 
 def source_frames(task_type: TaskType, start: int) -> list[int]:
     """返回题面使用的帧号；预测题不会取目标区间的未来帧。"""
-    if task_type == "image_to_action":
-        return [start]
+    if task_type == "image_sequence_to_action":
+        return list(range(start, start + WINDOW_FRAMES + 1))
     if task_type == "history_to_future_action":
         return [start - offset for offset in HISTORY_OFFSETS]
     return [start + offset for offset in range(0, OPTIMIZATION_WINDOWS * WINDOW_FRAMES, WINDOW_FRAMES)]
@@ -222,10 +222,11 @@ def build_questions(
                 attempts += 1
                 episode = randomizer.choice(episodes)
                 first = max(HISTORY_OFFSETS) if task_type == "history_to_future_action" else 0
-                needed = (
-                    OPTIMIZATION_WINDOWS * WINDOW_FRAMES
-                    if task_type == "demonstration_optimization" else WINDOW_FRAMES
-                )
+                needed = {
+                    "demonstration_optimization": OPTIMIZATION_WINDOWS * WINDOW_FRAMES,
+                    "image_sequence_to_action": WINDOW_FRAMES + 1,
+                    "history_to_future_action": WINDOW_FRAMES,
+                }[task_type]
                 last = reader.episode_length(episode) - needed
                 if last < first:
                     continue

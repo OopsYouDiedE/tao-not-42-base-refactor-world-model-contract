@@ -6,13 +6,13 @@ from typing import Literal, TypeAlias
 
 TaskType: TypeAlias = Literal[
     "demonstration_optimization",
-    "image_to_action",
+    "image_sequence_to_action",
     "history_to_future_action",
 ]
 
 TASK_TYPES: tuple[TaskType, ...] = (
     "demonstration_optimization",
-    "image_to_action",
+    "image_sequence_to_action",
     "history_to_future_action",
 )
 
@@ -23,10 +23,11 @@ TASK_PROMPTS: dict[TaskType, str] = {
         "intent and causal order. Remove isolated control noise, keep necessary movement and "
         "interaction, and return only a JSON array of valid action blocks."
     ),
-    "image_to_action": (
-        "Given only the current Minecraft image, propose one reasonable action sequence for the "
-        "next 200 ms. The action does not need to be uniquely optimal. Return only a JSON array "
-        "containing one valid action block."
+    "image_sequence_to_action": (
+        "The five images are consecutive Minecraft observations in chronological order across "
+        "200 ms. No action labels are provided. Infer one reasonable action sequence that could "
+        "have produced the observed transition. Return only a JSON array containing one valid "
+        "action block."
     ),
     "history_to_future_action": (
         "The images are past observations in chronological order and contain no action labels. "
@@ -49,7 +50,9 @@ OUTPUT_CONTRACT = {
 
 REVIEW_DIMENSIONS: dict[str, str] = {
     "source_integrity": "图片与动作来自同一 episode，帧号合法，时间顺序严格递增。",
-    "no_temporal_leakage": "预测题不包含目标动作区间内的图片、动作或未来元数据。",
+    "no_temporal_leakage": (
+        "未来预测题不包含目标区间信息；视觉反推题允许查看完整状态转移，但不含动作标签。"
+    ),
     "visual_answerability": (
         "题面图像足以支持一种合理动作；GUI 题可用可见光标状态、Mouse 相对移动与鼠标键表达。"
     ),

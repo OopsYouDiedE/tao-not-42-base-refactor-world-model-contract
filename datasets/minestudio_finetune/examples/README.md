@@ -308,13 +308,13 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 }
 ```
 
-## image_to_action_000000
+## image_sequence_to_action_000000
 
 | 字段 | 内容 |
 |---|---|
-| 题型 | `image_to_action` |
+| 题型 | `image_sequence_to_action` |
 | 来源 episode | `cheeky-cornflower-setter-6b3831c95bf8-20220417-112336` |
-| 图片帧 | `[18433]` |
+| 图片帧 | `[18433, 18434, 18435, 18436, 18437]` |
 | 目标动作区间 | `[18433, 18437]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
@@ -323,11 +323,27 @@ The images and raw action blocks form one chronological Minecraft demonstration.
 
 **图 1，帧 18433**
 
-![image_to_action_000000 frame 18433](images/image_to_action_000000_00.jpg)
+![image_sequence_to_action_000000 frame 18433](images/image_sequence_to_action_000000_00.jpg)
+
+**图 2，帧 18434**
+
+![image_sequence_to_action_000000 frame 18434](images/image_sequence_to_action_000000_01.jpg)
+
+**图 3，帧 18435**
+
+![image_sequence_to_action_000000 frame 18435](images/image_sequence_to_action_000000_02.jpg)
+
+**图 4，帧 18436**
+
+![image_sequence_to_action_000000 frame 18436](images/image_sequence_to_action_000000_03.jpg)
+
+**图 5，帧 18437**
+
+![image_sequence_to_action_000000 frame 18437](images/image_sequence_to_action_000000_04.jpg)
 
 ### 问题
 
-Given only the current Minecraft image, propose one reasonable action sequence for the next 200 ms. The action does not need to be uniquely optimal. Return only a JSON array containing one valid action block.
+The five images are consecutive Minecraft observations in chronological order across 200 ms. No action labels are provided. Infer one reasonable action sequence that could have produced the observed transition. Return only a JSON array containing one valid action block.
 
 ### 参考答案轨迹
 
@@ -343,7 +359,7 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 
 ```json
 {
-  "id": "image_to_action_000000",
+  "id": "image_sequence_to_action_000000",
   "reviewer": "deterministic_structure_audit_v1",
   "decision": "pass",
   "hard_rejection": false,
@@ -351,13 +367,13 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 }
 ```
 
-## image_to_action_000001
+## image_sequence_to_action_000001
 
 | 字段 | 内容 |
 |---|---|
-| 题型 | `image_to_action` |
+| 题型 | `image_sequence_to_action` |
 | 来源 episode | `lovely-persimmon-angora-e10920a66232-20220416-140321` |
-| 图片帧 | `[9213]` |
+| 图片帧 | `[9213, 9214, 9215, 9216, 9217]` |
 | 目标动作区间 | `[9213, 9217]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
@@ -366,11 +382,27 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 
 **图 1，帧 9213**
 
-![image_to_action_000001 frame 9213](images/image_to_action_000001_00.jpg)
+![image_sequence_to_action_000001 frame 9213](images/image_sequence_to_action_000001_00.jpg)
+
+**图 2，帧 9214**
+
+![image_sequence_to_action_000001 frame 9214](images/image_sequence_to_action_000001_01.jpg)
+
+**图 3，帧 9215**
+
+![image_sequence_to_action_000001 frame 9215](images/image_sequence_to_action_000001_02.jpg)
+
+**图 4，帧 9216**
+
+![image_sequence_to_action_000001 frame 9216](images/image_sequence_to_action_000001_03.jpg)
+
+**图 5，帧 9217**
+
+![image_sequence_to_action_000001 frame 9217](images/image_sequence_to_action_000001_04.jpg)
 
 ### 问题
 
-Given only the current Minecraft image, propose one reasonable action sequence for the next 200 ms. The action does not need to be uniquely optimal. Return only a JSON array containing one valid action block.
+The five images are consecutive Minecraft observations in chronological order across 200 ms. No action labels are provided. Infer one reasonable action sequence that could have produced the observed transition. Return only a JSON array containing one valid action block.
 
 ### 参考答案轨迹
 
@@ -386,7 +418,7 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 
 ```json
 {
-  "id": "image_to_action_000001",
+  "id": "image_sequence_to_action_000001",
   "reviewer": "deterministic_structure_audit_v1",
   "decision": "pass",
   "hard_rejection": false,
@@ -394,13 +426,13 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 }
 ```
 
-## image_to_action_000002
+## image_sequence_to_action_000002
 
 | 字段 | 内容 |
 |---|---|
-| 题型 | `image_to_action` |
+| 题型 | `image_sequence_to_action` |
 | 来源 episode | `shabby-viridian-beaver-922bac605e0c-20220419-172533` |
-| 图片帧 | `[972]` |
+| 图片帧 | `[972, 973, 974, 975, 976]` |
 | 目标动作区间 | `[972, 976]` |
 | 初始训练准入 | `False` |
 | 结构审核 | `pass` |
@@ -409,11 +441,27 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 
 **图 1，帧 972**
 
-![image_to_action_000002 frame 972](images/image_to_action_000002_00.jpg)
+![image_sequence_to_action_000002 frame 972](images/image_sequence_to_action_000002_00.jpg)
+
+**图 2，帧 973**
+
+![image_sequence_to_action_000002 frame 973](images/image_sequence_to_action_000002_01.jpg)
+
+**图 3，帧 974**
+
+![image_sequence_to_action_000002 frame 974](images/image_sequence_to_action_000002_02.jpg)
+
+**图 4，帧 975**
+
+![image_sequence_to_action_000002 frame 975](images/image_sequence_to_action_000002_03.jpg)
+
+**图 5，帧 976**
+
+![image_sequence_to_action_000002 frame 976](images/image_sequence_to_action_000002_04.jpg)
 
 ### 问题
 
-Given only the current Minecraft image, propose one reasonable action sequence for the next 200 ms. The action does not need to be uniquely optimal. Return only a JSON array containing one valid action block.
+The five images are consecutive Minecraft observations in chronological order across 200 ms. No action labels are provided. Infer one reasonable action sequence that could have produced the observed transition. Return only a JSON array containing one valid action block.
 
 ### 参考答案轨迹
 
@@ -429,7 +477,7 @@ Given only the current Minecraft image, propose one reasonable action sequence f
 
 ```json
 {
-  "id": "image_to_action_000002",
+  "id": "image_sequence_to_action_000002",
   "reviewer": "deterministic_structure_audit_v1",
   "decision": "pass",
   "hard_rejection": false,

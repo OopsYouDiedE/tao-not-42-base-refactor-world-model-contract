@@ -54,7 +54,7 @@ def structural_review(question: dict[str, Any], dataset_root: Path) -> dict[str,
     if frames != sorted(frames) or len(frames) != len(set(frames)):
         reasons.append("non_monotonic_frames")
     target = question.get("target_interval") or []
-    if question.get("task_type") in {"image_to_action", "history_to_future_action"}:
+    if question.get("task_type") == "history_to_future_action":
         if len(target) == 2 and any(frame > target[0] for frame in frames):
             reasons.append("future_leakage")
         if "raw_action_sequence" in (question.get("inputs") or {}):

@@ -1,9 +1,9 @@
 {"id": "demonstration_optimization_000000", "task_type": "demonstration_optimization", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
 {"id": "demonstration_optimization_000001", "task_type": "demonstration_optimization", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
 {"id": "demonstration_optimization_000002", "task_type": "demonstration_optimization", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
-{"id": "image_to_action_000000", "task_type": "image_to_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
-{"id": "image_to_action_000001", "task_type": "image_to_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
-{"id": "image_to_action_000002", "task_type": "image_to_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
+{"id": "image_sequence_to_action_000000", "task_type": "image_sequence_to_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
+{"id": "image_sequence_to_action_000001", "task_type": "image_sequence_to_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
+{"id": "image_sequence_to_action_000002", "task_type": "image_sequence_to_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
 {"id": "history_to_future_action_000000", "task_type": "history_to_future_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
 {"id": "history_to_future_action_000001", "task_type": "history_to_future_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}
 {"id": "history_to_future_action_000002", "task_type": "history_to_future_action", "format_valid": true, "reference_similarity": 1.0, "requires_semantic_review": true, "note": "参考示范不是唯一合理答案；相似度不能单独决定正确性或训练准入。"}

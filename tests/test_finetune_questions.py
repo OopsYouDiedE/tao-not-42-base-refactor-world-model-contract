@@ -22,15 +22,18 @@ ACTION = "<|action_start|> ; Mouse 35 30 ; W ; W D Mouse 4 -2 <|action_end|>"
 def test_three_required_task_types_are_stable() -> None:
     assert TASK_TYPES == (
         "demonstration_optimization",
-        "image_to_action",
+        "image_sequence_to_action",
         "history_to_future_action",
     )
     assert "cursor in GUI" in OUTPUT_CONTRACT["mouse"]
 
 
 def test_prediction_frames_do_not_cross_target_start() -> None:
-    assert source_frames("image_to_action", 20) == [20]
     assert source_frames("history_to_future_action", 20) == [8, 12, 16, 20]
+
+
+def test_image_sequence_covers_observed_transition() -> None:
+    assert source_frames("image_sequence_to_action", 20) == [20, 21, 22, 23, 24]
 
 
 def test_optimization_frames_cover_chronological_sequence() -> None:
@@ -85,7 +88,7 @@ def test_answer_parser_requires_exact_block_count() -> None:
 
 
 def test_answer_evaluation_marks_reference_as_non_unique() -> None:
-    questions = [{"id": "q", "task_type": "image_to_action"}]
+    questions = [{"id": "q", "task_type": "image_sequence_to_action"}]
     key = [{"id": "q", "reference_action_sequence": [ACTION]}]
     responses = [{"id": "q", "answer": [ACTION]}]
     result = evaluate_responses(questions, key, responses)[0]
@@ -95,12 +98,15 @@ def test_answer_evaluation_marks_reference_as_non_unique() -> None:
 
 
 def test_generated_readme_contains_images_question_answer_and_review(tmp_path: Path) -> None:
-    question = build_question_record("q", "image_to_action", "episode", 20, ["images/q.jpg"])
+    question = build_question_record(
+        "q", "image_sequence_to_action", "episode", 20,
+        [f"images/q_{index}.jpg" for index in range(5)],
+    )
     answer = {"id": "q", "reference_action_sequence": [ACTION]}
     review = {"id": "q", "decision": "pass", "reasons": []}
     write_dataset_readme(tmp_path, [question], [answer], [review])
     report = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert "![q frame 20](images/q.jpg)" in report
+    assert "![q frame 20](images/q_0.jpg)" in report
     assert question["prompt"] in report
     assert ACTION in report
     assert '\"decision\": \"pass\"' in report

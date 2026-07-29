@@ -3,17 +3,192 @@
 本目录保存从 MineStudio 真实轨迹生成动作训练题、审核题目和测试模型作答的代码。生成结果
 写入调用方指定的 `runs/` 子目录。本目录只保存代码、题目契约和审核标准。
 
+## 端到端测试流程
+
+本项目把出题、解题和判题分成相互隔离的阶段。做题模型和视觉裁判都不能读取参考答案。
+
+| 阶段 | 输入 | 执行者 | 输出 | 答案是否可见 |
+|---|---|---|---|---|
+| 轨迹读取 | MineStudio `image/action` LMDB | `generate_questions.py` | 对齐的 episode 与帧窗口 | 是，仅生成器内部 |
+| 机器出题 | 对齐轨迹 | 出题器 | `questions.jsonl`、图片、隔离答案 | 题面与答案分文件 |
+| 结构校验 | 题面和图片 | `review_questions.py` | `structure_reviews.jsonl` | 不需要答案 |
+| 盲测导出 | 候选题 | `prepare_model_eval.py` | `blind/requests.jsonl` | 否 |
+| SubAgent 解题 | 盲测请求和图片 | 独立做题 SubAgent | `blind/responses.jsonl` | 否 |
+| 自动测试 | 模型回答和隔离参考 | `test_answers.py` | 格式、协议、参考相似度 | 仅测试器可见 |
+| 视觉裁判 | 题面、图片、模型回答 | 独立裁判 SubAgent | `semantic_judgments.jsonl` | 否 |
+| 汇总 | 自动测试和视觉裁判 | 报告流程 | 正确率、不可作答率、分题型指标 | 汇总阶段可见 |
+
+流程顺序：
+
+```text
+MineStudio LMDB
+      │
+      ▼
+episode 对齐与时间窗口采样
+      │
+      ├── questions.jsonl + images/ ──► blind/requests.jsonl ──► 做题 SubAgent
+      │                                                            │
+      └── answer_key.jsonl（隔离）                                  ▼
+                    │                                      blind/responses.jsonl
+                    │                                              │
+                    ├────────────► 自动协议与参考相似度测试 ◄──────┤
+                    │                                              │
+                    └────────────► 独立视觉裁判只看题图和回答 ◄────┘
+                                                   │
+                                                   ▼
+                                  格式通过率、语义正确率、不可作答率
+```
+
+### 出题流程
+
+| 题型 | 图像输入 | 动作输入 | 目标 | 时间限制 |
+|---|---|---|---|---|
+| `demonstration_optimization` | `t、t+4、t+8、t+12` | 16 帧原始动作 | 清理噪声并保持演示意图 | 输出覆盖原 16 帧行为 |
+| `image_sequence_to_action` | `t、t+1、t+2、t+3、t+4` | 无 | 反推产生视觉状态转移的 `[t,t+4)` 动作 | 允许看到动作结果 |
+| `history_to_future_action` | `t-12、t-8、t-4、t` | 无 | 预测尚未发生的 `[t,t+4)` 动作 | 禁止使用 `t` 之后图片 |
+
+出题器按以下顺序处理真实轨迹：
+
+1. 按 episode 名对齐 `image` 和 `action`，不按 LMDB 分片号配对。
+2. 按题型计算合法起始帧，保证图片和动作不越过 episode 末尾。
+3. 从 MineStudio 逐 tick 动作生成命名 token，鼠标写成 `Mouse dx dy`。
+4. 将题面写入 `questions.jsonl`，将人类参考轨迹写入独立的 `answer_key.jsonl`。
+5. 所有候选题初始设置 `include_in_training=false`。
+6. 结构校验检查图片存在、帧号顺序、动作协议和未来预测泄漏。
+
+### SubAgent 解题流程
+
+做题 SubAgent 只允许读取 `blind/README.md`、`blind/requests.jsonl` 和题目引用图片。它逐题：
+
+1. 按数组顺序查看全部图片，不只看首尾帧。
+2. 判断题型是演示优化、状态转移动作反推还是历史未来预测。
+3. 在普通画面中把 `Mouse dx dy` 理解为相机相对移动，在 GUI 中理解为光标相对移动。
+4. 只有按键与鼠标必须在同一 tick 同时执行时才混写。
+5. 输出一个 JSON 动作块数组，chunk 数允许变化。
+6. 保持请求中的 `id`，每道题恰好写一行 JSONL。
+
+本轮做题 SubAgent 完成 30/30 道，题号唯一、无重复、无缺失，动作协议格式通过率为 100%。
+
+### 测试与正确率
+
+| 检查 | 判定方式 | 是否作为最终正确率 |
+|---|---|---|
+| JSONL 完整性 | 30 个唯一题号，无缺失和重复 | 是，基础门槛 |
+| 动作协议 | action 标记、命名 Mouse token、至少一个变长 chunk | 是，基础门槛 |
+| 参考相似度 | 按 chunk 比较按键集合和鼠标相对移动 | 否，仅诊断 |
+| 视觉语义 | 回答是否能解释状态转移或构成合理未来行为 | 是 |
+| 不可作答 | 极暗、严重遮挡、缺少可见变化 | 从可作答正确率分母排除 |
+
+本轮结果：格式通过 `30/30`；视觉裁判正确 `26`、错误 `0`、不可作答 `4`；可作答题
+正确率为 `26/26 = 100%`，全部题目端到端通过率为 `26/30 = 86.67%`。完整报告见
+[`luna_eval/EVALUATION.md`](luna_eval/EVALUATION.md)。
+
+## 真实盲测轨迹示例
+
+以下三例来自实际 SubAgent 盲测。题目图片和模型回答在裁判完成之前均未与参考答案合并。
+
+### 示例一：优化连续挖掘演示
+
+题号：`demonstration_optimization_000001`
+
+轨迹图片：
+
+[帧 7793](luna_eval/images/demonstration_optimization_000001_00.jpg) ·
+[帧 7797](luna_eval/images/demonstration_optimization_000001_01.jpg) ·
+[帧 7801](luna_eval/images/demonstration_optimization_000001_02.jpg) ·
+[帧 7805](luna_eval/images/demonstration_optimization_000001_03.jpg)
+
+![演示优化起点](luna_eval/images/demonstration_optimization_000001_00.jpg)
+![演示优化终点](luna_eval/images/demonstration_optimization_000001_03.jpg)
+
+原始轨迹第一个 tick 含有孤立的小幅鼠标抖动：
+
+```text
+Mouse 2 -2 MouseLeft
+```
+
+SubAgent 输出将它清理为：
+
+```text
+MouseLeft
+```
+
+其余必要的 `W`、`MouseLeft` 和显著转向全部保留。完整回答的参考相似度为 `0.99975`。
+视觉裁判判定 `correct`，置信度 `4/5`，理由是删除了孤立微小抖动，同时保持了前进、挖掘
+和转向的因果顺序。
+
+### 示例二：根据五帧 GUI 状态变化反推动作
+
+题号：`image_sequence_to_action_000001`
+
+连续图片：
+
+[帧 8281](luna_eval/images/image_sequence_to_action_000001_00.jpg) ·
+[帧 8282](luna_eval/images/image_sequence_to_action_000001_01.jpg) ·
+[帧 8283](luna_eval/images/image_sequence_to_action_000001_02.jpg) ·
+[帧 8284](luna_eval/images/image_sequence_to_action_000001_03.jpg) ·
+[帧 8285](luna_eval/images/image_sequence_to_action_000001_04.jpg)
+
+![GUI 状态转移起点](luna_eval/images/image_sequence_to_action_000001_00.jpg)
+![GUI 状态转移终点](luna_eval/images/image_sequence_to_action_000001_04.jpg)
+
+题面不提供动作，只提供五张连续 GUI 图像。SubAgent 回答：
+
+```text
+<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
+```
+
+人类参考轨迹包含两次小幅相对移动后点击：
+
+```text
+<|action_start|> ; Mouse 0 6 ; Mouse 0 2 ; MouseLeft ; MouseLeft <|action_end|>
+```
+
+两者参考相似度为 `0.598`，但视觉裁判判定 `correct`，置信度 `3/5`。原因是 GUI 槽位状态
+发生变化；如果光标已经位于目标附近，连续 `MouseLeft` 能合理产生该变化，不要求唯一复现
+人类的微小光标调整。
+
+### 示例三：根据历史 GUI 预测未来动作
+
+题号：`history_to_future_action_000000`
+
+历史图片：
+
+[帧 13790](luna_eval/images/history_to_future_action_000000_00.jpg) ·
+[帧 13794](luna_eval/images/history_to_future_action_000000_01.jpg) ·
+[帧 13798](luna_eval/images/history_to_future_action_000000_02.jpg) ·
+[帧 13802](luna_eval/images/history_to_future_action_000000_03.jpg)
+
+![历史预测起点](luna_eval/images/history_to_future_action_000000_00.jpg)
+![历史预测当前帧](luna_eval/images/history_to_future_action_000000_03.jpg)
+
+SubAgent 根据物品栏管理状态预测：
+
+```text
+<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; MouseLeft <|action_end|>
+```
+
+人类参考轨迹选择继续小幅移动光标：
+
+```text
+<|action_start|> ; Mouse 5 0 ; Mouse 4 0 ; Mouse 2 0 ; Mouse 1 1 <|action_end|>
+```
+
+参考相似度只有 `0.19675`。视觉裁判仍判定 `correct`，置信度 `3/5`：历史帧显示玩家正在
+管理物品，如果光标已经接近目标位置，继续点击与继续移动都属于合理短期操作。这个案例说明
+未来动作多解时，参考相似度不能代替视觉语义判定。
+
 ## 三类题目
 
 | 标识 | 题目输入 | 模型任务 | 参考信息 |
 |---|---|---|---|
 | `demonstration_optimization` | 一段按时间排列的图像和原始动作序列 | 清理孤立控制噪声，保留可见意图与因果顺序，输出更适合作为动作演示的序列 | 同一段人类轨迹，作为参考而非自动认定的最优答案 |
-| `image_to_action` | 一张当前图像，不提供历史动作或未来图像 | 根据当前场景提出未来 200 ms 的一种合理动作序列 | 当前帧之后的人类动作示范 |
+| `image_sequence_to_action` | 五张覆盖 200 ms 状态转移的连续图像，不提供动作 | 根据已经发生的视觉变化反推出动作序列 | 产生该状态转移的人类动作示范 |
 | `history_to_future_action` | 四张过去图像，按 `t-12、t-8、t-4、t` 排列，不提供动作 | 根据视觉历史推导未来 200 ms 的一种合理动作序列 | `t` 之后的人类动作示范 |
 
 三类题都允许多个合理答案。参考动作来自真实人类轨迹，用于检查答案是否严重偏离数据分布，
-不表示唯一正确动作。尤其是单图动作推导，图像通常不能确定唯一目标，审核时应判断动作是否
-合理、安全、符合画面，而不是要求逐 token 复现参考示范。
+不表示唯一正确动作。视觉序列反推允许看到动作前后的完整状态变化，但不提供任何动作标签；
+历史预测只允许看到目标时刻及更早的图片，不能看到动作发生后的结果。
 
 ## 目录代码
 
@@ -151,7 +326,7 @@ python -m datasets.minestudio_finetune.review_questions \
 
 ```json
 {
-  "id": "image_to_action_000001",
+  "id": "image_sequence_to_action_000001",
   "reviewer_kind": "human",
   "decision": "approve",
   "scores": {
@@ -173,7 +348,7 @@ python -m datasets.minestudio_finetune.review_questions \
 做题模型输出 JSONL，每行包含题号和动作块数组：
 
 ```json
-{"id":"image_to_action_000001","answer":["<|action_start|> ; Mouse 35 30 ; W ; Mouse 4 -2 W D <|action_end|>"]}
+{"id":"image_sequence_to_action_000001","answer":["<|action_start|> ; Mouse 35 30 ; W ; Mouse 4 -2 W D <|action_end|>"]}
 ```
 
 运行测试：
@@ -228,7 +403,7 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 | 项目 | 结果 |
 |---|---:|
 | 候选题目 | 9 |
-| 轨迹图片 | 27 |
+| 轨迹图片 | 39 |
 | 结构校验通过 | 9 |
 | 动作协议回放通过 | 9 |
 | 视觉语义审核通过 | 5 |
@@ -296,15 +471,23 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 合格依据：配方格、输出格和物品变化清晰。`Mouse dx dy` 表达 GUI 内的相对光标移动，
 `MouseLeft` 表达点击，协议足以描述该轨迹。
 
-### 合格案例三：单图挖掘动作
+### 合格案例三：连续图像反推挖掘动作
 
-题号：`image_to_action_000000`
+题号：`image_sequence_to_action_000000`
 
-[使用图片：帧 18433](examples/images/image_to_action_000000_00.jpg)
+五张图片逐帧覆盖 `18433` 到 `18437`，展示动作造成的完整状态转移：
 
-![单图挖掘场景](examples/images/image_to_action_000000_00.jpg)
+[帧 18433](examples/images/image_sequence_to_action_000000_00.jpg) ·
+[帧 18434](examples/images/image_sequence_to_action_000000_01.jpg) ·
+[帧 18435](examples/images/image_sequence_to_action_000000_02.jpg) ·
+[帧 18436](examples/images/image_sequence_to_action_000000_03.jpg) ·
+[帧 18437](examples/images/image_sequence_to_action_000000_04.jpg)
 
-问题：仅根据当前 Minecraft 图像，提出未来 200 ms 的一种合理动作序列。
+![挖掘状态转移起点](examples/images/image_sequence_to_action_000000_00.jpg)
+![挖掘状态转移终点](examples/images/image_sequence_to_action_000000_04.jpg)
+
+问题：五张图像是按时间排列的连续状态，不提供动作标签。根据镐击、裂纹变化和方块破坏，
+反推出一种能够产生该状态转移的动作序列。
 
 参考答案轨迹：
 
@@ -312,18 +495,25 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 <|action_start|> ; MouseLeft ; Mouse 0 12 MouseLeft ; Mouse -9 49 MouseLeft ; Mouse -10 40 MouseLeft <|action_end|>
 ```
 
-合格依据：画面清晰显示玩家正对矿洞方块挥镐。继续点击并逐 tick 调整视角是一种直接、
-可解释的未来动作。参考轨迹不是唯一答案。
+合格依据：状态变化清晰显示连续挖掘已经发生，因此持续 `MouseLeft` 和逐 tick 视角调整有
+直接视觉证据。这是动作反推题，不是对尚未发生动作的预测题。
 
-### 合格案例四：单图 GUI 动作
+### 合格案例四：连续 GUI 图像反推动作
 
-题号：`image_to_action_000002`
+题号：`image_sequence_to_action_000002`
 
-[使用图片：帧 972](examples/images/image_to_action_000002_00.jpg)
+五张连续 GUI 图片：
 
-![单图 GUI 场景](examples/images/image_to_action_000002_00.jpg)
+[帧 972](examples/images/image_sequence_to_action_000002_00.jpg) ·
+[帧 973](examples/images/image_sequence_to_action_000002_01.jpg) ·
+[帧 974](examples/images/image_sequence_to_action_000002_02.jpg) ·
+[帧 975](examples/images/image_sequence_to_action_000002_03.jpg) ·
+[帧 976](examples/images/image_sequence_to_action_000002_04.jpg)
 
-问题：仅根据当前工作台界面，提出未来 200 ms 的一种合理 GUI 动作序列。
+![GUI 状态转移起点](examples/images/image_sequence_to_action_000002_00.jpg)
+![GUI 状态转移终点](examples/images/image_sequence_to_action_000002_04.jpg)
+
+问题：根据五张连续工作台界面的输出格变化，在没有动作标签的情况下反推 GUI 动作。
 
 参考答案轨迹：
 
@@ -365,6 +555,44 @@ MineStudio 参考窗口仍由四个 50 ms tick 构成。鼠标相对移动写在
 | 题号 | 拒绝原因 |
 |---|---|
 | `demonstration_optimization_000000` | 四张矿洞图片整体过暗，无法可靠判断优化是否保留原意 |
-| `image_to_action_000001` | 单图接近全黑，参考攻击动作缺少足够视觉依据 |
+| `image_sequence_to_action_000001` | 五张连续图均接近全黑，状态变化不足以支持可靠动作反推 |
 | `history_to_future_action_000000` | 调试信息覆盖大部分画面，场景目标不够清晰 |
 | `history_to_future_action_000001` | 四张历史图均过暗，无法可靠判断持续攻击对象 |
+
+## 5.6 Luna 盲测批次
+
+已另外生成一批不与展示案例重复的评测题，位于 [`luna_eval/`](luna_eval/README.md)。批次使用
+随机种子 `20260731`，每类 10 道，共 30 道、130 张图片。30 道全部通过结构校验和参考轨迹
+协议回放。
+
+交给模型的隔离包位于 [`luna_eval/blind/`](luna_eval/blind/README.md)：
+
+| 文件 | 内容 |
+|---|---|
+| [`requests.jsonl`](luna_eval/blind/requests.jsonl) | 30 道题面、图片相对路径、输入和输出契约 |
+| [`responses_template.jsonl`](luna_eval/blind/responses_template.jsonl) | 模型回答模板 |
+| [`README.md`](luna_eval/blind/README.md) | 隔离要求和评测命令 |
+
+盲测包不包含 `answer_key.jsonl`。独立 SubAgent 已完成 30 道回答，结果保存在
+[`blind/responses.jsonl`](luna_eval/blind/responses.jsonl)，自动评分和独立视觉裁判均已完成。
+
+```bash
+python -m datasets.minestudio_finetune.test_answers \
+  --dataset-dir datasets/minestudio_finetune/luna_eval \
+  --responses datasets/minestudio_finetune/luna_eval/blind/responses.jsonl \
+  --output datasets/minestudio_finetune/luna_eval/luna_results.jsonl
+```
+
+动作存在多解，因此正确率以独立视觉语义审核通过率为最终口径；动作协议格式通过率和人类
+参考轨迹相似度作为诊断指标。完整报告见 [`luna_eval/EVALUATION.md`](luna_eval/EVALUATION.md)。
+
+| 指标 | 结果 |
+|---|---:|
+| 格式通过率 | 30 / 30，100% |
+| 可作答题语义正确率 | 26 / 26，100% |
+| 全部题目通过率 | 26 / 30，86.67% |
+| 不可作答题 | 4 |
+| 平均参考相似度 | 0.7795 |
+
+4 道不可作答题均因极暗画面或调试文字严重遮挡。它们反映出题筛选问题，不计入可作答题的
+模型正确率。

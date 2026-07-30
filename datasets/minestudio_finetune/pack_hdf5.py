@@ -10,6 +10,8 @@ from typing import Any
 import h5py
 import numpy as np
 
+from datasets.minestudio_finetune.sft_protocol import normalize_question, training_reason
+
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
@@ -64,6 +66,7 @@ def pack_approved_questions(
     output.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output, "w") as archive:
         archive.attrs["format"] = "minestudio_trajectory_sft_v1"
+        archive.attrs["response_protocol"] = "action_first_reason_optional_v1"
         samples = archive.create_group("samples", track_order=True)
         for index, question in enumerate(approved):
             sample_id = question["id"]
@@ -90,6 +93,8 @@ def pack_approved_questions(
             question = {
                 **question, "review_status": "approved", "include_in_training": True,
             }
+            question = normalize_question(question)
+            answer["answer_reason"] = training_reason(question, answer)
             group = samples.create_group(f"{index:08d}")
             group.attrs["id"] = sample_id
             group.attrs["question_json"] = json.dumps(question, ensure_ascii=False)

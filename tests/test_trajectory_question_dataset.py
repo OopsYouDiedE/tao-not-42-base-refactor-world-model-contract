@@ -10,6 +10,7 @@ from PIL import Image
 
 from datasets.minestudio_finetune.load_hdf5 import format_question_prompt, load_hdf5_conversations
 from datasets.minestudio_finetune.pack_hdf5 import pack_approved_questions
+from datasets.minestudio_finetune.sft_protocol import format_assistant_response, sanitize_intent
 
 
 ACTION = "<|action_start|> ; MouseLeft ; ; MouseLeft <|action_end|>"
@@ -47,7 +48,10 @@ def test_pack_and_load_multimodal_messages(tmp_path: Path) -> None:
     assert pack_approved_questions(tmp_path, archive)["sample_count"] == 1
     conversation = load_hdf5_conversations(archive)[0]
     assert conversation["messages"][0]["content"][0]["type"] == "image"
-    assert json.loads(conversation["messages"][1]["content"][0]["text"]) == [ACTION]
+    answer_text = conversation["messages"][1]["content"][0]["text"]
+    actions, reason = answer_text.split("\nReason: ", 1)
+    assert json.loads(actions) == [ACTION]
+    assert reason == "动作与图像一致"
 
 
 def test_pack_rejects_missing_reviewed_answer(tmp_path: Path) -> None:
@@ -90,7 +94,9 @@ def test_pack_uses_reviewed_answer_for_every_task(tmp_path: Path) -> None:
     archive = tmp_path / "train.h5"
     pack_approved_questions(tmp_path, archive)
     answer_text = load_hdf5_conversations(archive)[0]["messages"][1]["content"][0]["text"]
-    assert json.loads(answer_text) == [reviewed]
+    actions, reason = answer_text.split("\nReason: ", 1)
+    assert json.loads(actions) == [reviewed]
+    assert reason == "采用规范移动动作"
 
 
 def test_format_question_prompt_includes_public_timing() -> None:
@@ -100,3 +106,32 @@ def test_format_question_prompt_includes_public_timing() -> None:
     assert "Required action-block tick counts: [5, 8]" in prompt
     assert "Intent: 挖掘石块" in prompt
     assert "do not return nested tick arrays" in prompt
+    assert "Reason:" in prompt
+
+
+def test_future_prompt_hides_reference_tick_count_and_asks_for_suitable_duration() -> None:
+    prompt = format_question_prompt({
+        "task_type": "single_frame_intent_to_action",
+        "prompt": "legacy prompt",
+        "inputs": {"action_block_ticks": [60], "intent": "向前疾跑（59 tick，向右转向）"},
+    })
+    assert "Required action-block tick counts" not in prompt
+    assert "59 tick" not in prompt
+    assert "Intent: 向前疾跑（向右转向）" in prompt
+    assert "suitable number" in prompt
+    assert "up to 60 ticks" in prompt
+
+
+def test_action_first_response_starts_with_independently_parseable_json() -> None:
+    question = {
+        "task_type": "history_to_future_action", "inputs": {},
+    }
+    answer = {"reference_action_sequence": [ACTION], "answer_reason": ""}
+    response = format_assistant_response(question, answer)
+    actions, reason = response.split("\nReason: ", 1)
+    assert json.loads(actions) == [ACTION]
+    assert reason
+
+
+def test_sanitize_intent_removes_tick_answer_without_dropping_direction() -> None:
+    assert sanitize_intent("沿路线疾跑（39 tick，向右平视）") == "沿路线疾跑（向右平视）"

@@ -14,6 +14,7 @@ from PIL import Image
 
 from datasets.action_codec import decode_lumine_action, encode_lumine_action
 from datasets.minestudio_data.load import TrajectoryReader
+from datasets.minestudio_finetune.sft_protocol import TASK_PROMPTS
 from typing import Literal, TypeAlias
 
 TaskType: TypeAlias = Literal[
@@ -28,41 +29,6 @@ TASK_TYPES: tuple[TaskType, ...] = (
     "history_to_future_action",
     "single_frame_intent_to_action",
 )
-TASK_PROMPTS: dict[TaskType, str] = {
-    "demonstration_optimization": (
-        "The images and raw action blocks form one chronological Minecraft demonstration. "
-        "Rewrite it as a cleaner action sequence while preserving visible intent and causal "
-        "order. Return one block per adjacent image pair and exactly match the supplied tick count "
-        "for every block. One semicolon is one 50 ms tick. Do not shorten duration-sensitive held "
-        "actions such as mining, attacking, moving, drawing a bow, eating, or continuous use. "
-        "Remove only visually unsupported camera jitter; preserve GUI click order. Return only the "
-        "JSON array of action blocks."
-    ),
-    "image_sequence_to_action": (
-        "The images are consecutive Minecraft observations in chronological order. Infer one "
-        "reasonable action sequence that produced every adjacent transition. Return only a JSON "
-        "array containing one valid action block for each adjacent image pair, with each block "
-        "exactly matching its supplied tick count. One semicolon is one 50 ms tick. Keep movement, "
-        "mining, attacking, drawing, eating, and continuous use held for the required duration. "
-        "Use visible camera displacement to infer meaningful mouse direction, omit unsupported "
-        "1-2 pixel jitter, and preserve GUI click order."
-    ),
-    "history_to_future_action": (
-        "The images are past Minecraft observations in chronological order. Infer one "
-        "reasonable action sequence for the supplied future horizon. Return one valid action block "
-        "with exactly the supplied number of 50 ms ticks. Continue visually established held "
-        "actions for a plausible duration, omit unsupported 1-2 pixel camera jitter, and do not "
-        "invent GUI clicks or auxiliary keys without visual evidence. Return only a JSON array."
-    ),
-    "single_frame_intent_to_action": (
-        "The image is the current Minecraft observation and the intent is supplied as text. "
-        "Infer one reasonable action sequence for the supplied future horizon that advances this "
-        "intent. Return one valid action block with exactly the supplied number of 50 ms ticks. "
-        "Preserve the required duration of mining, movement, bow drawing, eating, or continuous "
-        "use; omit unsupported 1-2 pixel camera jitter and preserve GUI click order. Return only a "
-        "JSON array."
-    ),
-}
 OUTPUT_CONTRACT = {
     "type": "json_array",
     "item": "variable-length named-token action block",

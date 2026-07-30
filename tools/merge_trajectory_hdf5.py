@@ -24,6 +24,12 @@ def main() -> None:
                 raise ValueError("输入文件格式不兼容")
         with h5py.File(args.output, "w") as output:
             output.attrs["format"] = "minestudio_trajectory_sft_v1"
+            protocols = {str(archive.attrs.get("response_protocol", "")) for archive in (base, append)}
+            protocols.discard("")
+            if len(protocols) > 1:
+                raise ValueError("输入文件的回答协议不一致")
+            if protocols:
+                output.attrs["response_protocol"] = protocols.pop()
             samples = output.create_group("samples", track_order=True)
             seen: set[str] = set()
             index = 0

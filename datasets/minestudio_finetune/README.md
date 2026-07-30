@@ -20,8 +20,8 @@ HDF5，以及把 HDF5 解析成视觉 LoRA 训练所需的多图对话。候选 
 |---|---|---|
 | `demonstration_optimization` | 图像序列与原始动作 | 经独立审核的去噪动作轨迹 |
 | `image_sequence_to_action` | 完整状态变化图像序列 | 一种能够解释变化的动作轨迹 |
-| `history_to_future_action` | 过去图像序列 | 未来 200 ms 的一种合理动作轨迹 |
-| `single_frame_intent_to_action` | 当前单帧与文字意图 | 推进该意图的未来 200 ms 动作轨迹 |
+| `history_to_future_action` | 过去图像序列 | 自行选择合适时长的一种未来动作轨迹 |
+| `single_frame_intent_to_action` | 当前单帧与文字意图 | 自行选择合适时长、推进意图的未来动作轨迹 |
 
 人工题目审核界面展示每道题的完整参考动作序列。`history_to_future_action` 和
 `single_frame_intent_to_action` 各自只额外展示一张未来关键帧，并将它接在全部输入图像后组成
@@ -40,6 +40,11 @@ HDF5，以及把 HDF5 解析成视觉 LoRA 训练所需的多图对话。候选 
 动作块允许变长，每个 `;` 分隔一个 50 ms tick。`Mouse dx dy` 在普通画面表示相机相对
 移动，在 GUI 表示光标相对移动。GUI 的鼠标键使用按下沿脉冲；普通画面的持续挖掘继续使用
 连续 `MouseLeft`。只有需要同 tick 执行时才把鼠标移动与按键混写。
+
+过去区间重建题继续公开每段准确 tick 数，因为它由相邻输入帧的间隔决定。未来规划题不公开参考
+答案长度，模型根据动作类型自行选择；短操作保持简洁，移动、挖掘、攻击、拉弓、进食和持续使用
+可以持续到 60 tick。assistant 首先输出可独立解析的 JSON 动作数组，下一行再以 `Reason:` 给出
+简短依据。运行时可在完整动作数组闭合后立即执行，并截断尚未生成或尚未完成的理由。
 
 ## 生成与自动过滤
 
@@ -168,7 +173,8 @@ python -m train.gemma_vision_sft \
 ```
 
 HDF5 路径会自动关闭 LMDB 流式加载并使用 `load_hdf5_conversations()`。每个 user message 中
-图片位于文本之前，assistant message 只包含 JSON 动作数组。
+图片位于文本之前。assistant message 先给出完整 JSON 动作数组，再换行输出 `Reason:`；动作数组
+闭合后已经具备独立可执行性，后方理由允许截断。
 
 ## 案例一：GUI 间断点击
 
@@ -205,7 +211,8 @@ HDF5 路径会自动关闭 LMDB 流式加载并使用 `load_hdf5_conversations()
 
 正式训练包是 `runs/datasets/minestudio-trajectory-7xx-800-train.h5`，共 531 条。以下使用固定随机
 种子 `42` 从四类入库题目中各抽一条。内容按 `load_hdf5.py` 的真实训练路径展示：模型先收到
-按时间排列的 JPEG，随后收到完整文字 Prompt；assistant 监督目标只包含动作 JSON 数组。
+按时间排列的 JPEG，随后收到完整文字 Prompt；assistant 监督目标先输出动作 JSON 数组，再输出
+可以截断的简短理由。
 
 ### 演示动作优化：`demonstration_optimization_000188`
 
@@ -214,9 +221,10 @@ HDF5 路径会自动关闭 LMDB 流式加载并使用 `load_hdf5_conversations()
 | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_00.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_01.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_02.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_03.jpg) |
 
 ```text
-The images and raw action blocks form one chronological Minecraft demonstration. Rewrite it as a cleaner action sequence while preserving visible intent and causal order. Return one block per adjacent image pair and exactly match the supplied tick count for every block. One semicolon is one 50 ms tick. Do not shorten duration-sensitive held actions such as mining, attacking, moving, drawing a bow, eating, or continuous use. Remove only visually unsupported camera jitter; preserve GUI click order. Return only the JSON array of action blocks.
+The images and raw action blocks form one chronological Minecraft demonstration. Rewrite it as a cleaner action sequence while preserving visible intent and causal order. Return one block per adjacent image pair and exactly match the supplied tick count for every block. One semicolon is one 50 ms tick. Do not shorten duration-sensitive held actions such as mining, attacking, moving, drawing a bow, eating, or continuous use. Remove only visually unsupported camera jitter and preserve GUI click order.
 Required action-block tick counts: [4, 4, 4]
 Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
 Raw action sequence:
 ["<|action_start|> ; Mouse -12 6 MouseLeft ; Mouse 10 24 MouseLeft ; Mouse 12 18 MouseLeft ; MouseLeft <|action_end|>", "<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; Mouse 3 -8 MouseLeft <|action_end|>", "<|action_start|> ; Mouse 3 -14 MouseLeft ; Mouse -6 -11 MouseLeft ; Mouse -5 -7 MouseLeft ; Mouse -3 0 MouseLeft <|action_end|>"]
 ```
@@ -225,6 +233,7 @@ Raw action sequence:
 
 ```json
 ["<|action_start|> ; Mouse -2 30 MouseLeft ; MouseLeft ; MouseLeft ; Mouse 12 18 MouseLeft <|action_end|>", "<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; Mouse 3 -8 MouseLeft <|action_end|>", "<|action_start|> ; Mouse -3 -25 MouseLeft ; MouseLeft ; MouseLeft ; Mouse -8 -7 MouseLeft <|action_end|>"]
+Reason: 相邻画面的可见变化与持续主要操作、调整视角或光标一致；动作持续时间与各图像区间保持一致。
 ```
 
 ### 图像序列转动作：`image_sequence_to_action_000036`
@@ -234,15 +243,17 @@ Raw action sequence:
 | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_00.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_01.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_02.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_03.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_04.jpg) |
 
 ```text
-The images are consecutive Minecraft observations in chronological order. Infer one reasonable action sequence that produced every adjacent transition. Return only a JSON array containing one valid action block for each adjacent image pair, with each block exactly matching its supplied tick count. One semicolon is one 50 ms tick. Keep movement, mining, attacking, drawing, eating, and continuous use held for the required duration. Use visible camera displacement to infer meaningful mouse direction, omit unsupported 1-2 pixel jitter, and preserve GUI click order.
+The images are consecutive Minecraft observations in chronological order. Infer one reasonable action sequence that produced every adjacent transition. Return one valid action block for each adjacent image pair, with each block exactly matching its supplied tick count. One semicolon is one 50 ms tick. Keep movement, mining, attacking, drawing, eating, and continuous use held for the required duration. Use visible camera displacement to infer meaningful mouse direction, omit unsupported 1-2 pixel jitter, and preserve GUI click order.
 Required action-block tick counts: [4, 4, 4, 4]
 Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
 ```
 
 参考输出：
 
 ```json
 ["<|action_start|> ; Mouse 140 29 W A space ; W A space ; W A ; Mouse 162 31 W A <|action_end|>", "<|action_start|> ; Mouse 53 9 A ; A ; A ; Mouse 44 9 A <|action_end|>", "<|action_start|> ; Mouse 49 1 A ;  ;  ; Mouse 19 -4 <|action_end|>", "<|action_start|> ; Mouse 1 -1 ; MouseLeft ; MouseLeft ; Mouse -29 -20 <|action_end|>"]
+Reason: 相邻画面的可见变化与前进、向左移动、跳跃、持续主要操作、调整视角或光标一致；动作持续时间与各图像区间保持一致。
 ```
 
 ### 历史帧预测未来动作：`history_to_future_action_000010`
@@ -252,15 +263,16 @@ Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ;
 | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_00.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_01.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_02.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_03.jpg) |
 
 ```text
-The images are past Minecraft observations in chronological order. Infer one reasonable action sequence for the supplied future horizon. Return one valid action block with exactly the supplied number of 50 ms ticks. Continue visually established held actions for a plausible duration, omit unsupported 1-2 pixel camera jitter, and do not invent GUI clicks or auxiliary keys without visual evidence. Return only a JSON array.
-Required action-block tick counts: [20]
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
 Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
 ```
 
 参考输出：
 
 ```json
 ["<|action_start|> ; Mouse 3 2 W space ; W space ; W space ; W space ; W space ; W space ; W space ctrl ; W space ctrl ; W space ctrl ; W space ctrl ; W space ; W space ; W space ; W space ; W space ; W space ; W space ; W space ; W space ctrl ; W space ctrl <|action_end|>"]
+Reason: 历史画面支持延续已经建立的操作，接下来执行前进、跳跃、疾跑、调整视角或光标。根据持续动作的需要选择 20 个 50 ms tick，并在之后重新观察。
 ```
 
 ### 单帧意图转动作：`single_frame_intent_to_action_000135`
@@ -270,14 +282,15 @@ Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ;
 | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/single_frame_intent_to_action_000135_00.jpg) |
 
 ```text
-The image is the current Minecraft observation and the intent is supplied as text. Infer one reasonable action sequence for the supplied future horizon that advances this intent. Return one valid action block with exactly the supplied number of 50 ms ticks. Preserve the required duration of mining, movement, bow drawing, eating, or continuous use; omit unsupported 1-2 pixel camera jitter and preserve GUI click order. Return only a JSON array.
-Required action-block tick counts: [40]
+The image is the current Minecraft observation and the intent is supplied as text. Infer one reasonable future action block that advances this intent. Choose a suitable number of 50 ms ticks from the action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, bow drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and preserve GUI click order.
 Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
-Intent: 沿当前可见路线疾跑跳跃（39 tick，向右平视修正视角）
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+Intent: 沿当前可见路线疾跑跳跃（向右平视修正视角）
 ```
 
 参考输出：
 
 ```json
 ["<|action_start|> ; Mouse -31 35 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W space ; W space ; W space ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ctrl ; W ctrl ; W ctrl ; W ; W ; W ; W ; Mouse 168 -18 W <|action_end|>"]
+Reason: 当前动作推进“沿当前可见路线疾跑跳跃（向右平视修正视角）”：执行前进、跳跃、疾跑、调整视角或光标。该动作类型需要连续输入，因此选择 40 个 50 ms tick。
 ```

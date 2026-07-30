@@ -5,7 +5,7 @@
 
 用法::
 
-    python -m train.gemma_vision_sft --model gemma-4-26B-A4B-it \
+    python -m train.gemma_vision_sft --model unsloth/gemma-4-26B-A4B-it \
         --dataset-dir runs/datasets/lumine-10xx --output-dir runs/trains/sft-gemma
 
 Gemma 4 的注意点：MoE 主干（26B-A4B）无官方 4bit 变体，走 bf16 LoRA；chat template 的
@@ -16,15 +16,13 @@ content 必须是列表而非裸字符串（本项目的对话构造已满足）
 from __future__ import annotations
 
 from train.command_line import build_argument_parser, run_from_arguments
-from train.unsloth_vision_sft import GEMMA_MODELS
 
 
 def main() -> None:
     """解析命令行并跑 Gemma 4 视觉 SFT。"""
     parser = build_argument_parser(
         description="在 Lumine 动作数据上微调 Gemma 4 视觉主干",
-        model_choices=GEMMA_MODELS,
-        default_model="gemma-4-26B-A4B-it",
+        default_model="unsloth/gemma-4-26B-A4B-it",
     )
     run_from_arguments(parser.parse_args())
 

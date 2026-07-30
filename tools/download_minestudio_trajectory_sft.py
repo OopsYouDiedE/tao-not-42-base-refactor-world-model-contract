@@ -9,7 +9,7 @@ from huggingface_hub import hf_hub_download
 
 
 DEFAULT_REPOSITORY = "unjustify/minestudio-trajectory-sft-237"
-DEFAULT_FILENAME = "minestudio-trajectory-sft-237.h5"
+DEFAULT_FILENAME = "minestudio-trajectory-sft-768.h5"
 
 
 def main() -> None:

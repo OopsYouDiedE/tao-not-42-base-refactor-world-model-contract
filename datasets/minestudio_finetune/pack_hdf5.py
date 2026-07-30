@@ -35,19 +35,24 @@ def pack_approved_questions(
     output_path: Path,
     ai_reviews_path: Path | None = None,
     human_reviews_path: Path | None = None,
+    final_reviews_path: Path | None = None,
 ) -> dict[str, Any]:
     """根据 AI 与人工双审结果，只打包双方批准且拥有合法答案的题目。"""
     root = Path(dataset_directory)
     questions = _read_jsonl(root / "questions.jsonl")
     answers = {record["id"]: record for record in _read_jsonl(root / "answer_key.jsonl")}
-    ai_reviews = {
-        record["id"]: record
-        for record in _read_jsonl(ai_reviews_path or root / "ai_reviews.jsonl")
-    }
-    human_reviews = {
-        record["id"]: record
-        for record in _read_jsonl(human_reviews_path or root / "human_reviews.jsonl")
-    }
+    if final_reviews_path is not None:
+        final_reviews = {record["id"]: record for record in _read_jsonl(final_reviews_path)}
+        ai_reviews = human_reviews = final_reviews
+    else:
+        ai_reviews = {
+            record["id"]: record
+            for record in _read_jsonl(ai_reviews_path or root / "ai_reviews.jsonl")
+        }
+        human_reviews = {
+            record["id"]: record
+            for record in _read_jsonl(human_reviews_path or root / "human_reviews.jsonl")
+        }
     approved = [
         question for question in questions
         if _approved_review(ai_reviews.get(question["id"], {}))
@@ -106,9 +111,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ai-reviews", type=Path)
     parser.add_argument("--human-reviews", type=Path)
+    parser.add_argument("--final-reviews", type=Path)
     arguments = parser.parse_args()
     result = pack_approved_questions(
         arguments.dataset_dir, arguments.output, arguments.ai_reviews, arguments.human_reviews,
+        arguments.final_reviews,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

@@ -43,7 +43,7 @@ def download_datasets(
             image_parts = sorted({
                 "/".join(path.split("/")[:2])
                 for path in files if path.startswith("image/part-")
-            })[:maximum_image_parts]
+            }, key=lambda part: int(part.rsplit("-", 1)[-1]))[:maximum_image_parts]
             if not image_parts:
                 raise RuntimeError(f"{repository} 没有可下载的 image 分片")
             allow_patterns.extend(f"{part}/*" for part in image_parts)

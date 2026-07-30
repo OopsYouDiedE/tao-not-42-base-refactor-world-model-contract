@@ -1,10 +1,10 @@
 """两族主干共用的训练命令行参数与入口构造。
 
 对外接口：
-    build_argument_parser — 按候选模型构造 parser。
+    build_argument_parser — 构造接受完整模型标识的 parser。
     run_from_arguments — 解析结果 → 训练调用。
 
-Gemma 与 Qwen 的入口只差候选模型与默认值，参数解析逻辑不重复实现。
+Gemma 与 Qwen 的入口只差默认模型与模型族说明，参数解析逻辑不重复实现。
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from pathlib import Path
 
 def build_argument_parser(
     description: str,
-    model_choices: dict[str, str],
     default_model: str,
 ) -> argparse.ArgumentParser:
     """构造训练命令行 parser。
@@ -25,15 +24,13 @@ def build_argument_parser(
     ----------
     description : str
         命令行帮助里的一句话说明。
-    model_choices : dict of str to str
-        可选模型短名 → HuggingFace 名。
     default_model : str
-        默认模型短名。
+        默认 Hugging Face 仓库名或本地模型路径。
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--model", default=default_model, choices=sorted(model_choices),
-        help="主干模型短名",
+        "--model", default=default_model,
+        help="完整 Hugging Face 仓库名或本地模型路径；该值会原样传给模型加载器",
     )
     parser.add_argument(
         "--dataset-dir", type=Path, required=True,

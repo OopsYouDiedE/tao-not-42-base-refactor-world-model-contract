@@ -123,19 +123,17 @@ class SFTSettings:
 
 
 def resolve_model_name(model: str) -> tuple[str, str]:
-    """把模型短名解析为 ``(HuggingFace 名, chat template 名)``。
+    """返回原始模型标识及其匹配的 chat template 名。
 
-    也接受完整 HuggingFace 名；此时按短名后缀匹配 chat template，匹配不到则报错，
-    避免静默套用错模板（模板不一致是导出后效果变差的最常见原因）。
+    ``model`` 必须是完整 Hugging Face 仓库名或本地模型路径，并原样传给加载器。
+    chat template 按模型名或路径末尾匹配，匹配不到则报错，避免静默套用错模板。
     """
-    known = {**GEMMA_MODELS, **QWEN_MODELS}
-    if model in known:
-        return known[model], CHAT_TEMPLATES[model]
-    for short_name, full_name in known.items():
-        if model == full_name or model.endswith(short_name):
+    for short_name in {**GEMMA_MODELS, **QWEN_MODELS}:
+        if model.endswith(short_name):
             return model, CHAT_TEMPLATES[short_name]
     raise ValueError(
-        f"无法为 {model!r} 确定 chat template，可选短名：{', '.join(sorted(known))}",
+        f"无法为 {model!r} 确定 chat template；模型名或路径末尾必须匹配："
+        f"{', '.join(sorted(CHAT_TEMPLATES))}",
     )
 
 
@@ -150,7 +148,7 @@ def load_vision_model(
     Parameters
     ----------
     model : str
-        模型短名或完整 HuggingFace 名。
+        完整 Hugging Face 仓库名或本地模型路径。
     lora : LoRASettings
         LoRA 配置。
     load_in_4bit : bool
@@ -216,7 +214,7 @@ def run_vision_sft(
     Parameters
     ----------
     model : str
-        模型短名或完整 HuggingFace 名。
+        完整 Hugging Face 仓库名或本地模型路径。
     dataset_directory : Path
         Lumine 预训练数据目录（``build_pretraining_dataset`` 的输出）。
     output_directory : Path

@@ -160,7 +160,7 @@ conversations = load_hdf5_conversations(
 
 ```bash
 python -m train.gemma_vision_sft \
-  --model gemma-4-26B-A4B-it \
+  --model unsloth/gemma-4-26B-A4B-it \
   --dataset-dir runs/datasets/minestudio-trajectory-train.h5 \
   --output-dir runs/trains/minestudio-trajectory-lora \
   --lora-rank 32 \
@@ -200,3 +200,84 @@ HDF5 路径会自动关闭 LMDB 流式加载并使用 `load_hdf5_conversations()
 | ![](examples/images/history_to_future_action_000001_00.jpg) | ![](examples/images/history_to_future_action_000001_01.jpg) | ![](examples/images/history_to_future_action_000001_02.jpg) | ![](examples/images/history_to_future_action_000001_03.jpg) |
 
 历史序列形成持续挥动工具和目标裂纹趋势，未来继续按住 `MouseLeft` 是有视觉依据的合理答案。
+
+## 7xx-800 实际训练样本抽样
+
+正式训练包是 `runs/datasets/minestudio-trajectory-7xx-800-train.h5`，共 531 条。以下使用固定随机
+种子 `42` 从四类入库题目中各抽一条。内容按 `load_hdf5.py` 的真实训练路径展示：模型先收到
+按时间排列的 JPEG，随后收到完整文字 Prompt；assistant 监督目标只包含动作 JSON 数组。
+
+### 演示动作优化：`demonstration_optimization_000188`
+
+| 帧 123 | 帧 127 | 帧 131 | 帧 135 |
+|---|---|---|---|
+| ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_00.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_01.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_02.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/demonstration_optimization_000188_03.jpg) |
+
+```text
+The images and raw action blocks form one chronological Minecraft demonstration. Rewrite it as a cleaner action sequence while preserving visible intent and causal order. Return one block per adjacent image pair and exactly match the supplied tick count for every block. One semicolon is one 50 ms tick. Do not shorten duration-sensitive held actions such as mining, attacking, moving, drawing a bow, eating, or continuous use. Remove only visually unsupported camera jitter; preserve GUI click order. Return only the JSON array of action blocks.
+Required action-block tick counts: [4, 4, 4]
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Raw action sequence:
+["<|action_start|> ; Mouse -12 6 MouseLeft ; Mouse 10 24 MouseLeft ; Mouse 12 18 MouseLeft ; MouseLeft <|action_end|>", "<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; Mouse 3 -8 MouseLeft <|action_end|>", "<|action_start|> ; Mouse 3 -14 MouseLeft ; Mouse -6 -11 MouseLeft ; Mouse -5 -7 MouseLeft ; Mouse -3 0 MouseLeft <|action_end|>"]
+```
+
+参考输出：
+
+```json
+["<|action_start|> ; Mouse -2 30 MouseLeft ; MouseLeft ; MouseLeft ; Mouse 12 18 MouseLeft <|action_end|>", "<|action_start|> ; MouseLeft ; MouseLeft ; MouseLeft ; Mouse 3 -8 MouseLeft <|action_end|>", "<|action_start|> ; Mouse -3 -25 MouseLeft ; MouseLeft ; MouseLeft ; Mouse -8 -7 MouseLeft <|action_end|>"]
+```
+
+### 图像序列转动作：`image_sequence_to_action_000036`
+
+| 帧 29515 | 帧 29519 | 帧 29523 | 帧 29527 | 帧 29531 |
+|---|---|---|---|---|
+| ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_00.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_01.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_02.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_03.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/image_sequence_to_action_000036_04.jpg) |
+
+```text
+The images are consecutive Minecraft observations in chronological order. Infer one reasonable action sequence that produced every adjacent transition. Return only a JSON array containing one valid action block for each adjacent image pair, with each block exactly matching its supplied tick count. One semicolon is one 50 ms tick. Keep movement, mining, attacking, drawing, eating, and continuous use held for the required duration. Use visible camera displacement to infer meaningful mouse direction, omit unsupported 1-2 pixel jitter, and preserve GUI click order.
+Required action-block tick counts: [4, 4, 4, 4]
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+```
+
+参考输出：
+
+```json
+["<|action_start|> ; Mouse 140 29 W A space ; W A space ; W A ; Mouse 162 31 W A <|action_end|>", "<|action_start|> ; Mouse 53 9 A ; A ; A ; Mouse 44 9 A <|action_end|>", "<|action_start|> ; Mouse 49 1 A ;  ;  ; Mouse 19 -4 <|action_end|>", "<|action_start|> ; Mouse 1 -1 ; MouseLeft ; MouseLeft ; Mouse -29 -20 <|action_end|>"]
+```
+
+### 历史帧预测未来动作：`history_to_future_action_000010`
+
+| 帧 667 | 帧 675 | 帧 679 | 当前帧 683 |
+|---|---|---|---|
+| ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_00.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_01.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_02.jpg) | ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/history_to_future_action_000010_03.jpg) |
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable action sequence for the supplied future horizon. Return one valid action block with exactly the supplied number of 50 ms ticks. Continue visually established held actions for a plausible duration, omit unsupported 1-2 pixel camera jitter, and do not invent GUI clicks or auxiliary keys without visual evidence. Return only a JSON array.
+Required action-block tick counts: [20]
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+```
+
+参考输出：
+
+```json
+["<|action_start|> ; Mouse 3 2 W space ; W space ; W space ; W space ; W space ; W space ; W space ctrl ; W space ctrl ; W space ctrl ; W space ctrl ; W space ; W space ; W space ; W space ; W space ; W space ; W space ; W space ; W space ctrl ; W space ctrl <|action_end|>"]
+```
+
+### 单帧意图转动作：`single_frame_intent_to_action_000135`
+
+| 当前帧 454 |
+|---|
+| ![](../../runs/datasets/minestudio-trajectory-7xx-800/images/single_frame_intent_to_action_000135_00.jpg) |
+
+```text
+The image is the current Minecraft observation and the intent is supplied as text. Infer one reasonable action sequence for the supplied future horizon that advances this intent. Return one valid action block with exactly the supplied number of 50 ms ticks. Preserve the required duration of mining, movement, bow drawing, eating, or continuous use; omit unsupported 1-2 pixel camera jitter and preserve GUI click order. Return only a JSON array.
+Required action-block tick counts: [40]
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Intent: 沿当前可见路线疾跑跳跃（39 tick，向右平视修正视角）
+```
+
+参考输出：
+
+```json
+["<|action_start|> ; Mouse -31 35 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W space ; W space ; W space ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ctrl ; W ctrl ; W ctrl ; W ; W ; W ; W ; Mouse 168 -18 W <|action_end|>"]
+```

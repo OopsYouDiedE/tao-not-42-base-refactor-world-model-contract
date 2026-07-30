@@ -10,7 +10,12 @@ from typing import Any
 
 import gradio as gr
 
-from datasets.action_codec import LumineActionChunk, LumineWindowAction, decode_lumine_action
+from datasets.action_codec import (
+    MOUSE_DELTA_LIMIT,
+    LumineActionChunk,
+    LumineWindowAction,
+    decode_lumine_action,
+)
 from datasets.minestudio_data.load import TrajectoryReader
 from tools.trajectory_human_review import TASK_LABELS, TASK_PROMPTS_ZH, format_reference_actions, read_jsonl
 
@@ -43,36 +48,44 @@ def _spread_chunks(keys: tuple[str, ...], mouse: tuple[int, int], count: int) ->
     return result
 
 
+def _place_mouse_near_boundary(
+    output: list[LumineActionChunk], indices: list[int], mouse: tuple[int, int],
+) -> None:
+    """从图像边界向内使用最少 tick 放置累计鼠标位移。"""
+    remaining_x, remaining_y = mouse
+    for index in indices:
+        if remaining_x == 0 and remaining_y == 0:
+            break
+        current_x = max(-MOUSE_DELTA_LIMIT, min(MOUSE_DELTA_LIMIT, remaining_x))
+        current_y = max(-MOUSE_DELTA_LIMIT, min(MOUSE_DELTA_LIMIT, remaining_y))
+        chunk = output[index]
+        output[index] = LumineActionChunk(
+            keys=chunk.keys,
+            mouse=(current_x, current_y),
+            scroll=chunk.scroll,
+        )
+        remaining_x -= current_x
+        remaining_y -= current_y
+    if remaining_x or remaining_y:
+        raise ValueError("鼠标累计位移超过当前半区可表达范围")
+
+
 def compress_gameplay_chunks(chunks: list[LumineActionChunk]) -> tuple[list[LumineActionChunk], dict[str, int]]:
-    """保留普通游戏持续按键时长，只合并同段内的鼠标偏移表达。"""
-    output: list[LumineActionChunk] = []
-    removed_empty = 0
-    merged_mouse = 0
-    compressed_held = 0
-    index = 0
-    while index < len(chunks):
-        keys = chunks[index].keys
-        end = index + 1
-        while end < len(chunks) and chunks[end].keys == keys and not chunks[end].scroll:
-            end += 1
-        run = chunks[index:end]
-        if not keys and all(chunk.mouse == (0, 0) for chunk in run):
-            removed_empty += len(run)
-            index = end
-            continue
-        representative_ticks = len(run) if keys else 1
-        nonzero_mouse = sum(chunk.mouse != (0, 0) for chunk in run)
-        merged_mouse += max(0, nonzero_mouse - 1)
-        if keys:
-            output.append(LumineActionChunk(keys=keys, mouse=_sum_mouse(run)))
-            output.extend(LumineActionChunk(keys=keys) for _ in range(len(run) - 1))
-        else:
-            output.extend(_spread_chunks(keys, _sum_mouse(run), representative_ticks))
-        index = end
+    """把非 GUI 鼠标微动压到最近的图像边界，并保留逐 tick 按键。"""
+    output = [LumineActionChunk(keys=chunk.keys, scroll=chunk.scroll) for chunk in chunks]
+    midpoint = (len(chunks) + 1) // 2
+    left = chunks[:midpoint]
+    right = chunks[midpoint:]
+    _place_mouse_near_boundary(output, list(range(midpoint)), _sum_mouse(left))
+    _place_mouse_near_boundary(
+        output, list(range(len(chunks) - 1, midpoint - 1, -1)), _sum_mouse(right),
+    )
+    original_nonzero = sum(chunk.mouse != (0, 0) for chunk in chunks)
+    output_nonzero = sum(chunk.mouse != (0, 0) for chunk in output)
     return output, {
-        "removed_empty_ticks": removed_empty,
-        "compressed_held_ticks": compressed_held,
-        "merged_mouse_ticks": merged_mouse,
+        "removed_empty_ticks": 0,
+        "compressed_held_ticks": 0,
+        "merged_mouse_ticks": max(0, original_nonzero - output_nonzero),
     }
 
 
@@ -130,6 +143,9 @@ def optimize_action_sequence(
         optimized, stats = compressor(chunks)
         if not optimized:
             optimized = [LumineActionChunk(keys=())]
+        if len(optimized) > len(chunks):
+            raise ValueError("优化后的动作块不能长于原始图像区间")
+        optimized.extend(LumineActionChunk(keys=()) for _ in range(len(chunks) - len(optimized)))
         output.append(LumineWindowAction(tuple(optimized)).to_text())
         totals["optimized_ticks"] += len(optimized)
         for key, value in stats.items():
@@ -223,7 +239,9 @@ class ActionReviewStore:
             raise ValueError("回答必须是非空动作字符串 JSON 数组")
         return [decode_lumine_action(block).to_text() for block in blocks]
 
-    def save(self, sample_id: str, answer_text: str, decision: str, reason: str) -> None:
+    def save(
+        self, sample_id: str, answer_text: str, intent: str, decision: str, reason: str,
+    ) -> None:
         if decision not in {"approve", "reject"}:
             raise ValueError("请选择批准或否决")
         concise_reason = reason.strip()
@@ -231,11 +249,14 @@ class ActionReviewStore:
             raise ValueError("请填写题目与回答的审核理由")
         sequence = self.parse_sequence(answer_text)
         question = self.questions[self.index_by_id[sample_id]]
+        reviewed_intent = str(intent).strip()
+        if question["task_type"] == "single_frame_intent_to_action" and not reviewed_intent:
+            raise ValueError("单帧意图题必须填写意图")
         expected_blocks = len(self.answers[sample_id]["reference_action_sequence"])
         if len(sequence) != expected_blocks:
             raise ValueError(f"该题型需要 {expected_blocks} 个动作块，当前为 {len(sequence)} 个")
         with self._lock:
-            self.reviews[sample_id] = {
+            record = {
                 "id": sample_id, "decision": decision, "reason": concise_reason,
                 "review_kind": "human_second_round_answer_review",
                 "reviewed_answer_sequence": sequence,
@@ -245,6 +266,16 @@ class ActionReviewStore:
                     else "reviewed_optimized_action_sequence"
                 ),
             }
+            if question["task_type"] == "single_frame_intent_to_action":
+                record["reviewed_intent"] = reviewed_intent
+                question.setdefault("inputs", {})["intent"] = reviewed_intent
+                question["inputs"]["intent_status"] = "human_reviewed"
+                self._write(self.root / "questions.jsonl", [
+                    self.questions[self.index_by_id[row["id"]]]
+                    if row["id"] in self.index_by_id else row
+                    for row in read_jsonl(self.root / "questions.jsonl")
+                ])
+            self.reviews[sample_id] = record
             self._write(self.review_path, [
                 self.reviews[row["id"]] for row in self.questions if row["id"] in self.reviews
             ])
@@ -289,10 +320,18 @@ def build_interface(store: ActionReviewStore) -> gr.Blocks:
         review = store.reviews.get(sample_id, {})
         sequence = review.get("reviewed_answer_sequence", candidate["answer_sequence"])
         reason = review.get("reason", candidate["answer_reason"])
+        intent = review.get(
+            "reviewed_intent",
+            candidate.get("suggested_intent", question.get("inputs", {}).get("intent", "")),
+        )
         task_text = "\n\n".join([
             f"### {TASK_LABELS[question['task_type']]}", TASK_PROMPTS_ZH[question["task_type"]],
             f"**本题输出要求：** {OUTPUT_REQUIREMENTS[question['task_type']]}",
             f"**AI 优化依据：** {candidate['answer_reason']}",
+            *(
+                [f"**AI 意图依据：** {candidate.get('intent_reason', '由观察帧与未来关键帧核对。')}"]
+                if question["task_type"] == "single_frame_intent_to_action" else []
+            ),
         ])
         blind = store.blind_answers.get(sample_id)
         comparison = store.blind_comparisons.get(sample_id)
@@ -318,13 +357,17 @@ def build_interface(store: ActionReviewStore) -> gr.Blocks:
             index, sample_id, f"## {sample_id}\n第 **{index + 1} / {len(store.questions)}** 道",
             images, task_text, format_reference_actions(truth, unoptimized=True), blind_text,
             preview_text, json.dumps(sequence, ensure_ascii=False, indent=2),
+            gr.update(
+                value=intent,
+                visible=question["task_type"] == "single_frame_intent_to_action",
+            ),
             review.get("decision"), reason, progress(),
         )
 
-    def save(index: int, answer_text: str, decision: str, reason: str) -> tuple[str, str]:
+    def save(index: int, answer_text: str, intent: str, decision: str, reason: str) -> tuple[str, str]:
         sample_id = store.questions[int(index)]["id"]
         try:
-            store.save(sample_id, answer_text, decision, reason)
+            store.save(sample_id, answer_text, intent, decision, reason)
         except ValueError as error:
             return f"❌ {error}", progress()
         return f"✅ 已保存 `{sample_id}` 的题目与回答审核。", progress()
@@ -354,6 +397,12 @@ def build_interface(store: ActionReviewStore) -> gr.Blocks:
             max_lines=40,
             interactive=True,
         )
+        intent = gr.Textbox(
+            label="单帧意图（可直接编辑）",
+            placeholder="例如：挖掘准星指向的煤矿石",
+            lines=2,
+            interactive=True,
+        )
         decision = gr.Radio(choices=[("批准（包括修改后批准）", "approve"), ("否决", "reject")], label="审核决定")
         reason = gr.Textbox(
             label="回答理由（可直接编辑）",
@@ -368,7 +417,7 @@ def build_interface(store: ActionReviewStore) -> gr.Blocks:
         progress_text = gr.Markdown()
         outputs = [
             index_state, selector, title, gallery, task, truth, blind_reference,
-            preview, answer, decision, reason, progress_text,
+            preview, answer, intent, decision, reason, progress_text,
         ]
         interface.load(render, gr.State(0), outputs)
         previous.click(lambda index: navigate(index, -1), index_state, outputs)
@@ -376,7 +425,7 @@ def build_interface(store: ActionReviewStore) -> gr.Blocks:
         selector.change(lambda sample_id: render(store.index_by_id[sample_id]), selector, outputs)
         answer.change(answer_preview, [answer, reason], preview)
         reason.change(answer_preview, [answer, reason], preview)
-        inputs = [index_state, answer, decision, reason]
+        inputs = [index_state, answer, intent, decision, reason]
         save_button.click(save, inputs, [status, progress_text])
         save_next.click(save, inputs, [status, progress_text]).then(lambda index: navigate(index, 1), index_state, outputs)
     return interface

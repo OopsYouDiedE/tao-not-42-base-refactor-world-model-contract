@@ -71,7 +71,44 @@ def generate(run: Path, output: Path) -> None:
             )
         lines.extend([
             "",
-            f"完整 Prompt、原始模型输出和解析后 chunks："
+            "上表的“正式动作块”是从模型 JSON 数组中抽取后交给执行器的 `action_text`，不是模型原始回复。",
+            "下面逐轮同时展示原始回复、抽取结果和解码结果。",
+            "",
+        ])
+        for record in trajectory["records"]:
+            model = record["model"]
+            raw_output = model.get("raw_model_output", "")
+            prompt_summary = model.get("prompt_summary", model.get("prompt", ""))
+            lines.extend([
+                f"### {trajectory_id} 第 {record['turn']} 轮模型输出与执行载荷",
+                "",
+                "当轮 Prompt 摘要：",
+                "",
+                "```text",
+                str(prompt_summary),
+                "```",
+                "",
+                "Terra 原始输出：",
+                "",
+                "```text",
+                str(raw_output),
+                "```",
+                "",
+                "从 JSON 数组抽取并提交给执行器的 `action_text`：",
+                "",
+                "```text",
+                record["action_text"],
+                "```",
+                "",
+                "`decode_lumine_action()` 解析后的逐 tick chunks：",
+                "",
+                "```json",
+                json.dumps(record["chunks"], ensure_ascii=False, indent=2),
+                "```",
+                "",
+            ])
+        lines.extend([
+            f"完整机器日志："
             f"[`{trajectory_id}/trajectory.json`](../runs/craftground-lumine-terra-batch4/{trajectory_id}/trajectory.json)。",
             "",
         ])
@@ -82,6 +119,12 @@ def generate(run: Path, output: Path) -> None:
         "## 独立评估",
         "",
         f"Batch 平均分：`{evaluation['batch_summary']['batch_mean_score']}`。",
+        "",
+        "## 原始输出编码说明",
+        "",
+        "部分回合的 `Reason:` 和 `prompt_summary` 中文在 PowerShell、WSL 与 HTTP JSON 的跨环境传输中",
+        "被记录为问号。动作 JSON 数组、`action_text`、解析 chunks、tick、RGB 和执行结果没有损坏。",
+        "报告按日志原样展示问号，不推测或重写丢失文本。后续应让客户端直接以 UTF-8 字节发送 JSON。",
         "",
     ])
     for item in evaluation["ranking"]:

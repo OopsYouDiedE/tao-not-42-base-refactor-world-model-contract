@@ -48,7 +48,462 @@ CraftGround V2 动作，并为每个 tick 保存一张 RGB。
 | 9 | 17–18 | `<\|action_start\|> ; Mouse -650 0 <\|action_end\|>` | 43.77 ms |
 | 10 | 18–19 | `<\|action_start\|> ; Mouse 650 0 <\|action_end\|>` | 58.25 ms |
 
-完整 Prompt、原始模型输出和解析后 chunks：[`T1/trajectory.json`](../runs/craftground-lumine-terra-batch4/T1/trajectory.json)。
+上表的“正式动作块”是从模型 JSON 数组中抽取后交给执行器的 `action_text`，不是模型原始回复。
+下面逐轮同时展示原始回复、抽取结果和解码结果。
+
+### T1 第 1 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 80 0 <|action_end|>"]
+Reason: The previous leftward correction leaves the chest visibly to the left of center. A single opposite horizontal correction is the smallest evidence-based adjustment before attempting use.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 80 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      80,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 2 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W <|action_end|>"]
+Reason: The chest is visible ahead but is still beyond reliable interaction range. Advance straight for a short sustained interval while keeping the current view.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 3 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -145 25 <|action_end|>"]
+Reason: The close chest is left and below the center point after the prior rightward view change. A single substantial left-and-down correction should align its front face for interaction.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -145 25 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -145,
+      25
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 4 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 200 0 <|action_end|>"]
+Reason: The latest observation shows the chest shifted farther left following the negative horizontal input. A single positive horizontal correction brings the nearby chest toward the center without adding unsupported keys.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 200 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      200,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 5 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 80 0 <|action_end|>"]
+Reason: The chest is now near the center after the correction, but its latch remains visibly left of the use point. A brief positive horizontal adjustment aligns the chest before interacting.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 80 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      80,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 6 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -80 0 <|action_end|>"]
+Reason: The chest has moved to the far left edge after the latest horizontal turn. Use the equal and opposite brief correction to restore it toward the use point.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -80 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -80,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 7 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 200 0 <|action_end|>"]
+Reason: The latest frame faces the right side of the room and the chest is no longer visible, while earlier positive correction moved the target back into view. Make one larger positive correction to reacquire it.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 200 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      200,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 8 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 650 0 <|action_end|>"]
+Reason: The chest is reacquired at the left edge. The immediately preceding positive correction moved it right by a small amount, so a single larger positive horizontal adjustment is needed to place its front face at the central use point.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 650 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      650,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 9 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -650 0 <|action_end|>"]
+Reason: The large positive correction overshot and placed the chest left of the view. The matching negative correction restores the prior horizontal orientation before the final interaction attempt.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -650 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -650,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T1 第 10 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence. Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays. Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 650 0 <|action_end|>"]
+Reason: The chest is absent from the latest frame after the prior turn. Restore the matching positive horizontal orientation to reacquire the visible task object; no use click is justified without it.
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 650 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      650,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+完整机器日志：[`T1/trajectory.json`](../runs/craftground-lumine-terra-batch4/T1/trajectory.json)。
 
 ### T1 frame_0000
 
@@ -145,7 +600,709 @@ CraftGround V2 动作，并为每个 tick 保存一张 RGB。
 | 9 | 38–39 | `<\|action_start\|> ; MouseRight <\|action_end\|>` | 59.55 ms |
 | 10 | 39–40 | `<\|action_start\|> ; D MouseRight <\|action_end\|>` | 62.45 ms |
 
-完整 Prompt、原始模型输出和解析后 chunks：[`T2/trajectory.json`](../runs/craftground-lumine-terra-batch4/T2/trajectory.json)。
+上表的“正式动作块”是从模型 JSON 数组中抽取后交给执行器的 `action_text`，不是模型原始回复。
+下面逐轮同时展示原始回复、抽取结果和解码结果。
+
+### T2 第 1 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -50 0 <|action_end|>"]
+Reason: ????????,????????,?????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -50 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -50,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 2 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; A ; A ; A ; A ; A ; A ; A ; A <|action_end|>"]
+Reason: ?????????????????,????????????????;???? tick ??????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; A ; A ; A ; A ; A ; A ; A ; A <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 3 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; D ; D ; D <|action_end|>"]
+Reason: ??????????????????? tick ??????????,???????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; D ; D ; D <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 4 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; A ; A ; A ; A ; A <|action_end|>"]
+Reason: ??????????????????? tick ???????????,???????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; A ; A ; A ; A ; A <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 5 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; D ; D ; D ; D ; D ; D ; D ; D ; D ; D <|action_end|>"]
+Reason: ????????????,???????????????????? tick ???????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; D ; D ; D ; D ; D ; D ; D ; D ; D ; D <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "D"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 6 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; MouseRight <|action_end|>"]
+Reason: ?????????????????????????????,???? tick ????? GUI?
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 7 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; W ; W ; W ; W ; W ; W ; W ; W <|action_end|>"]
+Reason: ?????? GUI,??????????????????????????,?? tick ??????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; W ; W ; W ; W ; W ; W ; W ; W <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 8 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; A ; A <|action_end|>"]
+Reason: ???????????,??????????????? tick ??????????,???????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; A ; A <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "A"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 9 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; MouseRight <|action_end|>"]
+Reason: ??????,????????????????? tick ????????? GUI ?????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T2 第 10 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; D MouseRight <|action_end|>"]
+Reason: ??????????,?????????????;? tick ????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; D MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "D",
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+完整机器日志：[`T2/trajectory.json`](../runs/craftground-lumine-terra-batch4/T2/trajectory.json)。
 
 ### T2 frame_0000
 
@@ -326,7 +1483,410 @@ CraftGround V2 动作，并为每个 tick 保存一张 RGB。
 | 9 | 8–10 | `<\|action_start\|> ; Mouse -450 0 ; MouseRight <\|action_end\|>` | 79.98 ms |
 | 10 | 10–12 | `<\|action_start\|> ; Mouse 450 0 ; MouseRight <\|action_end\|>` | 72.28 ms |
 
-完整 Prompt、原始模型输出和解析后 chunks：[`T3/trajectory.json`](../runs/craftground-lumine-terra-batch4/T3/trajectory.json)。
+上表的“正式动作块”是从模型 JSON 数组中抽取后交给执行器的 `action_text`，不是模型原始回复。
+下面逐轮同时展示原始回复、抽取结果和解码结果。
+
+### T3 第 1 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -35 0 <|action_end|>"]
+Reason: ????????,??????????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -35 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -35,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 2 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -100 0 <|action_end|>"]
+Reason: ?????????????,????????????????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -100 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -100,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 3 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -170 0 <|action_end|>"]
+Reason: ??????????,?????,?????????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -170 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -170,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 4 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 85 0 <|action_end|>"]
+Reason: ??????????,??????????,????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 85 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      85,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 5 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -205 0 <|action_end|>"]
+Reason: ????? tick ??????????,???????,-205 ???????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -205 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -205,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 6 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -270 0 <|action_end|>"]
+Reason: ????????,??????????????,???????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -270 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -270,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 7 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 999 0 <|action_end|>"]
+Reason: ???????????,????????????????????,??????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 999 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      999,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 8 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -999 0 <|action_end|>"]
+Reason: ????????;????????,?? 150 ???????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -999 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -999,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 9 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -450 0 ; MouseRight <|action_end|>"]
+Reason: ??????????,???????????????,???? tick ?????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -450 0 ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -450,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T3 第 10 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+The images are past Minecraft observations in chronological order. Infer one reasonable future action block. Choose a suitable number of 50 ms ticks from the visible action type and required duration instead of waiting for a supplied target length. Keep brief actions short; sustained movement, mining, attacking, drawing, eating, or continuous use may last up to 60 ticks. Omit unsupported 1-2 pixel camera jitter and do not invent GUI clicks or auxiliary keys without visual evidence.
+Action format example for a 3-tick block: "<|action_start|> ; W ; Mouse 4 -2 W ; W <|action_end|>". Each JSON array item must be one string action block; do not return nested tick arrays.
+Output the complete executable JSON action array first. Then start a new line with "Reason:" and briefly explain the visual evidence, intent, and duration choice. The action array must remain independently parseable because generation may stop after it.
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 450 0 ; MouseRight <|action_end|>"]
+Reason: ????????,?????????? tick ??????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 450 0 ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      450,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+完整机器日志：[`T3/trajectory.json`](../runs/craftground-lumine-terra-batch4/T3/trajectory.json)。
 
 ### T3 frame_0000
 
@@ -394,7 +1954,505 @@ CraftGround V2 动作，并为每个 tick 保存一张 RGB。
 | 8 | 23–24 | `<\|action_start\|> ; Mouse 0 0 <\|action_end\|>` | 52.97 ms |
 | 9 | 24–25 | `<\|action_start\|> ; MouseRight <\|action_end\|>` | 41.53 ms |
 
-完整 Prompt、原始模型输出和解析后 chunks：[`T4/trajectory.json`](../runs/craftground-lumine-terra-batch4/T4/trajectory.json)。
+上表的“正式动作块”是从模型 JSON 数组中抽取后交给执行器的 `action_text`，不是模型原始回复。
+下面逐轮同时展示原始回复、抽取结果和解码结果。
+
+### T4 第 1 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+????????????????,???????????;???? 13 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -35 0 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W <|action_end|>"]
+Reason: ?????????????,????????????,???????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -35 0 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      -35,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "W"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 2 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+????????????????,????????????,???????;???? 2 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -30 0 ; MouseRight <|action_end|>"]
+Reason: ?????????,???????????????????,?????? GUI?
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -30 0 ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -30,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 3 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+?????? GUI,????????????;???????????????????,???? 1 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse -200 180 <|action_end|>"]
+Reason: ?????????????,??????????;?????????,????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse -200 180 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      -200,
+      180
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 4 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+??????????,????????????????????;???? 3 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; MouseRight ; MouseRight ; MouseRight <|action_end|>"]
+Reason: ???????????????,??????????????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; MouseRight ; MouseRight ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 5 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+?????????????????????;???????????,???? 1 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 180 -80 <|action_end|>"]
+Reason: ?????????,????????????????,??????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 180 -80 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      180,
+      -80
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 6 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+???????????? tick;???????????????????????,???? 3 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; MouseRight ; MouseRight ; MouseRight <|action_end|>"]
+Reason: ??????? tick ????,????????????????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; MouseRight ; MouseRight ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  },
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 7 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+?????????;??????????? tick ??,?????????????
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; W MouseRight <|action_end|>"]
+Reason: ??????????,??????????????????????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; W MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "W",
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 8 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+????????????? GUI;????????? tick ?????,???????????
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; Mouse 0 0 <|action_end|>"]
+Reason: ???????????????????,?????????? tick ??????,????????
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; Mouse 0 0 <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+### T4 第 9 轮模型输出与执行载荷
+
+当轮 Prompt 摘要：
+
+```text
+???? tick ?,????????;??????????????? GUI,???? 1 ? 50 ms tick?
+```
+
+Terra 原始输出：
+
+```text
+["<|action_start|> ; MouseRight <|action_end|>"]
+Reason: ??????? tick,??????????;???????????? GUI?
+```
+
+从 JSON 数组抽取并提交给执行器的 `action_text`：
+
+```text
+<|action_start|> ; MouseRight <|action_end|>
+```
+
+`decode_lumine_action()` 解析后的逐 tick chunks：
+
+```json
+[
+  {
+    "keys": [
+      "MouseRight"
+    ],
+    "mouse": [
+      0,
+      0
+    ],
+    "scroll": 0
+  }
+]
+```
+
+完整机器日志：[`T4/trajectory.json`](../runs/craftground-lumine-terra-batch4/T4/trajectory.json)。
 
 ### T4 frame_0000
 
@@ -503,6 +2561,12 @@ CraftGround V2 动作，并为每个 tick 保存一张 RGB。
 ## 独立评估
 
 Batch 平均分：`39.0`。
+
+## 原始输出编码说明
+
+部分回合的 `Reason:` 和 `prompt_summary` 中文在 PowerShell、WSL 与 HTTP JSON 的跨环境传输中
+被记录为问号。动作 JSON 数组、`action_text`、解析 chunks、tick、RGB 和执行结果没有损坏。
+报告按日志原样展示问号，不推测或重写丢失文本。后续应让客户端直接以 UTF-8 字节发送 JSON。
 
 - 第 1 名：T4，分数 91，优势 +52.00。
 - 第 2 名：T2，分数 38，优势 -1.00。

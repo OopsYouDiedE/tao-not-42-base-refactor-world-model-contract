@@ -43,7 +43,26 @@
 ```bash
 # 安装系统依赖
 sudo apt update
-sudo apt install -y curl git ffmpeg libgl1 libglib2.0-0 xvfb
+sudo apt install -y \
+  curl \
+  git \
+  ffmpeg \
+  openjdk-21-jdk \
+  python3-pip \
+  libgl1 \
+  libglib2.0-0 \
+  libgl1-mesa-dev \
+  libegl1-mesa-dev \
+  libglew-dev \
+  libglu1-mesa-dev \
+  xorg-dev \
+  libglfw3-dev \
+  xvfb
+
+# CraftGround、Fabric 和首次 Gradle 构建需要 JDK 21
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+java -version
 
 # 安装 uv
 curl -LsSf https://astral.sh/uv/install.sh | sh

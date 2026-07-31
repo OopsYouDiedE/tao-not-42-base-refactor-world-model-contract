@@ -42,13 +42,22 @@ def _prompt() -> str:
 
 def _truncate_at_action_end(token_ids: torch.Tensor, tokenizer: Any) -> torch.Tensor:
     """保留第一个完整 action 结束标记，丢弃其后的自由文本。"""
-    marker = tokenizer.encode("<|action_end|>", add_special_tokens=False)
+    markers = [
+        tokenizer.encode(prefix + "<|action_end|>", add_special_tokens=False)
+        for prefix in ("", " ", "\n")
+    ]
+    markers = [marker for marker in markers if marker]
     values = token_ids.tolist()
-    if not marker:
+    if not markers:
         raise RuntimeError("tokenizer 无法编码 <|action_end|>")
-    for start in range(len(values) - len(marker) + 1):
-        if values[start : start + len(marker)] == marker:
-            return token_ids[: start + len(marker)]
+    matches = [
+        start + len(marker)
+        for marker in markers
+        for start in range(len(values) - len(marker) + 1)
+        if values[start : start + len(marker)] == marker
+    ]
+    if matches:
+        return token_ids[: min(matches)]
     preview = tokenizer.decode(token_ids[:256], skip_special_tokens=False)
     raise RuntimeError(f"模型输出未包含 <|action_end|>；输出前缀={preview!r}")
 

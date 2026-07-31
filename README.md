@@ -37,10 +37,24 @@
 
 ## 安装
 
-数据构建环境：
+项目元数据支持 Python 3.10 及以上版本。下面使用 Python 3.13 创建 Linux 训练环境；
+`3.13` 是推荐示例，不是精确版本限制。
 
 ```bash
-uv venv --python 3.11
+# 安装系统依赖
+sudo apt update
+sudo apt install -y curl git ffmpeg libgl1 libglib2.0-0 xvfb
+
+# 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+. "$HOME/.local/bin/env"
+
+# 下载项目并创建虚拟环境
+git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
+cd tao-not-42-base-refactor-world-model-contract
+uv venv --python 3.13
+
+# 安装数据构建所需的基础依赖
 uv pip install -e .
 ```
 

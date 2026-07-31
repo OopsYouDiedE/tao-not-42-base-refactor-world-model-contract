@@ -99,6 +99,23 @@ python -m train.gemma_vision_sft \
 ```
 
 HDF5 轨迹题训练使用相同入口，`--dataset-dir` 直接传 `.h5` 或 `.hdf5` 文件。
+正式 BC 使用 768 条归档，并按固定种子划分为 691 条训练样本和 77 条验证样本：
+
+```bash
+python -m train.gemma_vision_sft \
+  --model unsloth/gemma-4-26B-A4B-it \
+  --dataset-dir runs/datasets/minestudio-trajectory-sft-768.h5 \
+  --output-dir runs/trains/minestudio-gemma4-26b-a4b-bc \
+  --lora-rank 32 \
+  --micro-batch 4 \
+  --gradient-accumulation 2 \
+  --epochs 10 \
+  --validation-ratio 0.1 \
+  --split-seed 3407 \
+  --early-stopping-patience 2
+```
+
+验证 loss 用于早停与选择最佳 checkpoint，不额外划分测试集。
 
 启动 CraftGround 闭环服务：
 

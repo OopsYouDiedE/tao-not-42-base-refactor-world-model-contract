@@ -114,6 +114,12 @@ def build_argument_parser(
         help="验证集目标帧数占比",
     )
     parser.add_argument("--split-seed", type=int, default=3407, help="episode 粒度打散种子")
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=None,
+        help="验证 loss 连续多少次不改善后早停；默认不早停",
+    )
     return parser
 
 
@@ -154,5 +160,6 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
         holdout_level=arguments.holdout_level,
         validation_ratio=arguments.validation_ratio,
         split_seed=arguments.split_seed,
+        early_stopping_patience=arguments.early_stopping_patience,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

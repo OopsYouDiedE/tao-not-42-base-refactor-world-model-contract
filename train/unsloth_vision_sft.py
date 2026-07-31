@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import unsloth  # noqa: F401  # 必须最先导入以完成对 transformers 的补丁
+from transformers import EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 from unsloth import FastVisionModel
 from unsloth.trainer import UnslothVisionDataCollator
@@ -224,6 +225,7 @@ def run_vision_sft(
     holdout_level: str = "prefix",
     validation_ratio: float = 0.1,
     split_seed: int = 3407,
+    early_stopping_patience: int | None = None,
 ) -> dict[str, Any]:
     """端到端跑一次 Lumine 动作预测的视觉 SFT。
 
@@ -277,11 +279,17 @@ def run_vision_sft(
         max_sequence_length=training_settings.max_sequence_length,
     )
     dataset_statistics: dict[str, Any] = {}
+    validation_conversations: Any | None = None
     dataset_path = Path(dataset_directory)
     if dataset_path.suffix.lower() in {".h5", ".hdf5"}:
-        from dataset.trajectory.load_hdf5 import load_hdf5_conversations
+        from dataset.trajectory.load_hdf5 import load_hdf5_conversations, split_conversations
 
         conversations = load_hdf5_conversations(dataset_path, maximum_samples=maximum_samples)
+        conversations, validation_conversations = split_conversations(
+            conversations,
+            validation_ratio=validation_ratio,
+            seed=split_seed,
+        )
         dataloader_workers = 0
         streaming = False
         dataset_statistics = {"format": "minestudio_trajectory_sft_v1"}
@@ -304,6 +312,7 @@ def run_vision_sft(
             maximum_samples=maximum_samples,
         )
         conversations = validation_dataset if subset == "validation" else train_dataset
+        validation_conversations = validation_dataset if subset == "train" else None
         if dataloader_workers is None:
             dataloader_workers = resolve_worker_count()
     else:
@@ -325,7 +334,7 @@ def run_vision_sft(
         weight_decay=training_settings.weight_decay,
         max_grad_norm=training_settings.max_gradient_norm,
         logging_steps=training_settings.logging_steps,
-        save_strategy="steps",
+        save_strategy="epoch" if validation_conversations is not None else "steps",
         save_steps=training_settings.save_steps,
         optim="adamw_8bit",
         lr_scheduler_type="cosine",
@@ -347,13 +356,29 @@ def run_vision_sft(
             if training_settings.max_steps is not None
             else {"num_train_epochs": training_settings.num_train_epochs}
         ),
+        **(
+            {
+                "eval_strategy": "epoch",
+                "load_best_model_at_end": True,
+                "metric_for_best_model": "eval_loss",
+                "greater_is_better": False,
+            }
+            if validation_conversations is not None
+            else {}
+        ),
     )
     trainer = SFTTrainer(
         model=loaded_model,
         train_dataset=conversations,
+        eval_dataset=validation_conversations,
         processing_class=processor.tokenizer,
         data_collator=UnslothVisionDataCollator(loaded_model, processor),
         args=configuration,
+        callbacks=(
+            [EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)]
+            if validation_conversations is not None and early_stopping_patience is not None
+            else None
+        ),
     )
     statistics = trainer.train()
 
@@ -364,6 +389,9 @@ def run_vision_sft(
 
     result = dict(statistics.metrics)
     result["num_samples"] = len(conversations)
+    result["num_validation_samples"] = (
+        len(validation_conversations) if validation_conversations is not None else 0
+    )
     result["adapter_directory"] = str(adapter_directory)
     result["initial_adapter"] = adapter
     result["streaming"] = streaming

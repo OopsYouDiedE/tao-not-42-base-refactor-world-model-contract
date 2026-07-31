@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,29 @@ def load_hdf5_conversations(
     if not conversations:
         raise ValueError("HDF5 中没有训练样本")
     return conversations
+
+
+def split_conversations(
+    conversations: list[dict[str, list[dict[str, Any]]]],
+    validation_ratio: float = 0.1,
+    seed: int = 3407,
+) -> tuple[list[dict[str, list[dict[str, Any]]]], list[dict[str, list[dict[str, Any]]]]]:
+    """按固定种子划分互斥的训练集和验证集。"""
+    if not 0.0 < validation_ratio < 1.0:
+        raise ValueError("validation_ratio 必须在 0 和 1 之间")
+    if len(conversations) < 2:
+        raise ValueError("训练/验证划分至少需要两个样本")
+    indices = list(range(len(conversations)))
+    random.Random(seed).shuffle(indices)
+    validation_size = max(1, round(len(indices) * validation_ratio))
+    validation_indices = set(indices[:validation_size])
+    training = [
+        sample for index, sample in enumerate(conversations) if index not in validation_indices
+    ]
+    validation = [
+        sample for index, sample in enumerate(conversations) if index in validation_indices
+    ]
+    return training, validation
 
 
 def main() -> None:

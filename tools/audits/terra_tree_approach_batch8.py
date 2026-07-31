@@ -102,7 +102,7 @@ def capture_state(observation: Any) -> dict[str, Any]:
         "inventory": dict(sorted(inventory.items())),
         "mined_statistics": {str(key): int(value) for key, value in full.mined_statistics.items()},
         "nearby_block_counts": dict(sorted(Counter(block["name"] for block in blocks).items())),
-        "nearby_blocks": blocks[:120],
+        "nearby_blocks": blocks,
     }
 
 
@@ -142,6 +142,23 @@ def observed_snapshot_record(snapshot_id: str, state: dict[str, Any], output: Pa
 def propose_courses(scans: list[dict[str, Any]]) -> list[Course]:
     observed = [scan["state"] for scan in scans]
     logs = [state for state in observed if "_log" in state["raycast_block"]]
+    if not logs:
+        for state in observed:
+            nearby_log = next(
+                (block for block in state["nearby_blocks"] if "_log" in block["name"]),
+                None,
+            )
+            if nearby_log is not None:
+                logs.append(
+                    {
+                        **state,
+                        "raycast_block": nearby_log["name"],
+                        "raycast_position": [
+                            nearby_log["x"], nearby_log["y"], nearby_log["z"]
+                        ],
+                    }
+                )
+                break
     ores_or_stone = [state for state in observed if any(name in state["raycast_block"] for name in ("ore", "stone"))]
     start = observed[0]
     tree_crown = start["y"] >= 90 and any("leaves" in key for key in start["nearby_block_counts"])
@@ -464,22 +481,34 @@ def run(runtime: Path, output: Path, policy_adapter: str) -> dict[str, Any]:
         save_rgb(observation, output / "initial.png")
         scans.append({"label": "初始图像锚点", "image": "initial.png", "state": capture_state(observation)})
         adapter = CraftGroundActionAdapter()
-        for index in range(3):
-            environment.step(adapter.convert((), (600, 0)))
+        environment.step(adapter.convert((), (0, 80)))
+        observation = step_commands(environment, (), ticks=1)
+        for index in range(36):
+            environment.step(adapter.convert((), (67, 0)))
             observation = step_commands(environment, (), ticks=1)
             name = f"scan_{index + 1}.png"
             save_rgb(observation, output / name)
-            scans.append({"label": f"右转 {(index + 1) * 90} 度", "image": name, "state": capture_state(observation)})
+            scans.append({"label": f"向下观察并右转 {(index + 1) * 10} 度", "image": name, "state": capture_state(observation)})
         courses = propose_courses(scans)
         selected = next((course for course in courses if course.eligible), None)
         if selected is None or selected.target is None:
             raise RuntimeError("当前观察没有可自动验证的课程；已写出课程候选，但不执行伪造轨迹")
-        target_scan = next(scan for scan in scans if tuple(scan["state"]["raycast_position"] or ()) == selected.target)
-        desired_yaw = target_scan["state"]["yaw"]
-        current_yaw = capture_state(observation)["yaw"]
+        current = capture_state(observation)
+        dx = selected.target[0] + 0.5 - current["x"]
+        dy = selected.target[1] + 0.5 - (current["y"] + 1.62)
+        dz = selected.target[2] + 0.5 - current["z"]
+        desired_yaw = math.degrees(math.atan2(-dx, dz))
+        desired_pitch = -math.degrees(math.atan2(dy, math.hypot(dx, dz)))
+        current_yaw = current["yaw"]
         yaw_delta = (desired_yaw - current_yaw + 180.0) % 360.0 - 180.0
-        if abs(yaw_delta) > 0.1:
-            environment.step(adapter.convert((), (round(yaw_delta / 0.15), 0)))
+        pitch_delta = desired_pitch - current["pitch"]
+        if abs(yaw_delta) > 0.1 or abs(pitch_delta) > 0.1:
+            environment.step(
+                adapter.convert(
+                    (),
+                    (round(yaw_delta / 0.15), round(pitch_delta / 0.15)),
+                )
+            )
             observation = step_commands(environment, (), ticks=1)
         start = capture_state(observation)
         target_x, target_y, target_z = selected.target
@@ -507,8 +536,11 @@ def run(runtime: Path, output: Path, policy_adapter: str) -> dict[str, Any]:
         from train.unsloth_vision_sft import LoRASettings, load_vision_model
 
         model, processor = load_vision_model(
-            "unsloth/gemma-4-E4B-it", LoRASettings(), adapter=policy_adapter
+            policy_adapter, LoRASettings(), adapter=policy_adapter
         )
+        from unsloth import FastVisionModel
+
+        FastVisionModel.for_inference(model)
         generations = generate_policy_rollouts(
             model,
             processor,

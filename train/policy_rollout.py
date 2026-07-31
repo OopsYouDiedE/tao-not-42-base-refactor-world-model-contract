@@ -49,7 +49,8 @@ def _truncate_at_action_end(token_ids: torch.Tensor, tokenizer: Any) -> torch.Te
     for start in range(len(values) - len(marker) + 1):
         if values[start : start + len(marker)] == marker:
             return token_ids[: start + len(marker)]
-    raise RuntimeError("模型输出未包含 <|action_end|>")
+    preview = tokenizer.decode(token_ids[:256], skip_special_tokens=False)
+    raise RuntimeError(f"模型输出未包含 <|action_end|>；输出前缀={preview!r}")
 
 
 @torch.inference_mode()
@@ -62,7 +63,7 @@ def generate_policy_rollouts(
     count: int = 6,
     temperature: float = 0.8,
     top_p: float = 0.95,
-    max_new_tokens: int = 512,
+    max_new_tokens: int = 1024,
 ) -> list[PolicyGeneration]:
     """对同一观察独立采样，并保存生成策略下的逐 token logprob。"""
     if count != 6:

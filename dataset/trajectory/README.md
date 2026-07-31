@@ -126,11 +126,18 @@ conversations = load_hdf5_conversations(
 ```bash
 python -m train.gemma_vision_sft \
   --model unsloth/gemma-4-26B-A4B-it \
-  --dataset-dir runs/datasets/minestudio-trajectory-train.h5 \
-  --output-dir runs/trains/minestudio-trajectory-lora \
+  --dataset-dir runs/datasets/minestudio-trajectory-sft-768.h5 \
+  --output-dir runs/trains/minestudio-gemma4-26b-a4b-bc \
   --lora-rank 32 \
-  --epochs 1
+  --micro-batch 4 \
+  --gradient-accumulation 2 \
+  --epochs 10 \
+  --validation-ratio 0.1 \
+  --split-seed 3407 \
+  --early-stopping-patience 2
 ```
 
 训练入口根据 `.h5` 或 `.hdf5` 后缀自动选择 HDF5 加载器。user message 中图片位于文本之前，
 assistant message 以完整动作 JSON 数组开头。
+768 条正式归档固定划分为 691 条训练样本和 77 条验证样本；验证集用于早停与最佳 checkpoint
+选择，不划分测试集。

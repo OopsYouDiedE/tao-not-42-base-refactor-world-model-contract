@@ -9,6 +9,7 @@ from typing import Any
 
 import torch
 import unsloth  # noqa: F401
+from huggingface_hub import HfApi
 from PIL import Image
 from unsloth.trainer import UnslothVisionDataCollator
 
@@ -101,11 +102,12 @@ def run_rlhf(
     learning_rate: float,
     epochs: int,
     clip_epsilon: float,
+    hf_repo: str | None = None,
 ) -> dict[str, Any]:
     samples = load_execution_group(execution)
     require_on_policy_logprobs(samples)
     model, processor = load_vision_model(
-        "unsloth/gemma-4-E4B-it",
+        adapter,
         LoRASettings(),
         adapter=adapter,
         max_sequence_length=2048,
@@ -120,6 +122,10 @@ def run_rlhf(
         (p for p in model.parameters() if p.requires_grad), lr=learning_rate
     )
     history: list[dict[str, float]] = []
+    output.mkdir(parents=True, exist_ok=True)
+    api = HfApi() if hf_repo else None
+    if api is not None:
+        api.create_repo(hf_repo, repo_type="model", private=False, exist_ok=True)
     for epoch in range(epochs):
         optimizer.zero_grad(set_to_none=True)
         inputs = {
@@ -151,10 +157,44 @@ def run_rlhf(
         }
         history.append(metrics)
         print(json.dumps(metrics, ensure_ascii=False), flush=True)
-    output.mkdir(parents=True, exist_ok=True)
+        epoch_directory = output / f"epoch-{epoch + 1:03d}"
+        model.save_pretrained(str(epoch_directory))
+        processor.save_pretrained(str(epoch_directory))
+        result_payload = {
+            "adapter": adapter,
+            "execution": str(execution),
+            "hf_repo": hf_repo,
+            "checkpoint": str(epoch_directory),
+            "completed_epochs": epoch + 1,
+            "history": history,
+        }
+        (output / "training_result.json").write_text(
+            json.dumps(result_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        if api is not None:
+            api.upload_folder(
+                repo_id=hf_repo,
+                repo_type="model",
+                folder_path=epoch_directory,
+                path_in_repo=f"epoch-{epoch + 1:03d}",
+                commit_message=f"Upload RLHF epoch {epoch + 1}/{epochs}",
+            )
+            api.upload_file(
+                repo_id=hf_repo,
+                repo_type="model",
+                path_or_fileobj=output / "training_result.json",
+                path_in_repo="training_result.json",
+                commit_message=f"Update metrics through RLHF epoch {epoch + 1}/{epochs}",
+            )
     model.save_pretrained(str(output / "lora_adapter"))
     processor.save_pretrained(str(output / "lora_adapter"))
-    result_payload = {"adapter": adapter, "execution": str(execution), "history": history}
+    result_payload = {
+        "adapter": adapter,
+        "execution": str(execution),
+        "hf_repo": hf_repo,
+        "completed_epochs": epochs,
+        "history": history,
+    }
     (output / "training_result.json").write_text(
         json.dumps(result_payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -169,6 +209,10 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-6)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--clip-epsilon", type=float, default=0.2)
+    parser.add_argument(
+        "--hf-repo",
+        help="公开 HF 模型仓库；每个 epoch 保存后立即上传独立 LoRA 检查点",
+    )
     arguments = parser.parse_args()
     run_rlhf(
         adapter=arguments.adapter,
@@ -177,6 +221,7 @@ def main() -> None:
         learning_rate=arguments.learning_rate,
         epochs=arguments.epochs,
         clip_epsilon=arguments.clip_epsilon,
+        hf_repo=arguments.hf_repo,
     )
 
 

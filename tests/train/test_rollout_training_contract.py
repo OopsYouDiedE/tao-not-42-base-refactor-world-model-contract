@@ -19,9 +19,13 @@ def test_real_execution_loads_as_strict_2_plus_6() -> None:
     assert {sample.original_height for sample in samples} == {360}
 
 
-def test_real_execution_cannot_claim_ppo_without_old_logprobs() -> None:
-    with pytest.raises(ValueError, match="old_logprob"):
-        require_on_policy_logprobs(load_execution_group(RUN))
+def test_real_execution_has_aligned_on_policy_logprobs() -> None:
+    samples = load_execution_group(RUN)
+
+    require_on_policy_logprobs(samples)
+
+    policies = [sample for sample in samples if sample.policy_eligible]
+    assert all(len(sample.old_logprobs) == len(sample.response_token_ids) for sample in policies)
 
 
 def test_torch_joint_objective_backpropagates_through_separate_roles() -> None:

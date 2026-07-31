@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from train.gemma_vision_rlhf import top_half_training_mask
+from train.gemma_vision_rlhf import token_logprobs, top_half_training_mask
 from train.objectives import (
     JointObjective,
     JointObjectiveWeights,
@@ -115,3 +115,13 @@ def test_top_half_training_mask_selects_four_highest_rewards() -> None:
         True,
         False,
     ]
+
+
+def test_token_logprobs_aligns_visual_soft_token_expansion() -> None:
+    logits = torch.zeros(1, 6, 4)
+    labels = torch.tensor([[-100, -100, 1, 2]])
+
+    values, mask = token_logprobs(logits, labels)
+
+    assert values.shape == (1, 5)
+    assert mask.tolist() == [[False, False, False, True, True]]

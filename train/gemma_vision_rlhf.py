@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import torch
+
+os.environ.setdefault("UNSLOTH_RETURN_LOGITS", "1")
+
 import unsloth  # noqa: F401
 from huggingface_hub import HfApi
 from PIL import Image
 from unsloth.trainer import UnslothVisionDataCollator
 
 from train.objectives import clipped_token_joint_objective
+from train.policy_rollout import _prompt
 from train.rollout_contract import RolloutSample, load_execution_group, require_on_policy_logprobs
 from train.unsloth_vision_sft import LoRASettings, load_vision_model
 
@@ -33,8 +38,15 @@ def top_half_training_mask(samples: list[RolloutSample]) -> torch.Tensor:
 
 def token_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """返回与 causal labels 对齐的逐 token logprob 和响应 mask。"""
-    if logits.ndim != 3 or labels.ndim != 2 or logits.shape[:2] != labels.shape:
-        raise ValueError("logits/labels 形状不匹配")
+    if logits.ndim != 3 or labels.ndim != 2 or logits.shape[0] != labels.shape[0]:
+        raise ValueError(
+            f"logits/labels 形状不匹配：logits={tuple(logits.shape)} labels={tuple(labels.shape)}"
+        )
+    visual_tokens = logits.shape[1] - labels.shape[1]
+    if visual_tokens < 0:
+        raise ValueError("logits 序列短于 labels")
+    if visual_tokens:
+        labels = torch.nn.functional.pad(labels, (visual_tokens, 0), value=-100)
     shifted_labels = labels[:, 1:]
     mask = shifted_labels.ne(-100)
     safe_labels = shifted_labels.masked_fill(~mask, 0)
@@ -43,22 +55,15 @@ def token_logprobs(logits: torch.Tensor, labels: torch.Tensor) -> tuple[torch.Te
 
 
 def _conversation(sample: RolloutSample) -> dict[str, Any]:
-    images = []
-    for path in sample.image_paths:
-        with Image.open(path) as image:
-            images.append(image.convert("RGB").copy())
-    prompt = (
-        "These images are chronological observations from one Minecraft rollout. "
-        "Return the executable Lumine action sequence that produced the rollout. "
-        "Preserve every 50 ms tick and output only the action sequence."
-    )
+    with Image.open(sample.image_paths[0]) as image:
+        policy_anchor = image.convert("RGB").copy()
     return {
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    *({"type": "image", "image": image} for image in images),
-                    {"type": "text", "text": prompt},
+                    {"type": "image", "image": policy_anchor},
+                    {"type": "text", "text": _prompt()},
                 ],
             },
             {"role": "assistant", "content": [{"type": "text", "text": sample.action_text}]},
@@ -68,21 +73,33 @@ def _conversation(sample: RolloutSample) -> dict[str, Any]:
 
 def align_rollout_metadata(
     samples: list[RolloutSample],
+    input_ids: torch.Tensor,
     labels: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """把 rollout 的旧概率和来源元数据对齐到 causal label 位置。"""
+    if input_ids.shape != labels.shape:
+        raise ValueError("input_ids/labels 形状不匹配")
     targets = labels[:, 1:]
     response_mask = targets.ne(-100)
     old = torch.zeros(targets.shape, dtype=torch.float32)
     for row, sample in enumerate(samples):
         positions = response_mask[row].nonzero(as_tuple=False).flatten()
         if sample.policy_eligible:
-            actual_ids = tuple(int(value) for value in targets[row, positions].tolist())
-            if actual_ids != sample.response_token_ids:
+            token_count = len(sample.response_token_ids)
+            if len(positions) < token_count:
                 raise ValueError(
-                    f"{sample.candidate_id} 的 response_token_ids 与当前 tokenizer 不一致"
+                    f"{sample.candidate_id} 的训练响应位置少于 rollout token"
                 )
-            old[row, positions] = torch.tensor(sample.old_logprobs, dtype=torch.float32)
+            labels[row, positions + 1] = -100
+            rollout_positions = positions[:token_count]
+            rollout_ids = torch.tensor(
+                sample.response_token_ids, dtype=input_ids.dtype, device=input_ids.device
+            )
+            input_ids[row, rollout_positions + 1] = rollout_ids
+            labels[row, rollout_positions + 1] = rollout_ids
+            old[row, rollout_positions] = torch.tensor(
+                sample.old_logprobs, dtype=torch.float32
+            )
     advantages = torch.tensor(
         [sample.relative_advantage for sample in samples], dtype=torch.float32
     )
@@ -115,7 +132,9 @@ def run_rlhf(
     collator = UnslothVisionDataCollator(model, processor)
     batch = collator([_conversation(sample) for sample in samples])
     labels = batch["labels"]
-    old, advantages, policy, reference = align_rollout_metadata(samples, labels)
+    old, advantages, policy, reference = align_rollout_metadata(
+        samples, batch["input_ids"], labels
+    )
     device = next(model.parameters()).device
     model.train()
     optimizer = torch.optim.AdamW(
@@ -134,9 +153,11 @@ def run_rlhf(
         }
         outputs = model(**inputs)
         current, response_mask = token_logprobs(outputs.logits, inputs["labels"])
+        visual_tokens = current.shape[1] - old.shape[1]
+        aligned_old = torch.nn.functional.pad(old, (visual_tokens, 0))
         result = clipped_token_joint_objective(
             current,
-            old.to(device),
+            aligned_old.to(device),
             response_mask,
             advantages.to(device),
             policy.to(device),

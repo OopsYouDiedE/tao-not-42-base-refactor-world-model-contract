@@ -159,6 +159,11 @@ def propose_courses(scans: list[dict[str, Any]]) -> list[Course]:
                     }
                 )
                 break
+    canopy_targets = [
+        state
+        for state in observed
+        if "leaves" in state["raycast_block"] and state["raycast_position"] is not None
+    ]
     ores_or_stone = [state for state in observed if any(name in state["raycast_block"] for name in ("ore", "stone"))]
     start = observed[0]
     tree_crown = start["y"] >= 90 and any("leaves" in key for key in start["nearby_block_counts"])
@@ -191,6 +196,26 @@ def propose_courses(scans: list[dict[str, Any]]) -> list[Course]:
             required_skills=("相机锚点保持", "基础移动", "目标接近"),
             risk_controls="每条轨迹从同一世界和玩家状态恢复；存活与落地是成功门。",
             failure_mode="目标失焦、碰撞阻塞、掉落或距离未缩短。",
+        ))
+    elif canopy_targets:
+        anchor = max(
+            canopy_targets,
+            key=lambda state: math.dist(
+                (start["x"], start["y"], start["z"]), state["raycast_position"]
+            ),
+        )
+        target = tuple(anchor["raycast_position"] or ())
+        courses.append(Course(
+            "prep-traverse-observed-canopy", "准备：穿越已观测树冠",
+            "沿扫描确认的连续树冠向远端叶簇移动，保持存活并缩短到视觉锚点的距离。",
+            ("连续树冠", "可见叶簇锚点"), 140,
+            "存活、落地且到已观测叶簇的距离显著缩短。", "低",
+            f"位置=({start['x']}, {start['y']}, {start['z']})；扫描命中 {anchor['raycast_block']} 于 {target}。",
+            True, target=target,
+            feasibility_evidence="起点与目标叶簇均来自本轮真实图像、raycast 和方块坐标；未补造资源。",
+            required_skills=("相机锚点保持", "树冠移动", "目标接近"),
+            risk_controls="每条轨迹恢复同一快照；以存活、落地和真实距离变化评分。",
+            failure_mode="偏离树冠、碰撞阻塞、坠落或距离未缩短。",
         ))
     else:
         courses.append(Course(

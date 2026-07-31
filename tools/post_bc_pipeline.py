@@ -96,10 +96,21 @@ datasets:
 
 def run_checked(command: list[str], log_path: Path) -> None:
     """执行阶段命令并把 stdout/stderr 追加到统一日志。"""
+    environment = os.environ.copy()
+    runtime_directory = Path(environment.get("XDG_RUNTIME_DIR", f"/tmp/lumine-xdg-{os.getuid()}"))
+    runtime_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    runtime_directory.chmod(0o700)
+    environment["XDG_RUNTIME_DIR"] = str(runtime_directory)
     with log_path.open("a", encoding="utf-8") as log:
         log.write(f"\n$ {' '.join(command)}\n")
         log.flush()
-        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
+        subprocess.run(
+            command,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=True,
+            env=environment,
+        )
 
 
 def main() -> None:
@@ -148,22 +159,25 @@ def main() -> None:
         json.dumps(publication, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    write_status(arguments.status, "generating_rollouts", **publication)
-    run_checked(
-        [
-            sys.executable,
-            "-m",
-            "tools.audits.terra_tree_approach_batch8",
-            "--runtime",
-            str(arguments.runtime),
-            "--output",
-            str(arguments.rollout_output),
-            "--policy-adapter",
-            arguments.hf_repo,
-        ],
-        log_path,
-    )
     execution = arguments.rollout_output / "execution.json"
+    if not execution.is_file():
+        write_status(arguments.status, "generating_rollouts", **publication)
+        run_checked(
+            [
+                "xvfb-run",
+                "-a",
+                sys.executable,
+                "-m",
+                "tools.audits.terra_tree_approach_batch8",
+                "--runtime",
+                str(arguments.runtime),
+                "--output",
+                str(arguments.rollout_output),
+                "--policy-adapter",
+                arguments.hf_repo,
+            ],
+            log_path,
+        )
     if not execution.is_file():
         raise RuntimeError("2+6 runner 未生成 execution.json")
 

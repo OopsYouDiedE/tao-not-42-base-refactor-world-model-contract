@@ -58,7 +58,7 @@ cd tao-not-42-base-refactor-world-model-contract
 
 ```bash
 uv venv --python 3.13
-uv pip install accelerate av craftground datasets gradio h5py huggingface-hub lmdb numpy opencv-python-headless peft pillow pytest ruff torch transformers trl unsloth unsloth-zoo
+uv pip install unsloth accelerate av craftground datasets gradio h5py huggingface-hub lmdb opencv-python-headless peft pillow pytest ruff transformers trl
 ```
 
 需要开发模式命令行入口时，再安装当前仓库本身：

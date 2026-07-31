@@ -37,8 +37,7 @@
 
 ## 安装
 
-项目元数据支持 Python 3.10 及以上版本。下面使用 Python 3.13 创建 Linux 训练环境；
-`3.13` 是推荐示例，不是精确版本限制。
+下面使用 Python 3.13 创建 Linux 训练环境。
 
 ```bash
 # 安装系统依赖
@@ -78,29 +77,6 @@ cd tao-not-42-base-refactor-world-model-contract
 ```bash
 uv venv --python 3.13
 uv pip install unsloth accelerate av craftground datasets gradio h5py huggingface-hub lmdb opencv-python-headless peft pillow pytest ruff transformers trl
-```
-
-需要开发模式命令行入口时，再安装当前仓库本身：
-
-```bash
-uv pip install -e . --no-deps
-```
-
-也可以按用途安装项目声明的可选依赖：
-
-```bash
-uv venv --python 3.13
-uv pip install -e .                # 仅数据构建基础依赖
-uv pip install -e ".[review]"       # Gradio 审核界面
-uv pip install -e ".[train]"        # CUDA、Unsloth 与视觉 SFT
-uv pip install -e ".[craftground]"  # 闭环执行与快照验证
-uv pip install -e ".[dev]"          # pytest 与 Ruff
-```
-
-训练机器通常同时安装数据与训练依赖：
-
-```bash
-uv pip install -e ".[review,train,dev]"
 ```
 
 ## 基本用法

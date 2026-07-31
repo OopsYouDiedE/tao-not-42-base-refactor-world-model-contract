@@ -1,9 +1,12 @@
 import numpy as np
 import pytest
+import torch
 
+from train.gemma_vision_rlhf import top_half_training_mask
 from train.objectives import (
     JointObjective,
     JointObjectiveWeights,
+    clipped_token_joint_objective,
     grouped_relative_advantages,
     masked_mean,
 )
@@ -47,3 +50,68 @@ def test_joint_objective_combines_and_reports_components() -> None:
 def test_joint_objective_rejects_invalid_weights(values: tuple[int, int]) -> None:
     with pytest.raises(ValueError):
         JointObjectiveWeights(*values)
+
+
+def test_clipped_token_joint_objective_uses_policy_ratio_and_reference_bc() -> None:
+    new = torch.nn.Parameter(torch.full((8, 3), -1.0))
+    old = torch.full((8, 3), -1.0)
+    mask = torch.tensor([[True, True, False]] * 8)
+    policy = torch.tensor([False, False, True, True, False, False, False, False])
+    reference = torch.tensor([True, True, False, False, False, False, False, False])
+    advantages = torch.tensor([0.0, 0.0, -1.0, -0.5, 0.25, 0.5, 1.0, 2.0])
+
+    result = clipped_token_joint_objective(
+        new,
+        old,
+        mask,
+        advantages,
+        policy,
+        reference,
+    )
+    result.total.backward()
+
+    assert result.approximate_kl is not None
+    assert result.clip_fraction is not None
+    assert torch.isclose(result.approximate_kl, torch.tensor(0.0))
+    assert torch.isclose(result.clip_fraction, torch.tensor(0.0))
+    assert new.grad is not None
+    assert torch.all(new.grad[:2, :2] < 0)
+    assert torch.all(new.grad[:2, 2] == 0)
+    assert torch.all(new.grad[:, 2] == 0)
+    assert torch.all(new.grad[4:] == 0)
+
+
+def test_clipped_token_joint_objective_clips_large_policy_update() -> None:
+    new = torch.full((8, 1), -1.0)
+    old = new.clone()
+    new[2:] += torch.log(torch.tensor(2.0))
+    policy = torch.tensor([False, False, True, True, True, True, False, False])
+    result = clipped_token_joint_objective(
+        new,
+        old,
+        torch.ones_like(new, dtype=torch.bool),
+        torch.ones(8),
+        policy,
+        torch.zeros(8, dtype=torch.bool),
+    )
+    assert result.clip_fraction is not None
+    assert torch.isclose(result.clip_fraction, torch.tensor(1.0))
+
+
+def test_top_half_training_mask_selects_four_highest_rewards() -> None:
+    from train.rollout_contract import RolloutSample
+
+    samples = [
+        RolloutSample("g", f"C{i}", "policy_sample", "a", reward, 0.0, (), 1, 1)
+        for i, reward in enumerate([2.0, 8.0, 1.0, 7.0, 6.0, 3.0, 5.0, 4.0])
+    ]
+    assert top_half_training_mask(samples).tolist() == [
+        False,
+        True,
+        False,
+        True,
+        True,
+        False,
+        True,
+        False,
+    ]

@@ -137,9 +137,21 @@ def resolve_model_name(model: str) -> tuple[str, str]:
     )
 
 
+def resolve_adapter_base_model(adapter: str) -> str:
+    """读取 PEFT adapter 声明的基座模型，供模板校验和审计使用。"""
+    from peft import PeftConfig
+
+    configuration = PeftConfig.from_pretrained(adapter)
+    base_model = configuration.base_model_name_or_path
+    if not base_model:
+        raise ValueError(f"adapter {adapter!r} 未声明 base_model_name_or_path")
+    return str(base_model)
+
+
 def load_vision_model(
     model: str,
     lora: LoRASettings,
+    adapter: str | None = None,
     load_in_4bit: bool = False,
     max_sequence_length: int = 2048,
 ) -> tuple[Any, Any]:
@@ -166,7 +178,9 @@ def load_vision_model(
     传完整本地快照路径时会带上 ``use_exact_model_name=True``：unsloth 默认会把模型名
     规范化成小写去找缓存，遇到大写目录名会判定缺分片并重新下载整个模型。
     """
-    model_name, chat_template = resolve_model_name(model)
+    base_model = resolve_adapter_base_model(adapter) if adapter else model
+    _, chat_template = resolve_model_name(base_model)
+    model_name = adapter or model
     loaded, processor = FastVisionModel.from_pretrained(
         model_name,
         max_seq_length=max_sequence_length,
@@ -174,19 +188,20 @@ def load_vision_model(
         use_gradient_checkpointing="unsloth",
         use_exact_model_name=True,
     )
-    loaded = FastVisionModel.get_peft_model(
-        loaded,
-        finetune_vision_layers=lora.finetune_vision_layers,
-        finetune_language_layers=lora.finetune_language_layers,
-        finetune_attention_modules=True,
-        finetune_mlp_modules=True,
-        r=lora.rank,
-        lora_alpha=lora.alpha,
-        lora_dropout=lora.dropout,
-        bias="none",
-        random_state=lora.random_state,
-        target_modules="all-linear",
-    )
+    if adapter is None:
+        loaded = FastVisionModel.get_peft_model(
+            loaded,
+            finetune_vision_layers=lora.finetune_vision_layers,
+            finetune_language_layers=lora.finetune_language_layers,
+            finetune_attention_modules=True,
+            finetune_mlp_modules=True,
+            r=lora.rank,
+            lora_alpha=lora.alpha,
+            lora_dropout=lora.dropout,
+            bias="none",
+            random_state=lora.random_state,
+            target_modules="all-linear",
+        )
     from unsloth import get_chat_template
 
     processor = get_chat_template(processor, chat_template)
@@ -197,6 +212,7 @@ def run_vision_sft(
     model: str,
     dataset_directory: Path,
     output_directory: Path,
+    adapter: str | None = None,
     lora: LoRASettings | None = None,
     training: SFTSettings | None = None,
     load_in_4bit: bool = False,
@@ -256,6 +272,7 @@ def run_vision_sft(
     loaded_model, processor = load_vision_model(
         model,
         lora_settings,
+        adapter=adapter,
         load_in_4bit=load_in_4bit,
         max_sequence_length=training_settings.max_sequence_length,
     )
@@ -348,6 +365,7 @@ def run_vision_sft(
     result = dict(statistics.metrics)
     result["num_samples"] = len(conversations)
     result["adapter_directory"] = str(adapter_directory)
+    result["initial_adapter"] = adapter
     result["streaming"] = streaming
     result["dataloader_workers"] = dataloader_workers
     if dataset_statistics:

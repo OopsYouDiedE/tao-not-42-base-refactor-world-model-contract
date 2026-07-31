@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 SourceRole = Literal["reference_expert", "policy_sample"]
 
@@ -21,7 +21,10 @@ class RolloutSample:
     image_paths: tuple[Path, ...]
     original_width: int
     original_height: int
-    old_logprob: float | None = None
+    response_token_ids: tuple[int, ...] = ()
+    old_logprobs: tuple[float, ...] = ()
+    policy_version: str | None = None
+    sampling_parameters: tuple[tuple[str, str], ...] = ()
 
     @property
     def policy_eligible(self) -> bool:
@@ -60,7 +63,19 @@ def load_execution_group(path: str | Path) -> list[RolloutSample]:
                 image_paths=image_paths,
                 original_width=width,
                 original_height=height,
-                old_logprob=(None if item.get("old_logprob") is None else float(item["old_logprob"])),
+                response_token_ids=tuple(
+                    int(value) for value in item.get("response_token_ids", ())
+                ),
+                old_logprobs=tuple(float(value) for value in item.get("old_logprobs", ())),
+                policy_version=(
+                    None if item.get("policy_version") is None else str(item["policy_version"])
+                ),
+                sampling_parameters=tuple(
+                    sorted(
+                        (str(key), json.dumps(value, ensure_ascii=False, sort_keys=True))
+                        for key, value in item.get("sampling_parameters", {}).items()
+                    )
+                ),
             )
         )
     _validate_group(samples)
@@ -80,9 +95,22 @@ def _validate_group(samples: list[RolloutSample]) -> None:
 
 def require_on_policy_logprobs(samples: list[RolloutSample]) -> None:
     """PPO/GRPO 概率比训练前的硬门禁。"""
-    missing = [sample.candidate_id for sample in samples if sample.policy_eligible and sample.old_logprob is None]
+    missing = [
+        sample.candidate_id
+        for sample in samples
+        if sample.policy_eligible
+        and (
+            not sample.old_logprobs
+            or len(sample.old_logprobs) != len(sample.response_token_ids)
+            or sample.policy_version is None
+            or not sample.sampling_parameters
+        )
+    ]
     if missing:
-        raise ValueError("概率比训练缺少 policy old_logprob：" + ", ".join(missing))
+        raise ValueError(
+            "概率比训练缺少或未对齐 policy 逐 token old_logprobs/生成元数据："
+            + ", ".join(missing)
+        )
 
 
 def masks(samples: list[RolloutSample]) -> dict[str, list[bool]]:

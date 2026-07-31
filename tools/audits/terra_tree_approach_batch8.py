@@ -44,6 +44,10 @@ class Candidate:
     source_role: str
     description: str
     chunks: tuple[LumineActionChunk, ...]
+    response_token_ids: tuple[int, ...] = ()
+    old_logprobs: tuple[float, ...] = ()
+    policy_version: str | None = None
+    sampling_parameters: dict[str, Any] | None = None
 
     @property
     def action_text(self) -> str:
@@ -263,6 +267,27 @@ def terra_trajectories(move_ticks: int) -> tuple[Candidate, ...]:
     )
 
 
+def policy_candidates(generations: list[Any]) -> tuple[Candidate, ...]:
+    if len(generations) != 6:
+        raise ValueError("2+6 合同要求正好 6 条模型策略轨迹")
+    candidates = []
+    for index, generation in enumerate(generations, start=1):
+        action = decode_lumine_action(generation.action_text, expected_chunks=None)
+        candidates.append(
+            Candidate(
+                candidate_id=f"P{index:02d}",
+                source_role="policy_sample",
+                description="BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+                chunks=action.chunks,
+                response_token_ids=generation.response_token_ids,
+                old_logprobs=generation.old_logprobs,
+                policy_version=generation.policy_version,
+                sampling_parameters=generation.sampling_parameters,
+            )
+        )
+    return tuple(candidates)
+
+
 def distance_to_target(state: dict[str, Any], target: tuple[int, int, int]) -> float:
     return math.dist((state["x"], state["y"], state["z"]), target)
 
@@ -355,7 +380,14 @@ def run_candidate(
     execution_status = "SUCCESS" if success else ("PROGRESSING" if progressing else "FAILED")
     result = {
         "candidate_id": candidate.candidate_id, "source_role": candidate.source_role, "description": candidate.description,
-        "generated_by": "SubAgent gpt-5.6-terra (policy substitute)", "action_text": candidate.action_text,
+        "generated_by": (
+            "SubAgent reference design" if candidate.source_role == "reference_expert"
+            else "BC LoRA policy"
+        ), "action_text": candidate.action_text,
+        "response_token_ids": list(candidate.response_token_ids),
+        "old_logprobs": list(candidate.old_logprobs),
+        "policy_version": candidate.policy_version,
+        "sampling_parameters": candidate.sampling_parameters or {},
         "ticks": len(candidate.chunks), "reset_audit": audit, "frames": frames,
         "initial_distance_to_observed_log": round(initial_distance, 3), "final_distance_to_observed_log": round(final_distance, 3),
         "distance_progress": round(progress, 3), "required_distance_progress": round(required_progress, 3), "final_state": end, "success": success,
@@ -420,7 +452,7 @@ def report_markdown(output: Path, scans: list[dict[str, Any]], courses: list[Cou
     (output / "REPORT.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def run(runtime: Path, output: Path) -> dict[str, Any]:
+def run(runtime: Path, output: Path, policy_adapter: str) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(f"输出目录已存在：{output}")
     output.mkdir(parents=True)
@@ -461,13 +493,30 @@ def run(runtime: Path, output: Path) -> dict[str, Any]:
         # 传送到叶簇边缘时服务器会执行一次合法碰撞修正。以修正后的稳定状态
         # 作为 batch 的规范起点，后续每条候选都从同一状态恢复。
         player_restore_anchor = start
-        start = capture_state(restore_observed_player_start(environment, player_restore_anchor))
+        observation = restore_observed_player_start(environment, player_restore_anchor)
+        start = capture_state(observation)
+        policy_anchor = output / "policy_anchor.png"
+        save_rgb(observation, policy_anchor)
         bank_design = design_document(observed_snapshot_record(snapshot.snapshot_id, start, output))
         (output / "multi_start_curriculum_design.json").write_text(
             json.dumps(bank_design, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         move_ticks = round(min(112.0, max(24.0, distance_to_target(start, selected.target) * 8.0)))
-        candidates = terra_trajectories(move_ticks)
+        references = terra_trajectories(move_ticks)[:2]
+        from train.policy_rollout import generate_policy_rollouts
+        from train.unsloth_vision_sft import LoRASettings, load_vision_model
+
+        model, processor = load_vision_model(
+            "unsloth/gemma-4-E4B-it", LoRASettings(), adapter=policy_adapter
+        )
+        generations = generate_policy_rollouts(
+            model,
+            processor,
+            policy_anchor,
+            policy_version=policy_adapter,
+        )
+        candidates = references + policy_candidates(generations)
+        del model, processor
         if len(candidates) != 8 or sum(item.source_role == "reference_expert" for item in candidates) != 2:
             raise RuntimeError("2+6 候选协议不成立")
         (output / "course_candidates.json").write_text(json.dumps({"scans": scans, "courses": [course.__dict__ for course in courses], "selected_course": selected.course_id}, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -507,8 +556,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="运行 Terra 观察驱动课程 2+6 batch")
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--policy-adapter", required=True)
     args = parser.parse_args()
-    report = run(args.runtime.resolve(), args.output.resolve())
+    report = run(args.runtime.resolve(), args.output.resolve(), args.policy_adapter)
     print(json.dumps({"success_rate": report["success_rate"], "course_decision": report["course_decision"]}, ensure_ascii=False))
 
 

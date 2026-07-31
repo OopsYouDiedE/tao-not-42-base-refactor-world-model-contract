@@ -3,7 +3,11 @@
 from train.objectives.behavior_cloning import masked_mean
 from train.objectives.joint import JointObjective, JointObjectiveWeights, JointResult
 from train.objectives.relative_advantage import grouped_relative_advantages
-from train.objectives.torch_joint import TorchJointResult, torch_joint_objective
+from train.objectives.torch_joint import (
+    TorchJointResult,
+    clipped_token_joint_objective,
+    torch_joint_objective,
+)
 
 __all__ = [
     "JointObjective",
@@ -12,5 +16,6 @@ __all__ = [
     "grouped_relative_advantages",
     "masked_mean",
     "TorchJointResult",
+    "clipped_token_joint_objective",
     "torch_joint_objective",
 ]

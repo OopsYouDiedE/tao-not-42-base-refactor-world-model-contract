@@ -34,6 +34,11 @@ def build_argument_parser(
         help="完整 Hugging Face 仓库名或本地模型路径；该值会原样传给模型加载器",
     )
     parser.add_argument(
+        "--adapter",
+        default=None,
+        help="已有 PEFT LoRA 的 Hugging Face 仓库名或本地路径；给定时从该 adapter 继续训练",
+    )
+    parser.add_argument(
         "--dataset-dir",
         type=Path,
         required=True,
@@ -124,6 +129,7 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
 
     result = run_vision_sft(
         model=arguments.model,
+        adapter=arguments.adapter,
         dataset_directory=arguments.dataset_dir,
         output_directory=arguments.output_dir,
         lora=LoRASettings(

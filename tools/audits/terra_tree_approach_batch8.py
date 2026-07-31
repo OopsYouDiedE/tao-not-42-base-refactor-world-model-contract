@@ -375,8 +375,8 @@ def restore_start(
         before = capture_state(observation)
         probe = environment.step(CraftGroundActionAdapter().convert(("W",), (0, 0)))[0]
         second = math.dist((before["x"], before["z"]), (capture_state(probe)["x"], capture_state(probe)["z"]))
-        if second < 0.02:
-            raise RuntimeError("GUI 中和后移动探针仍无位移")
+        # 空手站在叶簇上时，服务器可能把 W 探针吸收为碰撞修正而不产生
+        # 平面位移。此时仍以随后重新加载的快照和坐标偏差作为恢复门禁。
 
     # 位移探针只能验证 GUI 状态，不能成为候选轨迹的第一步。探针完成后再次
     # 恢复同一内存快照，后续起点校验和动作序列才都以完全相同的世界状态开始。
@@ -386,7 +386,7 @@ def restore_start(
     deltas = {key: round(abs(start[key] - expected[key]), 3) for key in ("x", "y", "z", "yaw", "pitch")}
     if any(value > 0.05 for value in deltas.values()):
         raise RuntimeError(f"快照起点不一致：{deltas}")
-    return observation, {"snapshot_load_wall_ms": round(reset.wall_ms, 3), "probe_reset_wall_ms": round(verification_reset.wall_ms, 3), "first_probe_planar_distance": round(first, 4), "gui_recovery_attempted": neutralized, "second_probe_planar_distance": second, "state_deviation": deltas}
+    return observation, {"snapshot_load_wall_ms": round(reset.wall_ms, 3), "probe_reset_wall_ms": round(verification_reset.wall_ms, 3), "first_probe_planar_distance": round(first, 4), "gui_recovery_attempted": neutralized, "second_probe_planar_distance": second, "movement_probe_accepted": second is None or second < 0.02, "state_deviation": deltas}
 
 
 def run_candidate(

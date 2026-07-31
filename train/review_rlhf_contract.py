@@ -74,13 +74,17 @@ def parse_review(text: str) -> dict[str, Any] | None:
     reasons = value.get("reasons")
     if not isinstance(scores, dict) or set(scores) != set(SCORE_FIELDS):
         return None
-    if any(
-        not isinstance(scores[field], int) or scores[field] not in (0, 1) for field in SCORE_FIELDS
-    ):
-        return None
+    normalized_scores: dict[str, int] = {}
+    for field in SCORE_FIELDS:
+        score = scores[field]
+        if isinstance(score, str) and score in {"0", "1"}:
+            score = int(score)
+        if not isinstance(score, int) or score not in (0, 1):
+            return None
+        normalized_scores[field] = score
     if not isinstance(reasons, list) or not reasons or not all(isinstance(x, str) for x in reasons):
         return None
-    return value
+    return {**value, "scores": normalized_scores}
 
 
 def score_review(text: str, candidate: ReviewCandidate) -> tuple[float, dict[str, Any]]:

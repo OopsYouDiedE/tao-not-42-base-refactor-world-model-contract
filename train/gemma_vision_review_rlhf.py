@@ -44,11 +44,11 @@ def review_prompt(question: dict[str, Any], candidate: ReviewCandidate) -> str:
     schema = {
         "decision": "approve | revise | reject",
         "scores": {
-            "visual_answerability": "0 | 1",
-            "action_validity": "0 | 1",
-            "duration_consistency": "0 | 1",
-            "causal_consistency": "0 | 1",
-            "gui_order": "0 | 1",
+            "visual_answerability": 1,
+            "action_validity": 1,
+            "duration_consistency": 1,
+            "causal_consistency": 1,
+            "gui_order": 1,
         },
         "reasons": ["concise verifiable reason"],
     }

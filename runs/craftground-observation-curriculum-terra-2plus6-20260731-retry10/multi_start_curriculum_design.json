@@ -1,0 +1,330 @@
+{
+  "contract": {
+    "sampling": "按快照维度分层，先满足能力覆盖下限，再以失败次数提高重采样权重。",
+    "validity": "每个快照必须记录来源、真实观察或成功末态的可行性证据和全部八个维度；禁止构造不可能装备或资源状态。",
+    "curriculum": "课程不是出生点线性序列；从各科技阶段、装备、地形、风险和策略的合格快照中混合抽样。",
+    "route_correction": "末影之眼仅用于主世界寻找要塞/末地门；进入下界依赖黑曜石下界门。",
+    "failure_resampling": "失败轨迹保留其快照标签和失败原因，在满足安全与物理前置后提高其抽样权重。"
+  },
+  "dimensions": [
+    "stage",
+    "inventory_loadout",
+    "biome_terrain",
+    "hazard",
+    "health_hunger",
+    "route",
+    "strategy",
+    "version_mechanic"
+  ],
+  "capabilities": [
+    {
+      "capability_id": "approach-observed-log",
+      "title": "接近已观测树干",
+      "stage": "early",
+      "prerequisites": [
+        "可见目标"
+      ],
+      "dimensions": {
+        "inventory_loadout": "empty",
+        "biome_terrain": "tree_crown",
+        "hazard": "fall",
+        "health_hunger": "healthy",
+        "route": "surface",
+        "strategy": "safe_descent"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 基础移动",
+      "task": "从树冠安全接近已观测树干。"
+    },
+    {
+      "capability_id": "iron-pickaxe-diamond",
+      "title": "铁镐采钻石",
+      "stage": "iron",
+      "prerequisites": [
+        "iron_pickaxe",
+        "visible_diamond_ore",
+        "safe_mining_route"
+      ],
+      "dimensions": {
+        "inventory_loadout": "iron_pickaxe",
+        "biome_terrain": "underground",
+        "hazard": "cave",
+        "health_hunger": "supplied",
+        "route": "mine",
+        "strategy": "target_mining"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 钻石矿石挖掘",
+      "task": "以铁镐采掘真实可见的钻石矿石。"
+    },
+    {
+      "capability_id": "diamond-pickaxe-obsidian",
+      "title": "钻石镐采黑曜石",
+      "stage": "diamond",
+      "prerequisites": [
+        "diamond_pickaxe",
+        "visible_obsidian",
+        "safe_lava_control"
+      ],
+      "dimensions": {
+        "inventory_loadout": "diamond_pickaxe",
+        "biome_terrain": "underground",
+        "hazard": "lava",
+        "health_hunger": "supplied",
+        "route": "mine",
+        "strategy": "controlled_mining"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 黑曜石挖掘",
+      "task": "以钻石镐采掘可验证黑曜石并处理邻近岩浆。"
+    },
+    {
+      "capability_id": "supply-and-pillaring",
+      "title": "垫脚方块与食物补给",
+      "stage": "early",
+      "prerequisites": [
+        "blocks",
+        "food"
+      ],
+      "dimensions": {
+        "inventory_loadout": "blocks_food",
+        "biome_terrain": "surface",
+        "hazard": "fall",
+        "health_hunger": "recovering",
+        "route": "surface",
+        "strategy": "resource_management"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 饥饿与放置机制",
+      "task": "在保留返程余量的前提下补给和搭建。"
+    },
+    {
+      "capability_id": "village-use",
+      "title": "村庄利用",
+      "stage": "early",
+      "prerequisites": [
+        "visible_village",
+        "safe_route"
+      ],
+      "dimensions": {
+        "inventory_loadout": "basic",
+        "biome_terrain": "village",
+        "hazard": "low",
+        "health_hunger": "healthy",
+        "route": "surface",
+        "strategy": "trading_looting"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 村庄结构与交易",
+      "task": "利用已观测村庄的床、工作站和可行交易。"
+    },
+    {
+      "capability_id": "iron-golem-combat",
+      "title": "铁傀儡战斗",
+      "stage": "iron",
+      "prerequisites": [
+        "visible_iron_golem",
+        "weapon",
+        "escape_route"
+      ],
+      "dimensions": {
+        "inventory_loadout": "weapon_armor",
+        "biome_terrain": "village",
+        "hazard": "combat",
+        "health_hunger": "supplied",
+        "route": "surface",
+        "strategy": "hit_and_retreat"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 铁傀儡 AI",
+      "task": "在明确撤离路线下完成铁傀儡战斗。"
+    },
+    {
+      "capability_id": "general-combat",
+      "title": "一般战斗",
+      "stage": "early",
+      "prerequisites": [
+        "visible_hostile",
+        "weapon_or_safe_fallback"
+      ],
+      "dimensions": {
+        "inventory_loadout": "basic_weapon",
+        "biome_terrain": "surface_or_cave",
+        "hazard": "combat",
+        "health_hunger": "healthy",
+        "route": "surface_or_cave",
+        "strategy": "spacing"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 敌对生物 AI",
+      "task": "针对实际观测敌对生物选择距离、掩体和撤离。"
+    },
+    {
+      "capability_id": "nether-portal-build",
+      "title": "搭建下界门",
+      "stage": "diamond",
+      "prerequisites": [
+        "obsidian",
+        "ignition",
+        "portal_site"
+      ],
+      "dimensions": {
+        "inventory_loadout": "obsidian_ignition",
+        "biome_terrain": "surface",
+        "hazard": "dimension_transition",
+        "health_hunger": "supplied",
+        "route": "portal",
+        "strategy": "portal_build"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 下界门",
+      "task": "用黑曜石搭建并点燃下界门；末影之眼不作为下界路线。"
+    },
+    {
+      "capability_id": "nether-fortress-survival",
+      "title": "堡垒与烈焰人生存",
+      "stage": "nether",
+      "prerequisites": [
+        "active_portal",
+        "fire_resistance_plan",
+        "visible_fortress_or_blaze"
+      ],
+      "dimensions": {
+        "inventory_loadout": "nether_ready",
+        "biome_terrain": "nether_fortress",
+        "hazard": "fire_combat",
+        "health_hunger": "supplied",
+        "route": "nether",
+        "strategy": "cover_and_retreat"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 下界堡垒与烈焰人",
+      "task": "在可回退快照下处理烈焰人火球和火焰伤害。"
+    },
+    {
+      "capability_id": "iron-farm",
+      "title": "刷铁机",
+      "stage": "iron",
+      "prerequisites": [
+        "village_resources",
+        "villagers",
+        "zombie_or_equivalent"
+      ],
+      "dimensions": {
+        "inventory_loadout": "construction",
+        "biome_terrain": "village",
+        "hazard": "construction",
+        "health_hunger": "supplied",
+        "route": "base",
+        "strategy": "farm_build"
+      },
+      "version_mechanic": "以目标版本实测的刷铁机机制",
+      "task": "仅对经版本验证的结构进行搭建和产量检查。"
+    },
+    {
+      "capability_id": "boat-enderman",
+      "title": "船机制处理末影人",
+      "stage": "end",
+      "prerequisites": [
+        "boat",
+        "visible_enderman",
+        "safe_area"
+      ],
+      "dimensions": {
+        "inventory_loadout": "boat_weapon",
+        "biome_terrain": "end_or_nether_warped",
+        "hazard": "enderman_combat",
+        "health_hunger": "supplied",
+        "route": "combat_arena",
+        "strategy": "boat_control"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 船与末影人碰撞机制",
+      "task": "在已验证船机制和安全区域内处理末影人。"
+    },
+    {
+      "capability_id": "eye-find-stronghold",
+      "title": "末影之眼寻找要塞",
+      "stage": "end_ready",
+      "prerequisites": [
+        "ender_eye",
+        "overworld_route"
+      ],
+      "dimensions": {
+        "inventory_loadout": "ender_eye",
+        "biome_terrain": "overworld",
+        "hazard": "expedition",
+        "health_hunger": "supplied",
+        "route": "stronghold_search",
+        "strategy": "triangulation"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 末影之眼定位要塞",
+      "task": "仅在主世界用末影之眼寻找要塞和末地门。"
+    },
+    {
+      "capability_id": "dragon-loadouts",
+      "title": "不同装备组合击杀末影龙",
+      "stage": "end",
+      "prerequisites": [
+        "active_end_portal",
+        "combat_loadout",
+        "recovery_plan"
+      ],
+      "dimensions": {
+        "inventory_loadout": "end_combat_variants",
+        "biome_terrain": "end",
+        "hazard": "boss_combat",
+        "health_hunger": "supplied",
+        "route": "end_portal",
+        "strategy": "crystal_then_dragon"
+      },
+      "version_mechanic": "Minecraft Java 1.21.x 末影龙战斗",
+      "task": "覆盖远程、近战、床爆等经版本验证的装备组合。"
+    }
+  ],
+  "observed_snapshot_only": {
+    "snapshot_id": "observation_driven_prep_batch8",
+    "provenance": "真实 CraftGround reset 后的同进程观察，并以 memorysnapshot 保存；未发放物品、未搭建资源场景。",
+    "feasible": true,
+    "feasibility_evidence": [
+      "真实位置=(2.5, 112.0, 8.5)",
+      "邻近方块={'block.minecraft.air': 18, 'block.minecraft.dark_oak_leaves': 9}",
+      "准星命中=block.minecraft.dark_oak_leaves",
+      "背包={}"
+    ],
+    "dimensions": {
+      "stage": "early",
+      "inventory_loadout": "empty",
+      "biome_terrain": "tree_crown",
+      "hazard": "fall",
+      "health_hunger": "healthy",
+      "route": "surface",
+      "strategy": "safe_descent",
+      "version_mechanic": "Minecraft Java 1.21.x"
+    },
+    "source_run": "/content/tao-not-42-base-refactor-world-model-contract/runs/craftground-observation-curriculum-terra-2plus6-20260731-retry10",
+    "parent_snapshot_id": null,
+    "failure_count": 0
+  },
+  "observed_snapshot_validation": [],
+  "observed_coverage": {
+    "biome_terrain": {
+      "tree_crown": 1
+    },
+    "hazard": {
+      "fall": 1
+    },
+    "health_hunger": {
+      "healthy": 1
+    },
+    "inventory_loadout": {
+      "empty": 1
+    },
+    "route": {
+      "surface": 1
+    },
+    "stage": {
+      "early": 1
+    },
+    "strategy": {
+      "safe_descent": 1
+    },
+    "version_mechanic": {
+      "Minecraft Java 1.21.x": 1
+    }
+  },
+  "eligible_capabilities_for_observed_snapshot": [
+    "approach-observed-log"
+  ],
+  "execution_boundary": "本文件的其余能力是待真实观察与验证后才可入队的课程定义，不代表本轮已执行或已拥有对应快照。"
+}

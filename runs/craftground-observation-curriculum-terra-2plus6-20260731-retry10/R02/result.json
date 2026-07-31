@@ -1,0 +1,269 @@
+{
+  "candidate_id": "R02",
+  "source_role": "reference_expert",
+  "description": "先谨慎前进，再连续前进以接近树干",
+  "generated_by": "SubAgent reference design",
+  "action_text": "<|action_start|> ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  <|action_end|>",
+  "response_token_ids": [],
+  "old_logprobs": [],
+  "policy_version": null,
+  "sampling_parameters": {},
+  "ticks": 124,
+  "reset_audit": {
+    "snapshot_load_wall_ms": 107.582,
+    "probe_reset_wall_ms": 94.749,
+    "first_probe_planar_distance": 0.0192,
+    "gui_recovery_attempted": true,
+    "second_probe_planar_distance": 0.0,
+    "movement_probe_accepted": true,
+    "state_deviation": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "yaw": 0.0,
+      "pitch": 0.0
+    }
+  },
+  "frames": [
+    {
+      "tick": 0,
+      "path": "R02/start.png"
+    },
+    {
+      "tick": 1,
+      "path": "R02/tick_001.png"
+    },
+    {
+      "tick": 32,
+      "path": "R02/tick_032.png"
+    },
+    {
+      "tick": 64,
+      "path": "R02/tick_064.png"
+    },
+    {
+      "tick": 96,
+      "path": "R02/tick_096.png"
+    },
+    {
+      "tick": 124,
+      "path": "R02/tick_124.png"
+    }
+  ],
+  "initial_distance_to_observed_log": 87.026,
+  "final_distance_to_observed_log": 80.575,
+  "distance_progress": 6.451,
+  "required_distance_progress": 8.0,
+  "final_state": {
+    "x": 5.7,
+    "y": 104.0,
+    "z": 12.7,
+    "yaw": -38.85,
+    "pitch": 11.85,
+    "is_on_ground": true,
+    "is_dead": false,
+    "raycast_block": "block.minecraft.dark_oak_log",
+    "raycast_position": [
+      51,
+      90,
+      69
+    ],
+    "inventory": {},
+    "mined_statistics": {
+      "iron_ore": 0,
+      "dark_oak_log": 0,
+      "stone": 0,
+      "coal_ore": 0
+    },
+    "nearby_block_counts": {
+      "block.minecraft.air": 14,
+      "block.minecraft.oak_leaves": 12,
+      "block.minecraft.oak_log": 1
+    },
+    "nearby_blocks": [
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 4,
+        "y": 103,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 4,
+        "y": 103,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 4,
+        "y": 103,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 4,
+        "y": 104,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 4,
+        "y": 104,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 4,
+        "y": 104,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 4,
+        "y": 105,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 4,
+        "y": 105,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 4,
+        "y": 105,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 5,
+        "y": 103,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 5,
+        "y": 103,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 5,
+        "y": 103,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 5,
+        "y": 104,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 5,
+        "y": 104,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 5,
+        "y": 104,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 5,
+        "y": 105,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 5,
+        "y": 105,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 5,
+        "y": 105,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 6,
+        "y": 103,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 6,
+        "y": 103,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.oak_log",
+        "x": 6,
+        "y": 103,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 6,
+        "y": 104,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 6,
+        "y": 104,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 6,
+        "y": 104,
+        "z": 13
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 6,
+        "y": 105,
+        "z": 11
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 6,
+        "y": 105,
+        "z": 12
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 6,
+        "y": 105,
+        "z": 13
+      }
+    ]
+  },
+  "success": false,
+  "execution_status": "PROGRESSING",
+  "progress_metrics": {
+    "target_distance_start": 87.026,
+    "target_distance_end": 80.575,
+    "target_distance_net_progress": 6.451,
+    "alive": true,
+    "on_ground": true
+  },
+  "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+  "direction_confidence": "high: 当前扫描直接命中目标方块",
+  "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+  "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+  "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+  "success_evidence": {
+    "alive": true,
+    "on_ground": true,
+    "distance_reduced_to_threshold": false
+  },
+  "execution_wall_ms": 6508.633,
+  "score": 11.491
+}

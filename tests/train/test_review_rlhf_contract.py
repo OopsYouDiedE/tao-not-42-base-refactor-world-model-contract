@@ -40,3 +40,14 @@ def test_false_approve_is_strongly_penalized() -> None:
 def test_invalid_json_and_group_size_are_rejected() -> None:
     assert score_review("approve", make_review_candidate(ANSWER, mutate=False))[0] == -40
     assert sum(relative_advantages(list(range(8)))) == 0
+
+
+def test_binary_score_strings_are_normalized_for_saved_policy_rollouts() -> None:
+    candidate = make_review_candidate(ANSWER, mutate=False)
+    payload = json.loads(reference_review(candidate))
+    payload["scores"] = {key: str(value) for key, value in payload["scores"].items()}
+
+    parsed = parse_review(json.dumps(payload))
+
+    assert parsed is not None
+    assert set(parsed["scores"].values()) == {1}

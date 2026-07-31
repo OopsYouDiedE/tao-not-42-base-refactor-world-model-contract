@@ -1,0 +1,269 @@
+{
+  "candidate_id": "R01",
+  "source_role": "reference_expert",
+  "description": "沿已观测树干方向稳定前进并留出停稳时间",
+  "generated_by": "SubAgent reference design",
+  "action_text": "<|action_start|> ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  <|action_end|>",
+  "response_token_ids": [],
+  "old_logprobs": [],
+  "policy_version": null,
+  "sampling_parameters": {},
+  "ticks": 124,
+  "reset_audit": {
+    "snapshot_load_wall_ms": 74.484,
+    "probe_reset_wall_ms": 102.369,
+    "first_probe_planar_distance": 0.0975,
+    "gui_recovery_attempted": false,
+    "second_probe_planar_distance": null,
+    "movement_probe_accepted": true,
+    "state_deviation": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "yaw": 0.0,
+      "pitch": 0.0
+    }
+  },
+  "frames": [
+    {
+      "tick": 0,
+      "path": "R01/start.png"
+    },
+    {
+      "tick": 1,
+      "path": "R01/tick_001.png"
+    },
+    {
+      "tick": 32,
+      "path": "R01/tick_032.png"
+    },
+    {
+      "tick": 64,
+      "path": "R01/tick_064.png"
+    },
+    {
+      "tick": 96,
+      "path": "R01/tick_096.png"
+    },
+    {
+      "tick": 124,
+      "path": "R01/tick_124.png"
+    }
+  ],
+  "initial_distance_to_observed_log": 87.026,
+  "final_distance_to_observed_log": 73.777,
+  "distance_progress": 13.249,
+  "required_distance_progress": 8.0,
+  "final_state": {
+    "x": 9.7,
+    "y": 99.0,
+    "z": 17.7,
+    "yaw": -38.85,
+    "pitch": 11.85,
+    "is_on_ground": true,
+    "is_dead": false,
+    "raycast_block": "block.minecraft.dark_oak_leaves",
+    "raycast_position": [
+      20,
+      96,
+      31
+    ],
+    "inventory": {},
+    "mined_statistics": {
+      "iron_ore": 0,
+      "dark_oak_log": 0,
+      "stone": 0,
+      "coal_ore": 0
+    },
+    "nearby_block_counts": {
+      "block.minecraft.air": 20,
+      "block.minecraft.oak_leaves": 6,
+      "block.minecraft.oak_log": 1
+    },
+    "nearby_blocks": [
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 98,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 98,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 98,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 99,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 99,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 99,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 100,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 100,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 8,
+        "y": 100,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 9,
+        "y": 98,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 9,
+        "y": 98,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 9,
+        "y": 98,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 9,
+        "y": 99,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 9,
+        "y": 99,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 9,
+        "y": 99,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 9,
+        "y": 100,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 9,
+        "y": 100,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 9,
+        "y": 100,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 10,
+        "y": 98,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 10,
+        "y": 98,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.oak_log",
+        "x": 10,
+        "y": 98,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 10,
+        "y": 99,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 10,
+        "y": 99,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.oak_leaves",
+        "x": 10,
+        "y": 99,
+        "z": 18
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 10,
+        "y": 100,
+        "z": 16
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 10,
+        "y": 100,
+        "z": 17
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 10,
+        "y": 100,
+        "z": 18
+      }
+    ]
+  },
+  "success": true,
+  "execution_status": "SUCCESS",
+  "progress_metrics": {
+    "target_distance_start": 87.026,
+    "target_distance_end": 73.777,
+    "target_distance_net_progress": 13.249,
+    "alive": true,
+    "on_ground": true
+  },
+  "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+  "direction_confidence": "high: 当前扫描直接命中目标方块",
+  "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+  "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+  "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+  "success_evidence": {
+    "alive": true,
+    "on_ground": true,
+    "distance_reduced_to_threshold": true
+  },
+  "execution_wall_ms": 6080.647,
+  "score": 118.289
+}

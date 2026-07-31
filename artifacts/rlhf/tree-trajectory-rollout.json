@@ -1,0 +1,3634 @@
+{
+  "snapshot_id": "observation_driven_prep_batch8",
+  "selected_course": "prep-traverse-observed-canopy",
+  "initial_state": {
+    "x": 2.5,
+    "y": 112.0,
+    "z": 8.5,
+    "yaw": -38.85,
+    "pitch": 11.85,
+    "is_on_ground": true,
+    "is_dead": false,
+    "raycast_block": "block.minecraft.dark_oak_leaves",
+    "raycast_position": [
+      56,
+      95,
+      75
+    ],
+    "inventory": {},
+    "mined_statistics": {
+      "iron_ore": 0,
+      "dark_oak_log": 0,
+      "stone": 0,
+      "coal_ore": 0
+    },
+    "nearby_block_counts": {
+      "block.minecraft.air": 18,
+      "block.minecraft.dark_oak_leaves": 9
+    },
+    "nearby_blocks": [
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 1,
+        "y": 111,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 1,
+        "y": 111,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 1,
+        "y": 111,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 1,
+        "y": 112,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 1,
+        "y": 112,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 1,
+        "y": 112,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 1,
+        "y": 113,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 1,
+        "y": 113,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 1,
+        "y": 113,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 2,
+        "y": 111,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 2,
+        "y": 111,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.dark_oak_leaves",
+        "x": 2,
+        "y": 111,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 2,
+        "y": 112,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 2,
+        "y": 112,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 2,
+        "y": 112,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 2,
+        "y": 113,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 2,
+        "y": 113,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 2,
+        "y": 113,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 111,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 111,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 111,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 112,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 112,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 112,
+        "z": 9
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 113,
+        "z": 7
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 113,
+        "z": 8
+      },
+      {
+        "name": "block.minecraft.air",
+        "x": 3,
+        "y": 113,
+        "z": 9
+      }
+    ]
+  },
+  "trajectories": [
+    {
+      "candidate_id": "R01",
+      "source_role": "reference_expert",
+      "description": "沿已观测树干方向稳定前进并留出停稳时间",
+      "generated_by": "SubAgent reference design",
+      "action_text": "<|action_start|> ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  <|action_end|>",
+      "response_token_ids": [],
+      "old_logprobs": [],
+      "policy_version": null,
+      "sampling_parameters": {},
+      "ticks": 124,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 74.484,
+        "probe_reset_wall_ms": 102.369,
+        "first_probe_planar_distance": 0.0975,
+        "gui_recovery_attempted": false,
+        "second_probe_planar_distance": null,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "R01/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "R01/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "R01/tick_032.png"
+        },
+        {
+          "tick": 64,
+          "path": "R01/tick_064.png"
+        },
+        {
+          "tick": 96,
+          "path": "R01/tick_096.png"
+        },
+        {
+          "tick": 124,
+          "path": "R01/tick_124.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 73.777,
+      "distance_progress": 13.249,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 9.7,
+        "y": 99.0,
+        "z": 17.7,
+        "yaw": -38.85,
+        "pitch": 11.85,
+        "is_on_ground": true,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          20,
+          96,
+          31
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 20,
+          "block.minecraft.oak_leaves": 6,
+          "block.minecraft.oak_log": 1
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 98,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 98,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 98,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 99,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 99,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 99,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 100,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 100,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 100,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 98,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 9,
+            "y": 98,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 9,
+            "y": 98,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 99,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 99,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 9,
+            "y": 99,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 100,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 100,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 100,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 10,
+            "y": 98,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 10,
+            "y": 98,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.oak_log",
+            "x": 10,
+            "y": 98,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 10,
+            "y": 99,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 10,
+            "y": 99,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 10,
+            "y": 99,
+            "z": 18
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 10,
+            "y": 100,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 10,
+            "y": 100,
+            "z": 17
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 10,
+            "y": 100,
+            "z": 18
+          }
+        ]
+      },
+      "success": true,
+      "execution_status": "SUCCESS",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 73.777,
+        "target_distance_net_progress": 13.249,
+        "alive": true,
+        "on_ground": true
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": true,
+        "distance_reduced_to_threshold": true
+      },
+      "execution_wall_ms": 6080.647,
+      "score": 118.289,
+      "relative_advantage": 54.067
+    },
+    {
+      "candidate_id": "R02",
+      "source_role": "reference_expert",
+      "description": "先谨慎前进，再连续前进以接近树干",
+      "generated_by": "SubAgent reference design",
+      "action_text": "<|action_start|> ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W shift ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  ;  <|action_end|>",
+      "response_token_ids": [],
+      "old_logprobs": [],
+      "policy_version": null,
+      "sampling_parameters": {},
+      "ticks": 124,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 107.582,
+        "probe_reset_wall_ms": 94.749,
+        "first_probe_planar_distance": 0.0192,
+        "gui_recovery_attempted": true,
+        "second_probe_planar_distance": 0.0,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "R02/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "R02/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "R02/tick_032.png"
+        },
+        {
+          "tick": 64,
+          "path": "R02/tick_064.png"
+        },
+        {
+          "tick": 96,
+          "path": "R02/tick_096.png"
+        },
+        {
+          "tick": 124,
+          "path": "R02/tick_124.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 80.575,
+      "distance_progress": 6.451,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 5.7,
+        "y": 104.0,
+        "z": 12.7,
+        "yaw": -38.85,
+        "pitch": 11.85,
+        "is_on_ground": true,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_log",
+        "raycast_position": [
+          51,
+          90,
+          69
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 14,
+          "block.minecraft.oak_leaves": 12,
+          "block.minecraft.oak_log": 1
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 4,
+            "y": 103,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 4,
+            "y": 103,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 4,
+            "y": 103,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 4,
+            "y": 104,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 4,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 4,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 4,
+            "y": 105,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 4,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 4,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 5,
+            "y": 103,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 5,
+            "y": 103,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 5,
+            "y": 103,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 5,
+            "y": 104,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 5,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 105,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 103,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 103,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_log",
+            "x": 6,
+            "y": 103,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 104,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 11
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 13
+          }
+        ]
+      },
+      "success": false,
+      "execution_status": "PROGRESSING",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 80.575,
+        "target_distance_net_progress": 6.451,
+        "alive": true,
+        "on_ground": true
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": true,
+        "distance_reduced_to_threshold": false
+      },
+      "execution_wall_ms": 6508.633,
+      "score": 11.491,
+      "relative_advantage": -52.731
+    },
+    {
+      "candidate_id": "P01",
+      "source_role": "policy_sample",
+      "description": "BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+      "generated_by": "BC LoRA policy",
+      "action_text": "<|action_start|> ; Mouse -10 10 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; Mouse -10 10 W <|action_end|>",
+      "response_token_ids": [
+        4119,
+        236820,
+        236909,
+        2064,
+        236779,
+        3041,
+        111038,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236771,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236771,
+        649,
+        655,
+        236909,
+        2064,
+        236779,
+        643,
+        111038
+      ],
+      "old_logprobs": [
+        -0.28889986872673035,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.07888974994421005,
+        -0.07888974994421005,
+        0.0,
+        -0.5588561296463013,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "policy_version": "unjustify/minestudio-gemma4-26b-a4b-trajectory-lora",
+      "sampling_parameters": {
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "max_new_tokens": 1024
+      },
+      "ticks": 40,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 150.844,
+        "probe_reset_wall_ms": 93.465,
+        "first_probe_planar_distance": 0.0192,
+        "gui_recovery_attempted": true,
+        "second_probe_planar_distance": 0.0,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "P01/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "P01/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "P01/tick_032.png"
+        },
+        {
+          "tick": 40,
+          "path": "P01/tick_040.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 76.344,
+      "distance_progress": 10.682,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 8.575,
+        "y": 102.922,
+        "z": 15.7,
+        "yaw": -40.2,
+        "pitch": 13.35,
+        "is_on_ground": false,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          29,
+          96,
+          39
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 20,
+          "block.minecraft.oak_leaves": 7
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 101,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 101,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 101,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 102,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 102,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 102,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 103,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 103,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 103,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 8,
+            "y": 101,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 8,
+            "y": 101,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 101,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 8,
+            "y": 102,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 102,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 102,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 103,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 103,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 103,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 101,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 101,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 101,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 102,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 102,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 102,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 103,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 103,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 103,
+            "z": 16
+          }
+        ]
+      },
+      "success": false,
+      "execution_status": "FAILED",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 76.344,
+        "target_distance_net_progress": 10.682,
+        "alive": true,
+        "on_ground": false
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": false,
+        "distance_reduced_to_threshold": true
+      },
+      "execution_wall_ms": 2075.214,
+      "score": 9.082,
+      "relative_advantage": -55.14
+    },
+    {
+      "candidate_id": "P02",
+      "source_role": "policy_sample",
+      "description": "BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+      "generated_by": "BC LoRA policy",
+      "action_text": "<|action_start|> ; Mouse -10 13 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; Mouse -10 13 W <|action_end|>",
+      "response_token_ids": [
+        107,
+        236820,
+        236909,
+        2064,
+        236779,
+        3041,
+        111038,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        655,
+        236909,
+        2064,
+        236779,
+        643,
+        111038
+      ],
+      "old_logprobs": [
+        -1.4913933277130127,
+        -0.07317254692316055,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.042999111115932465,
+        0.0,
+        0.0,
+        -1.1242337226867676,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "policy_version": "unjustify/minestudio-gemma4-26b-a4b-trajectory-lora",
+      "sampling_parameters": {
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "max_new_tokens": 1024
+      },
+      "ticks": 40,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 72.666,
+        "probe_reset_wall_ms": 128.974,
+        "first_probe_planar_distance": 0.0975,
+        "gui_recovery_attempted": false,
+        "second_probe_planar_distance": null,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "P02/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "P02/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "P02/tick_032.png"
+        },
+        {
+          "tick": 40,
+          "path": "P02/tick_040.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 78.898,
+      "distance_progress": 8.128,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 7.086,
+        "y": 105.0,
+        "z": 13.907,
+        "yaw": -40.35,
+        "pitch": 13.8,
+        "is_on_ground": true,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          45,
+          91,
+          59
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 23,
+          "block.minecraft.oak_leaves": 4
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 14
+          }
+        ]
+      },
+      "success": true,
+      "execution_status": "SUCCESS",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 78.898,
+        "target_distance_net_progress": 8.128,
+        "alive": true,
+        "on_ground": true
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": true,
+        "distance_reduced_to_threshold": true
+      },
+      "execution_wall_ms": 2084.147,
+      "score": 116.528,
+      "relative_advantage": 52.306
+    },
+    {
+      "candidate_id": "P03",
+      "source_role": "policy_sample",
+      "description": "BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+      "generated_by": "BC LoRA policy",
+      "action_text": "<|action_start|> ; Mouse -10 13 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; Mouse -10 13 W <|action_end|>",
+      "response_token_ids": [
+        4119,
+        236820,
+        236909,
+        2064,
+        236779,
+        3041,
+        111038,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        655,
+        236909,
+        2064,
+        236779,
+        643,
+        111038
+      ],
+      "old_logprobs": [
+        -0.3583211898803711,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.07888974994421005,
+        0.0,
+        0.0,
+        -1.2176226377487183,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "policy_version": "unjustify/minestudio-gemma4-26b-a4b-trajectory-lora",
+      "sampling_parameters": {
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "max_new_tokens": 1024
+      },
+      "ticks": 40,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 74.922,
+        "probe_reset_wall_ms": 104.209,
+        "first_probe_planar_distance": 0.0975,
+        "gui_recovery_attempted": false,
+        "second_probe_planar_distance": null,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "P03/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "P03/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "P03/tick_032.png"
+        },
+        {
+          "tick": 40,
+          "path": "P03/tick_040.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 78.898,
+      "distance_progress": 8.128,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 7.086,
+        "y": 105.0,
+        "z": 13.907,
+        "yaw": -40.35,
+        "pitch": 13.8,
+        "is_on_ground": true,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          45,
+          91,
+          59
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 23,
+          "block.minecraft.oak_leaves": 4
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 14
+          }
+        ]
+      },
+      "success": true,
+      "execution_status": "SUCCESS",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 78.898,
+        "target_distance_net_progress": 8.128,
+        "alive": true,
+        "on_ground": true
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": true,
+        "distance_reduced_to_threshold": true
+      },
+      "execution_wall_ms": 1950.058,
+      "score": 116.528,
+      "relative_advantage": 52.306
+    },
+    {
+      "candidate_id": "P04",
+      "source_role": "policy_sample",
+      "description": "BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+      "generated_by": "BC LoRA policy",
+      "action_text": "<|action_start|> ; Mouse -10 13 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; Mouse -10 13 W <|action_end|>",
+      "response_token_ids": [
+        107,
+        236820,
+        236909,
+        2064,
+        236779,
+        3041,
+        111038,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        655,
+        236909,
+        2064,
+        236779,
+        643,
+        111038
+      ],
+      "old_logprobs": [
+        -1.7599661350250244,
+        -0.06785587221384048,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.042999111115932465,
+        0.0,
+        0.0,
+        -1.2155205011367798,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "policy_version": "unjustify/minestudio-gemma4-26b-a4b-trajectory-lora",
+      "sampling_parameters": {
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "max_new_tokens": 1024
+      },
+      "ticks": 40,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 56.974,
+        "probe_reset_wall_ms": 120.774,
+        "first_probe_planar_distance": 0.0975,
+        "gui_recovery_attempted": false,
+        "second_probe_planar_distance": null,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "P04/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "P04/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "P04/tick_032.png"
+        },
+        {
+          "tick": 40,
+          "path": "P04/tick_040.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 78.898,
+      "distance_progress": 8.128,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 7.086,
+        "y": 105.0,
+        "z": 13.907,
+        "yaw": -40.35,
+        "pitch": 13.8,
+        "is_on_ground": true,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          45,
+          91,
+          59
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 23,
+          "block.minecraft.oak_leaves": 4
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 106,
+            "z": 14
+          }
+        ]
+      },
+      "success": true,
+      "execution_status": "SUCCESS",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 78.898,
+        "target_distance_net_progress": 8.128,
+        "alive": true,
+        "on_ground": true
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": true,
+        "distance_reduced_to_threshold": true
+      },
+      "execution_wall_ms": 1940.967,
+      "score": 116.528,
+      "relative_advantage": 52.306
+    },
+    {
+      "candidate_id": "P05",
+      "source_role": "policy_sample",
+      "description": "BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+      "generated_by": "BC LoRA policy",
+      "action_text": "<|action_start|> ; Mouse -10 13 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; Mouse -10 13 W <|action_end|>",
+      "response_token_ids": [
+        4119,
+        236820,
+        236909,
+        2064,
+        236779,
+        3041,
+        111038,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236800,
+        649,
+        655,
+        236909,
+        2064,
+        236779,
+        643,
+        111038
+      ],
+      "old_logprobs": [
+        -0.42398878931999207,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.07888974994421005,
+        -0.07888974994421005,
+        0.0,
+        -1.2460429668426514,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "policy_version": "unjustify/minestudio-gemma4-26b-a4b-trajectory-lora",
+      "sampling_parameters": {
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "max_new_tokens": 1024
+      },
+      "ticks": 40,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 56.571,
+        "probe_reset_wall_ms": 91.171,
+        "first_probe_planar_distance": 0.0975,
+        "gui_recovery_attempted": false,
+        "second_probe_planar_distance": null,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "P05/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "P05/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "P05/tick_032.png"
+        },
+        {
+          "tick": 40,
+          "path": "P05/tick_040.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 79.175,
+      "distance_progress": 7.85,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 6.905,
+        "y": 105.0,
+        "z": 13.694,
+        "yaw": -40.35,
+        "pitch": 13.8,
+        "is_on_ground": true,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          45,
+          91,
+          59
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 22,
+          "block.minecraft.oak_leaves": 5
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 5,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 5,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 6,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 6,
+            "y": 106,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 104,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 104,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 105,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 12
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 13
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 106,
+            "z": 14
+          }
+        ]
+      },
+      "success": false,
+      "execution_status": "PROGRESSING",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 79.175,
+        "target_distance_net_progress": 7.85,
+        "alive": true,
+        "on_ground": true
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": true,
+        "distance_reduced_to_threshold": false
+      },
+      "execution_wall_ms": 2021.972,
+      "score": 16.25,
+      "relative_advantage": -47.972
+    },
+    {
+      "candidate_id": "P06",
+      "source_role": "policy_sample",
+      "description": "BC LoRA 从规范起点图像独立采样的 on-policy 动作",
+      "generated_by": "BC LoRA policy",
+      "action_text": "<|action_start|> ; Mouse -10 11 W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; W ; Mouse -10 11 W <|action_end|>",
+      "response_token_ids": [
+        107,
+        236820,
+        236909,
+        2064,
+        236779,
+        3041,
+        111038,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236770,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        649,
+        2895,
+        41625,
+        753,
+        236770,
+        236771,
+        236743,
+        236770,
+        236770,
+        649,
+        655,
+        236909,
+        2064,
+        236779,
+        643,
+        111038
+      ],
+      "old_logprobs": [
+        -1.3263092041015625,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -2.595496892929077,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.3304581940174103,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "policy_version": "unjustify/minestudio-gemma4-26b-a4b-trajectory-lora",
+      "sampling_parameters": {
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "max_new_tokens": 1024
+      },
+      "ticks": 40,
+      "reset_audit": {
+        "snapshot_load_wall_ms": 55.369,
+        "probe_reset_wall_ms": 91.343,
+        "first_probe_planar_distance": 0.0192,
+        "gui_recovery_attempted": true,
+        "second_probe_planar_distance": 0.0,
+        "movement_probe_accepted": true,
+        "state_deviation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "yaw": 0.0,
+          "pitch": 0.0
+        }
+      },
+      "frames": [
+        {
+          "tick": 0,
+          "path": "P06/start.png"
+        },
+        {
+          "tick": 1,
+          "path": "P06/tick_001.png"
+        },
+        {
+          "tick": 32,
+          "path": "P06/tick_032.png"
+        },
+        {
+          "tick": 40,
+          "path": "P06/tick_040.png"
+        }
+      ],
+      "initial_distance_to_observed_log": 87.026,
+      "final_distance_to_observed_log": 76.344,
+      "distance_progress": 10.682,
+      "required_distance_progress": 8.0,
+      "final_state": {
+        "x": 8.575,
+        "y": 102.922,
+        "z": 15.7,
+        "yaw": -40.2,
+        "pitch": 13.35,
+        "is_on_ground": false,
+        "is_dead": false,
+        "raycast_block": "block.minecraft.dark_oak_leaves",
+        "raycast_position": [
+          29,
+          96,
+          39
+        ],
+        "inventory": {},
+        "mined_statistics": {
+          "iron_ore": 0,
+          "dark_oak_log": 0,
+          "stone": 0,
+          "coal_ore": 0
+        },
+        "nearby_block_counts": {
+          "block.minecraft.air": 20,
+          "block.minecraft.oak_leaves": 7
+        },
+        "nearby_blocks": [
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 101,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 101,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 101,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 102,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 7,
+            "y": 102,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 102,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 103,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 103,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 7,
+            "y": 103,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 8,
+            "y": 101,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 8,
+            "y": 101,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 101,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.oak_leaves",
+            "x": 8,
+            "y": 102,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 102,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 102,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 103,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 103,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 8,
+            "y": 103,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 101,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 101,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 101,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 102,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 102,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 102,
+            "z": 16
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 103,
+            "z": 14
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 103,
+            "z": 15
+          },
+          {
+            "name": "block.minecraft.air",
+            "x": 9,
+            "y": 103,
+            "z": 16
+          }
+        ]
+      },
+      "success": false,
+      "execution_status": "FAILED",
+      "progress_metrics": {
+        "target_distance_start": 87.026,
+        "target_distance_end": 76.344,
+        "target_distance_net_progress": 10.682,
+        "alive": true,
+        "on_ground": false
+      },
+      "method_validity": "沿当前已 raycast 的树干方向接近；目标和规则均来自同一轮观察。",
+      "direction_confidence": "high: 当前扫描直接命中目标方块",
+      "checkpoint_policy": "仅在存活、落地、目标相关净进展为正且玩家状态可恢复时保存稳定检查点。",
+      "budget_extension_policy": "仅 PROGRESSING 可申请有限延长；本轮 batch 固定预算，不在候选内隐式续跑。",
+      "stagnation_window": "连续 32 tick 未出现目标距离净缩短则停止扩展并转入 UNKNOWN/失败分析。",
+      "success_evidence": {
+        "alive": true,
+        "on_ground": false,
+        "distance_reduced_to_threshold": true
+      },
+      "execution_wall_ms": 2023.966,
+      "score": 9.082,
+      "relative_advantage": -55.14
+    }
+  ],
+  "mean_score": 64.222,
+  "success_rate": 0.5,
+  "best_candidate": "R01",
+  "course_decision": "保持当前课程节点",
+  "course_note": "未达到 `75%` 门槛；不替换出生快照，保留真实失败轨迹以校准。",
+  "promotion": null
+}

@@ -52,15 +52,26 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # 下载项目并创建虚拟环境
 git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
 cd tao-not-42-base-refactor-world-model-contract
-uv venv --python 3.13
-
-# 安装数据构建所需的基础依赖
-uv pip install -e .
 ```
 
-按用途安装可选依赖：
+创建虚拟环境后，直接按包名安装全部 Python 依赖：
 
 ```bash
+uv venv --python 3.13
+uv pip install accelerate av craftground datasets gradio h5py huggingface-hub lmdb numpy opencv-python-headless peft pillow pytest ruff torch transformers trl unsloth unsloth-zoo
+```
+
+需要开发模式命令行入口时，再安装当前仓库本身：
+
+```bash
+uv pip install -e . --no-deps
+```
+
+也可以按用途安装项目声明的可选依赖：
+
+```bash
+uv venv --python 3.13
+uv pip install -e .                # 仅数据构建基础依赖
 uv pip install -e ".[review]"       # Gradio 审核界面
 uv pip install -e ".[train]"        # CUDA、Unsloth 与视觉 SFT
 uv pip install -e ".[craftground]"  # 闭环执行与快照验证

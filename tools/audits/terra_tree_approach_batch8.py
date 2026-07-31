@@ -1,4 +1,4 @@
-"""从真实 CraftGround 观察生成课程图，并运行一轮 2+6 同快照演练。"""
+"""从真实 CraftGround 树冠观察运行接近树干的 2+6 同快照审计。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any
 
 from game_environment import CraftGroundActionAdapter, MemorySnapshotCoordinator, SnapshotRegion, save_rgb, step_commands
 from lumine.action_codec import LumineActionChunk, LumineWindowAction, decode_lumine_action
-from tools.curriculum_bank import SnapshotRecord, design_document
+from curriculum.bank import SnapshotRecord, design_document
 
 MIN_SUCCESS_RATE = 0.75
 

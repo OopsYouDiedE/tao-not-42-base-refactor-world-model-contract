@@ -39,11 +39,7 @@ from lumine.action_codec import (
     encode_lumine_action,
 )
 from lumine.action_contract import validate_action_image_alignment
-
-# MineStudio / Minecraft 的采样率：20 帧每秒，50ms 一帧。
-FRAMES_PER_SECOND = 20
-# 滚动执行的最短计划：8 × 50ms = 400ms。
-DEFAULT_WINDOW_FRAMES = 8
+from lumine.timing import DEFAULT_WINDOW_FRAMES, FRAMES_PER_SECOND, HISTORY_FRAME_INTERVAL
 
 
 @dataclass(frozen=True)
@@ -57,7 +53,7 @@ class WindowLayout:
     frames_per_chunk : int
         每个电机 chunk 覆盖的帧数，需整除 ``window_frames``。
     history_windows : int
-        除当前帧外额外给出的历史观测帧数，按感知步（``window_frames``）回溯。
+        除当前帧外额外给出的历史观测帧数，每隔 4 tick 回溯一帧。
         0 表示 non-history 配方；Lumine 的 history 变体代价约 3.5×。
     stride_frames : int
         相邻样本的起始帧间隔。等于 ``window_frames`` 时窗口不重叠。
@@ -155,7 +151,7 @@ def _observation_frame_indices(start_frame: int, layout: WindowLayout) -> list[i
     当前帧取窗口起始帧：模型看到 t 时刻的画面，预测从 t 起执行的动作窗口。
     """
     indices = [
-        start_frame - offset * 4
+        start_frame - offset * HISTORY_FRAME_INTERVAL
         for offset in range(layout.history_windows, 0, -1)
     ]
     indices.append(start_frame)

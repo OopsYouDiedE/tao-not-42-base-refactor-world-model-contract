@@ -47,7 +47,7 @@ craftground-closed-loop = "game_environment.closed_loop_server:main"
 craftground-verify-memory = "game_environment.verify_memory_snapshot:main"
 
 [tool.setuptools.packages.find]
-include = ["dataset*", "game_environment*", "lumine*", "tools*", "train*"]
+include = ["curriculum*", "dataset*", "game_environment*", "lumine*", "tools*", "train*"]
 
 [tool.pytest.ini_options]
 cache_dir = "runs/cache/pytest"

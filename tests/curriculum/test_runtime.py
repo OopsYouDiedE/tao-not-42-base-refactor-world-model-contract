@@ -1,6 +1,6 @@
 import pytest
 
-from train.curriculum_runtime import (
+from curriculum.runtime import (
     CourseRequirements,
     CourseStatus,
     ProgressWindow,

@@ -91,7 +91,7 @@ PRO 6000 的优先队列由在线动作连续性决定。在线推理优先于�
 | 刷铁机 | 村民、结构材料、目标版本机制验证 | 不把旧版本结构直接迁移。 |
 | 船机制末影人、要塞、末影龙 | 船/末影之眼/末地门/战斗装备的对应证据 | 末影之眼仅在主世界寻找要塞和末地门，不用于前往下界。 |
 
-课程维度固定为 `stage`、`inventory_loadout`、`biome_terrain`、`hazard`、`health_hunger`、`route`、`strategy`、`version_mechanic`。`tools/curriculum_bank.py` 保存能力本体、快照验证、覆盖矩阵和分层抽样实现。它只定义待验证课程，不能产生未观察到的资源或装备。
+课程维度固定为 `stage`、`inventory_loadout`、`biome_terrain`、`hazard`、`health_hunger`、`route`、`strategy`、`version_mechanic`。`curriculum/bank.py` 保存能力本体、快照验证、覆盖矩阵和分层抽样实现。它只定义待验证课程，不能产生未观察到的资源或装备。
 
 ## 任务生成与评估学习
 

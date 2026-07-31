@@ -56,13 +56,8 @@ from PIL import Image
 from dataset.minestudio.reader import TrajectoryReader
 from dataset.split import HoldoutLevel, build_split
 from lumine.action_codec import encode_lumine_action
+from lumine.timing import DEFAULT_WINDOW_FRAMES, FRAMES_PER_SECOND, HISTORY_FRAME_INTERVAL
 from train.lumine_conversation_dataset import DEFAULT_INSTRUCTION, build_conversation
-
-# MineStudio / Minecraft 的采样率：20 帧每秒，50ms 一帧。
-FRAMES_PER_SECOND = 20
-# 滚动执行的最短计划：8 × 50ms = 400ms。
-DEFAULT_WINDOW_FRAMES = 8
-HISTORY_FRAME_INTERVAL = 4
 
 _BYTES_PER_GIBIBYTE = 1024**3
 
@@ -86,7 +81,8 @@ class StreamingSettings:
     frames_per_chunk : int
         每个电机 chunk 覆盖的帧数，需整除 ``window_frames``。
     history_windows : int
-        除当前帧外额外给出的历史观测帧数，按感知步回溯。0 表示 non-history 配方。
+        除当前帧外额外给出的历史观测帧数，每隔 4 tick 回溯一帧。
+        0 表示 non-history 配方。
     stride_frames : int
         相邻样本的起始帧间隔。等于 ``window_frames`` 时窗口不重叠。
     frame_width, frame_height : int

@@ -1,77 +1,100 @@
-# TaoNot42 大语言模型游戏控制器
+# LumineCraft
 
-本项目以 Minecraft 轨迹训练视觉游戏控制模型。
+本项目使用 MineStudio Minecraft 轨迹训练视觉动作模型，并通过 CraftGround 执行 Lumine
+命名动作协议。仓库只保存源码、测试和稳定契约。数据集、图片、审核结果、日志与模型权重统一写入
+`runs/`，该目录不进入版本控制。
+
+## 当前管线
+
+| 阶段 | 输入 | 正式入口 | 输出 |
+|---|---|---|---|
+| 下载 | Hugging Face MineStudio 数据 | `dataset.minestudio.download` | LMDB 模态分片 |
+| 预训练数据 | LMDB 图像与动作 | `dataset.pretraining` | Lumine JSONL 与图片 |
+| 流式训练数据 | LMDB 图像与动作 | `train.lumine_streaming_dataset` | 内存中的视觉对话样本 |
+| 轨迹题生成 | LMDB 轨迹 | `dataset.trajectory.generate_questions` | 候选题、隔离答案和审核请求 |
+| 人工双审 | 候选题与原始轨迹 | `dataset.trajectory.review_questions`、`review_actions` | 题目审核与规范动作答案 |
+| 训练归档 | 双审通过题目 | `dataset.trajectory.pack_hdf5` | 自包含 HDF5 |
+| 视觉 SFT | LMDB、落盘 JSONL 或 HDF5 | `train.gemma_vision_sft`、`train.qwen_vision_sft` | LoRA adapter |
+| 闭环执行 | Lumine 动作文本 | `game_environment.closed_loop_server` | 逐 tick RGB 与轨迹 JSON |
+
+`dataset/trajectory/README.md` 说明轨迹题协议、双审准入条件和 HDF5 训练格式。
+`docs/game_environment_reset.md` 说明当前 CraftGround 内存快照边界。
+`docs/craftground_closed_loop.md` 说明闭环 HTTP 契约。
 
 ## 代码结构
 
-| 目录 | 职责 | 是否保存生成文件 |
-|---|---|---|
-| `datasets/` | 动作协议、数据划分和训练数据构建 | 否 |
-| `datasets/minestudio_data/` | `CraftJarvis/minestudio-data` 数据下载与 LMDB 加载 | 否 |
-| `datasets/minestudio_finetune/` | 生成并双审四类轨迹题，打包 HDF5 后接入视觉 LoRA 训练 | 否 |
-| `train/` | 把数据转换为模型输入并运行视觉 SFT | 否 |
-| `tools/` | 人工检查动作和图片的 Gradio 工具 | 否 |
-| `tests/` | 与源码同名的自动化测试 | 否 |
-| `docs/` | 稳定的数据契约文档 | 否 |
-| `runs/` | 数据集、验证结果、图片、Benchmark、缓存、日志和模型权重 | 是，Git 忽略整个目录 |
-
-### MineStudio
-
-`datasets/minestudio_data/` 只包含两个文件：
-
-| 文件 | 职责 |
+| 路径 | 职责 |
 |---|---|
-| `download.py` | 从 Hugging Face 下载 MineStudio 各模态 |
-| `load.py` | 读取 LMDB 分片，并按 episode 和帧窗口返回图片、动作及元数据 |
-
-### 数据集代码
-
-| 文件 | 职责 |
-|---|---|
-| `datasets/action_codec.py` | 动作 token 编码与解码 |
-| `datasets/episode_split.py` | 按玩家或 episode 划分训练集和验证集 |
-| `datasets/pretraining_dataset.py` | 从 `minestudio-data` 构建落盘训练集 |
-| `datasets/variable_action_contract.py` | 变长动作段与动作—图片逐帧对齐校验 |
-
-`datasets/minestudio_finetune/README.md` 详细说明四类轨迹题的生成、人工与 AI 双审、HDF5 打包和训练加载，
-训练准入规则和模型做题测试方法。
-
-### 训练代码
-
-| 文件 | 职责 |
-|---|---|
-| `train/lumine_conversation_dataset.py` | 把落盘 JSONL 转为视觉模型对话格式 |
-| `train/lumine_streaming_dataset.py` | 训练时直接流式读取 LMDB，不生成中间数据集 |
-| `train/unsloth_vision_sft.py` | Gemma 与 Qwen 共用的 LoRA/SFT 训练流程 |
-| `train/command_line.py` | 两个模型入口共用的命令行参数 |
-| `train/gemma_vision_sft.py` | Gemma 训练入口 |
-| `train/qwen_vision_sft.py` | Qwen 训练入口 |
-
-### 工具与测试
-
-`tools/action_inspector.py` 是人工检查工具。它读取 `runs/` 中的数据集，显示图片和对应动作，
-不参与训练。
-
-`tests/` 采用 Python 社区通用命名。目录已铺平，不再设置额外的 `unit/` 层；每个
-`test_*.py` 文件对应一个正式源码模块。
+| `lumine/` | Lumine 动作协议与执行契约 |
+| `dataset/minestudio/` | MineStudio 下载和 LMDB 读取 |
+| `dataset/trajectory/` | 轨迹题生成、双审、协议、HDF5 打包与加载 |
+| `dataset/split.py` | 玩家或 episode 级训练集、验证集划分 |
+| `dataset/pretraining.py` | 可选的落盘预训练数据构建 |
+| `tools/` | 跨数据、训练和环境边界复用的通用检查工具 |
+| `train/` | 视觉 SFT、组内相对优势、行为克隆与联合训练目标 |
+| `game_environment/` | CraftGround 运行时、闭环服务和内存快照 |
+| `tests/` | 保留模块的自动化测试 |
 
 ## 安装
 
-以下命令用于 Linux 训练环境。建议使用 Docker 或独立云服务器。
+数据构建环境：
 
 ```bash
-# 更新系统环境和安装依赖
-sudo apt update
-sudo apt install -y curl git ffmpeg libgl1 libglib2.0-0 xvfb 
-
-
-# 安装uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-. "$HOME/.local/bin/env"
-
-# 下载项目并安装 Python 依赖
-git clone https://github.com/OopsYouDiedE/tao-not-42-base-refactor-world-model-contract.git
-cd tao-not-42-base-refactor-world-model-contract
-uv venv --python 3.13
-uv pip install unsloth lmdb av pillow opencv-python-headless pytest
+uv venv --python 3.11
+uv pip install -e .
 ```
+
+按用途安装可选依赖：
+
+```bash
+uv pip install -e ".[review]"       # Gradio 审核界面
+uv pip install -e ".[train]"        # CUDA、Unsloth 与视觉 SFT
+uv pip install -e ".[craftground]"  # 闭环执行与快照验证
+uv pip install -e ".[dev]"          # pytest 与 Ruff
+```
+
+训练机器通常同时安装数据与训练依赖：
+
+```bash
+uv pip install -e ".[review,train,dev]"
+```
+
+## 基本用法
+
+下载必要模态：
+
+```bash
+python -m dataset.minestudio.download \
+  --dataset 10xx \
+  --modality action meta_info image \
+  --output-dir runs/datasets
+```
+
+默认使用 LMDB 流式训练，不生成中间图片数据集：
+
+```bash
+python -m train.gemma_vision_sft \
+  --dataset-dir runs/datasets/minestudio-data-10xx-v110 \
+  --output-dir runs/trains/gemma-lumine
+```
+
+HDF5 轨迹题训练使用相同入口，`--dataset-dir` 直接传 `.h5` 或 `.hdf5` 文件。
+
+启动 CraftGround 闭环服务：
+
+```bash
+python -m game_environment.closed_loop_server \
+  --runtime /path/to/patched/craftground-runtime \
+  --output runs/craftground-closed-loop \
+  --port 18400
+```
+
+## 验证
+
+```bash
+python -m pytest
+ruff check .
+```
+
+CraftGround 内存快照需要安装项目提供的 Kotlin 扩展，具体步骤见
+`game_environment/craftground_mod/README.md`。

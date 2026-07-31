@@ -23,7 +23,8 @@ SubsetName = Literal["train", "validation"]
 DEFAULT_INSTRUCTION = (
     "You are controlling a Minecraft player. Given the current view"
     " (and preceding frames if provided), output the actions to execute over the next"
-    " 200 ms as semicolon-separated action ticks. Tick count may vary. Write relative"
+    " at least 8 future 50 ms action ticks as a semicolon-separated sequence. Longer"
+    " sequences are allowed when the action can continue safely. Write relative"
     " mouse motion as Mouse dx dy inside its tick. Keep Mouse separate unless keys and"
     " mouse must execute together continuously. Keys repeated across ticks stay pressed."
 )
@@ -78,7 +79,7 @@ def build_conversation(
     text = instruction
     previous = sample.get("previous_action_text") or ""
     if include_previous_action and previous:
-        text = f"{instruction}\nPrevious 200 ms executed: {previous}"
+        text = f"{instruction}\nPrevious action window executed: {previous}"
     content.append({"type": "text", "text": text})
 
     return {
@@ -129,7 +130,7 @@ def load_lumine_conversations(
     samples_path = Path(dataset_directory) / f"samples_{subset}.jsonl"
     if not samples_path.is_file():
         raise FileNotFoundError(
-            f"找不到 {samples_path}；先跑 datasets.pretraining_dataset",
+            f"找不到 {samples_path}；先跑 dataset.pretraining",
         )
     conversations: list[dict[str, list[dict[str, Any]]]] = []
     with samples_path.open("r", encoding="utf-8") as handle:

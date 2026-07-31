@@ -21,20 +21,15 @@
 
 from typing import Any
 
-from train.lumine_conversation_dataset import (
-    DEFAULT_INSTRUCTION,
-    build_conversation,
-    load_lumine_conversations,
-)
-from train.lumine_streaming_dataset import (
-    LumineStreamingDataset,
-    StreamingSettings,
-    build_streaming_dataset,
-    resolve_worker_count,
-)
-
 # 名字 → 所在模块。取用时才导入，见上方说明。
 _LAZY_EXPORTS = {
+    "DEFAULT_INSTRUCTION": "train.lumine_conversation_dataset",
+    "build_conversation": "train.lumine_conversation_dataset",
+    "load_lumine_conversations": "train.lumine_conversation_dataset",
+    "LumineStreamingDataset": "train.lumine_streaming_dataset",
+    "StreamingSettings": "train.lumine_streaming_dataset",
+    "build_streaming_dataset": "train.lumine_streaming_dataset",
+    "resolve_worker_count": "train.lumine_streaming_dataset",
     "GEMMA_MODELS": "train.unsloth_vision_sft",
     "QWEN_MODELS": "train.unsloth_vision_sft",
     "LoRASettings": "train.unsloth_vision_sft",

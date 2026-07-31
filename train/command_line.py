@@ -29,24 +29,33 @@ def build_argument_parser(
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--model", default=default_model,
+        "--model",
+        default=default_model,
         help="完整 Hugging Face 仓库名或本地模型路径；该值会原样传给模型加载器",
     )
     parser.add_argument(
-        "--dataset-dir", type=Path, required=True,
+        "--dataset-dir",
+        type=Path,
+        required=True,
         help="MineStudio 数据集目录、Lumine 落盘目录，或轨迹题 .h5/.hdf5 文件",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("runs/trains/sft"),
+        "--output-dir",
+        type=Path,
+        default=Path("runs/trains/sft"),
         help="checkpoint 输出目录",
     )
     parser.add_argument("--lora-rank", type=int, default=32, help="LoRA 秩")
     parser.add_argument("--lora-alpha", type=int, default=32, help="LoRA alpha")
     parser.add_argument(
-        "--freeze-vision", action="store_true", help="冻结视觉塔，只训语言层",
+        "--freeze-vision",
+        action="store_true",
+        help="冻结视觉塔，只训语言层",
     )
     parser.add_argument(
-        "--micro-batch", type=int, default=8,
+        "--micro-batch",
+        type=int,
+        default=8,
         help="单卡 micro-batch；96GB 卡实测 8 为吞吐/显存拐点",
     )
     parser.add_argument("--gradient-accumulation", type=int, default=1, help="梯度累积步数")
@@ -54,34 +63,50 @@ def build_argument_parser(
     parser.add_argument("--max-steps", type=int, default=None, help="最大步数，覆盖 epochs")
     parser.add_argument("--epochs", type=float, default=1.0, help="训练轮数")
     parser.add_argument(
-        "--max-sequence-length", type=int, default=2048, help="最大 token 数，含图像 token",
+        "--max-sequence-length",
+        type=int,
+        default=2048,
+        help="最大 token 数，含图像 token",
     )
     parser.add_argument(
-        "--load-in-4bit", action="store_true",
+        "--load-in-4bit",
+        action="store_true",
         help="4bit 加载；MoE 主干不建议开，走 bf16",
     )
     parser.add_argument(
-        "--no-previous-action", action="store_true", help="prompt 不带上一窗口动作",
+        "--no-previous-action",
+        action="store_true",
+        help="prompt 不带上一窗口动作",
     )
     parser.add_argument("--maximum-samples", type=int, default=None, help="最多使用的样本数")
     parser.add_argument(
-        "--subset", default="train", choices=("train", "validation"),
+        "--subset",
+        default="train",
+        choices=("train", "validation"),
         help="用于训练的子集",
     )
     parser.add_argument(
-        "--no-streaming", action="store_true",
+        "--no-streaming",
+        action="store_true",
         help="改读 lumine_pretraining_dataset 的落盘产物；默认直接从 LMDB 流式加载",
     )
     parser.add_argument(
-        "--dataloader-workers", type=int, default=None,
+        "--dataloader-workers",
+        type=int,
+        default=None,
         help="并行数据加载 worker 数；默认按 CPU 核心数与可用内存推算",
     )
     parser.add_argument(
-        "--holdout-level", default="prefix", choices=("prefix", "episode"),
+        "--holdout-level",
+        default="prefix",
+        choices=("prefix", "episode"),
         help="prefix：整个玩家留出，衡量跨玩家泛化；episode：按 episode 打散",
     )
     parser.add_argument(
-        "--validation-ratio", type=float, default=0.1, help="验证集目标帧数占比",
+        "--validation-ratio",
+        type=float,
+        default=0.1,
+        help="验证集目标帧数占比",
     )
     parser.add_argument("--split-seed", type=int, default=3407, help="episode 粒度打散种子")
     return parser

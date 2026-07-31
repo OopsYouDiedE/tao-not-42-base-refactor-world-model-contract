@@ -20,7 +20,7 @@
    episode 末尾。这张表是纯整数，全量 10xx 也只有几百万条元组，常驻内存无压力。
 
 3. **取一个窗口。** ``__getitem__`` 拿到 ``(episode, start)`` 后，从 ``action`` 模态读
-   ``window_frames`` 帧（20Hz 下 4 帧 = 200ms），从 ``image`` 模态读当前帧与历史帧。
+   ``window_frames`` 帧（默认 20Hz 下 8 帧 = 400ms），从 ``image`` 模态读当前帧与历史帧。
    LMDB 的块 LRU 缓存让顺序扫描的相邻样本大量命中同一块，避免重复解码。
 
 4. **编码动作。** ``encode_lumine_action`` 把这一窗口的按键与相机增量转成 Lumine
@@ -45,24 +45,26 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from datasets.episode_split import HoldoutLevel, build_split
-from datasets.minestudio_data.load import TrajectoryReader
-from datasets.action_codec import encode_lumine_action
+from dataset.minestudio.reader import TrajectoryReader
+from dataset.split import HoldoutLevel, build_split
+from lumine.action_codec import encode_lumine_action
 from train.lumine_conversation_dataset import DEFAULT_INSTRUCTION, build_conversation
 
 # MineStudio / Minecraft 的采样率：20 帧每秒，50ms 一帧。
 FRAMES_PER_SECOND = 20
-# Lumine 感知端 5Hz → 200ms → 4 帧。
-DEFAULT_WINDOW_FRAMES = 4
+# 滚动执行的最短计划：8 × 50ms = 400ms。
+DEFAULT_WINDOW_FRAMES = 8
+HISTORY_FRAME_INTERVAL = 4
 
-_BYTES_PER_GIBIBYTE = 1024 ** 3
+_BYTES_PER_GIBIBYTE = 1024**3
 
 # 每个 worker 的内存预算估计值。一个 image 块是 chunk_size × H × W × 3 字节
 # （32×224×224×3 ≈ 4.6MB），默认 32 块缓存约 150MB，加上解码临时缓冲与 Python 开销，
@@ -80,7 +82,7 @@ class StreamingSettings:
     Attributes
     ----------
     window_frames : int
-        一个感知窗口的帧数。4 帧 = 200ms = Lumine 的 5Hz 感知率。
+        一个感知窗口的帧数。默认 8 帧 = 400ms。
     frames_per_chunk : int
         每个电机 chunk 覆盖的帧数，需整除 ``window_frames``。
     history_windows : int
@@ -169,10 +171,10 @@ def resolve_worker_count(
 def _observation_frame_indices(start_frame: int, settings: StreamingSettings) -> list[int]:
     """当前帧 + 历史帧的下标，时间升序，最后一项是当前帧。
 
-    当前帧取窗口起始帧：模型看到 t 时刻的画面，预测 t 起 200ms 内要执行的动作。
+    当前帧取窗口起始帧：模型看到 t 时刻的画面，预测从 t 起执行的动作窗口。
     """
     indices = [
-        start_frame - offset * settings.window_frames
+        start_frame - offset * HISTORY_FRAME_INTERVAL
         for offset in range(settings.history_windows, 0, -1)
     ]
     indices.append(start_frame)
@@ -250,10 +252,13 @@ class LumineStreamingDataset:
     def _encode_window(self, reader: TrajectoryReader, episode: str, start: int) -> str:
         """读一个动作窗口并编码为 Lumine 动作串。"""
         window = reader.readers["action"].read_frames(
-            episode, start, self.settings.window_frames,
+            episode,
+            start,
+            self.settings.window_frames,
         )
         return encode_lumine_action(
-            window, frames_per_chunk=self.settings.frames_per_chunk,
+            window,
+            frames_per_chunk=self.settings.frames_per_chunk,
         ).to_text()
 
     def __getitem__(self, index: int) -> dict[str, list[dict[str, Any]]]:
@@ -321,11 +326,11 @@ def build_streaming_dataset(
     dataset_directories : list of Path
         MineStudio 数据集根目录列表。
     settings : StreamingSettings or None
-        时间布局，None 用默认（4 帧窗口 / 1 帧一 chunk / 无历史 / 窗口不重叠）。
+        时间布局，None 用默认（8 帧窗口 / 1 帧一 chunk / 无历史 / 窗口不重叠）。
     include_images : bool
         是否读取观测帧。视觉 SFT 必须为 True；False 仅用于无 image 模态的调试。
     holdout_level : {"prefix", "episode"}
-        验证集留出粒度，见 ``datasets.episode_split.build_split``。
+        验证集留出粒度，见 ``dataset.split.build_split``。
     validation_ratio : float
         验证集目标帧数占比。
     split_seed : int
@@ -353,9 +358,7 @@ def build_streaming_dataset(
         frame_height=resolved.frame_height,
     )
     try:
-        episode_frames = {
-            name: reader.episode_length(name) for name in reader.episode_names()
-        }
+        episode_frames = {name: reader.episode_length(name) for name in reader.episode_names()}
     finally:
         reader.close()
 

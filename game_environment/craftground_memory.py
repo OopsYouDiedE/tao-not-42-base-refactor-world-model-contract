@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Protocol
-
+from typing import Any, Protocol
 
 _SNAPSHOT_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -76,7 +76,9 @@ class MemorySnapshotCoordinator:
 
     def _broadcast(self, command: str) -> tuple[float, ...]:
         with ThreadPoolExecutor(max_workers=len(self.environments)) as executor:
-            timings = executor.map(lambda environment: self._send(environment, command), self.environments)
+            timings = executor.map(
+                lambda environment: self._send(environment, command), self.environments
+            )
             return tuple(timings)
 
     def _send(self, environment: CraftGroundCommandEnvironment, command: str) -> float:

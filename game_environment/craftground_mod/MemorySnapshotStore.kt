@@ -3,6 +3,9 @@ package com.kyhsgeekcode.minecraftenv
 import net.minecraft.block.Block
 import net.minecraft.block.Blocks
 import net.minecraft.client.MinecraftClient
+import net.minecraft.nbt.NbtCompound
+import net.minecraft.server.network.ServerPlayerEntity
+import net.minecraft.entity.effect.StatusEffectInstance
 import net.minecraft.structure.StructurePlacementData
 import net.minecraft.structure.StructureTemplate
 import net.minecraft.util.math.BlockPos
@@ -13,6 +16,8 @@ object MemorySnapshotStore {
     private data class Snapshot(
         val template: StructureTemplate,
         val origin: BlockPos,
+        val playerNbt: NbtCompound,
+        val statusEffects: List<StatusEffectInstance>,
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>()
@@ -43,7 +48,8 @@ object MemorySnapshotStore {
                     maxOf(first.z, second.z),
                 )
                 server.execute {
-                    val world = server.overworld
+                    val player = singlePlayer(server.playerManager.playerList)
+                    val world = player.serverWorld
                     val template = StructureTemplate()
                     template.saveFromWorld(
                         world,
@@ -56,16 +62,23 @@ object MemorySnapshotStore {
                         false,
                         Blocks.STRUCTURE_VOID,
                     )
-                    snapshots[snapshotId] = Snapshot(template, minimum)
+                    snapshots[snapshotId] = Snapshot(
+                        template,
+                        minimum,
+                        player.writeNbt(NbtCompound()),
+                        player.statusEffects.map(::StatusEffectInstance),
+                    )
                 }
             }
             "load" -> {
                 require(arguments.size == 3) { "用法：memorysnapshot load <id>" }
+                client.setScreen(null)
                 server.execute {
-                    val world = server.overworld
                     val snapshot = requireNotNull(snapshots[snapshotId]) {
                         "内存快照不存在：$snapshotId"
                     }
+                    val player = singlePlayer(server.playerManager.playerList)
+                    val world = player.serverWorld
                     snapshot.template.place(
                         world,
                         snapshot.origin,
@@ -76,10 +89,31 @@ object MemorySnapshotStore {
                         world.random,
                         Block.NOTIFY_ALL,
                     )
+                    player.readNbt(snapshot.playerNbt.copy())
+                    player.clearStatusEffects()
+                    snapshot.statusEffects.forEach { player.addStatusEffect(StatusEffectInstance(it)) }
+                    player.closeHandledScreen()
+                    player.inventory.markDirty()
+                    player.currentScreenHandler.sendContentUpdates()
+                    player.networkHandler.requestTeleport(
+                        player.x,
+                        player.y,
+                        player.z,
+                        player.yaw,
+                        player.pitch,
+                    )
+                    player.velocityDirty = true
                 }
             }
             else -> error("不支持的内存快照操作：$operation")
         }
         return true
+    }
+
+    private fun singlePlayer(players: List<ServerPlayerEntity>): ServerPlayerEntity {
+        require(players.size == 1) {
+            "memorysnapshot 当前要求单玩家环境，实际玩家数：${players.size}"
+        }
+        return players.single()
     }
 }

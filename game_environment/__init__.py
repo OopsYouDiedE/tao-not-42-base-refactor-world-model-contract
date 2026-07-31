@@ -1,22 +1,54 @@
 """游戏环境状态管理组件。"""
 
+from game_environment.action_schedule import (
+    MIN_PLAN_TICKS,
+    MIN_REPLAN_LEAD_TICKS,
+    PlanSubmission,
+    RollingActionQueue,
+    ScheduledAction,
+    replan_remaining_ticks,
+)
+
 from game_environment.craftground_memory import (
     MemorySnapshot,
     MemorySnapshotCoordinator,
     ResetTimings,
     SnapshotRegion,
 )
-from game_environment.world_snapshot import SnapshotManifest, WorldSnapshotStore, discover_world_dir
+from game_environment.craftground_runtime import (
+    HOTBAR_SLOT_COUNT,
+    RESET_PLAYER_COMMANDS,
+    SCENE_COMMANDS,
+    CraftGroundActionAdapter,
+    build_environment,
+    build_v2_action,
+    lumine_chunk_to_v2_action,
+    save_rgb,
+    scroll_hotbar_slot,
+    step_commands,
+    validate_identifier,
+)
 
 __all__ = [
+    "CraftGroundActionAdapter",
+    "HOTBAR_SLOT_COUNT",
     "MemorySnapshot",
     "MemorySnapshotCoordinator",
+    "MIN_PLAN_TICKS",
+    "MIN_REPLAN_LEAD_TICKS",
+    "PlanSubmission",
+    "RESET_PLAYER_COMMANDS",
     "ResetTimings",
-    "SnapshotManifest",
+    "RollingActionQueue",
+    "SCENE_COMMANDS",
     "SnapshotRegion",
-    "WorldSnapshotStore",
-    "discover_world_dir",
+    "ScheduledAction",
+    "build_environment",
+    "build_v2_action",
+    "lumine_chunk_to_v2_action",
+    "replan_remaining_ticks",
+    "save_rgb",
+    "scroll_hotbar_slot",
+    "step_commands",
+    "validate_identifier",
 ]
-from game_environment.trajectory_store import TrajectoryFrame, TrajectoryStore
-
-__all__.extend(["TrajectoryFrame", "TrajectoryStore"])

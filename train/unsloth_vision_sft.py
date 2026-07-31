@@ -262,7 +262,7 @@ def run_vision_sft(
     dataset_statistics: dict[str, Any] = {}
     dataset_path = Path(dataset_directory)
     if dataset_path.suffix.lower() in {".h5", ".hdf5"}:
-        from datasets.minestudio_finetune.load_hdf5 import load_hdf5_conversations
+        from dataset.trajectory.load_hdf5 import load_hdf5_conversations
 
         conversations = load_hdf5_conversations(dataset_path, maximum_samples=maximum_samples)
         dataloader_workers = 0

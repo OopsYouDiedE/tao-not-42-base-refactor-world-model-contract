@@ -15,11 +15,11 @@ from pathlib import Path
 import gradio as gr
 import numpy as np
 
-from datasets.minestudio_data.load import (
+from dataset.minestudio.reader import (
     TrajectoryReader,
     discover_part_directories,
 )
-from datasets.action_codec import (
+from lumine.action_codec import (
     DEGREES_PER_PIXEL,
     MINECRAFT_KEYMAP,
     encode_lumine_action,
@@ -222,7 +222,8 @@ def main() -> None:
     """命令行入口：启动查看器。"""
     parser = argparse.ArgumentParser(description="Lumine 动作编码查看器")
     parser.add_argument(
-        "--dataset-dir", type=Path,
+        "--dataset-dir",
+        type=Path,
         default=Path("runs/datasets/minestudio-data-10xx-v110"),
         help="MineStudio 数据集根目录",
     )

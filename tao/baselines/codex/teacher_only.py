@@ -24,6 +24,17 @@ from tao.baselines.codex.contracts import (
 
 BATCH_SIZE = 8
 SELECTED_COUNT = 4
+TRAJECTORY_LANGUAGE_STYLE_PROMPTS = (
+    "使用一句精确、简洁、客观的中文，按观察依据、主要动作、预期进展的顺序概括轨迹。",
+    "使用一句专业、自然、信息密度高的中文，把可见目标、执行方案和可验证结果连成完整表述。",
+    "使用一句因果清晰的中文，以可见证据为起点，说明动作选择及其预期作用。",
+    "使用一句时序明确的中文，依次概括起始观察、关键动作阶段和最终目标状态。",
+    "使用一句风险敏感的中文，在概括动作方案时突出安全边界、停止条件和预期进展。",
+    "使用一句目标导向的中文，先点明要缩短的任务差距，再说明用于取得进展的核心动作。",
+    "使用一句观察驱动的中文，只根据图像和状态中的事实描述目标、动作与可验证变化。",
+    "使用一句极简操作式中文，以最少措辞准确说明朝向调整、移动或交互动作及其目的。",
+)
+TRAJECTORY_LANGUAGE_STYLE_TIERS = ("preferred", "preferred") + ("diverse",) * 6
 
 
 @dataclass(frozen=True)
@@ -62,6 +73,9 @@ class TeacherOnlyResult:
             "selected_candidate_ids": list(self.selected_candidate_ids),
             "teacher": {
                 "provider": "codex-cli",
+                "trajectory_language_style_prompts": list(
+                    TRAJECTORY_LANGUAGE_STYLE_PROMPTS
+                ),
                 "generation_sessions": sum(
                     int(candidate.generation_audit.get("semantic_attempt", 1))
                     for candidate in self.candidates
@@ -73,9 +87,19 @@ class TeacherOnlyResult:
             "training": {
                 "training_skipped": True,
                 "status": "skipped_no_local_model",
-                "reason": "本机没有可加载的策略模型；本轮只产出 BC 训练样本。",
+                "reason": "本机没有可加载的动作策略或审核策略模型；本轮只产出 BC 训练样本。",
                 "model_load_attempted": False,
                 "optimizer_steps": 0,
+            },
+            "rlhf_tracks": {
+                "environment_policy": {
+                    "entrypoint": "train.rlhf.gemma_vision_rlhf",
+                    "status": "skipped_no_local_model",
+                },
+                "review_policy": {
+                    "entrypoint": "train.rlhf.gemma_vision_review_rlhf",
+                    "status": "skipped_no_local_model",
+                },
             },
             "dataset": {
                 "behavior_cloning_samples": len(self.selected_candidate_ids),
@@ -226,6 +250,7 @@ class TeacherOnlyPipeline:
                 images=(image,),
             )
             try:
+                language_style_prompt = TRAJECTORY_LANGUAGE_STYLE_PROMPTS[index - 1]
                 candidate = compile_teacher_action(
                     invocation.result,
                     candidate_id=f"T{index:02d}",
@@ -233,6 +258,8 @@ class TeacherOnlyPipeline:
                     generation_audit={
                         **invocation.audit_dict(),
                         "semantic_attempt": semantic_attempt,
+                        "language_style_prompt": language_style_prompt,
+                        "language_style_tier": TRAJECTORY_LANGUAGE_STYLE_TIERS[index - 1],
                     },
                 )
                 if candidate.action_text in existing_actions:
@@ -340,6 +367,8 @@ def _generation_prompt(
         "initial_state": _initial_state_for_prompt(request.initial_state),
         "allowed_keys": sorted(ALLOWED_KEYS),
         "existing_trajectory_summaries": [candidate.summary for candidate in existing],
+        "trajectory_language_style_prompt": TRAJECTORY_LANGUAGE_STYLE_PROMPTS[index - 1],
+        "trajectory_language_style_tier": TRAJECTORY_LANGUAGE_STYLE_TIERS[index - 1],
         "previous_rejection": previous_failure,
     }
     return (
@@ -347,7 +376,8 @@ def _generation_prompt(
         "请为指定槽位独立规划一条可真实执行的轨迹。动作段中的 keys、mouse、scroll "
         "会在 duration_ticks 内每 tick 重复执行。所有 duration_ticks 之和必须严格等于 "
         "horizon_ticks。不得补 tick、截断、使用未知键、假设图片和状态中不存在的资源，"
-        "也不得输出解释性额外字段。八个槽位应采用有意义的不同策略。\n"
+        "也不得输出解释性额外字段。八个槽位应采用有意义的不同策略，并遵守 payload 中的"
+        "轨迹摘要语言风格要求。\n"
         + json.dumps(payload, ensure_ascii=False, sort_keys=True)
     )
 

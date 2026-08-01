@@ -26,6 +26,7 @@ from tao.baselines.codex import (
     TeacherCandidate,
     TeacherOnlyPipeline,
 )
+from tao.baselines.teacher_api import TeacherAPIConfig
 from tao.protocols.action import decode_action_sequence
 
 MIN_SUCCESS_RATE = 0.75
@@ -403,6 +404,18 @@ def report_markdown(
     report: dict[str, Any],
     bank_design: dict[str, Any],
 ) -> None:
+    generation_cli_attempts = sum(
+        int(item["generation_audit"].get("attempts", 1))
+        for item in report["trajectories"]
+    )
+    generation_semantic_rounds = sum(
+        int(item["generation_audit"].get("semantic_attempt", 1))
+        for item in report["trajectories"]
+    )
+    teacher_scores = json.loads((output / "teacher_scores.json").read_text(encoding="utf-8"))
+    scoring_audit = teacher_scores["scoring_audit"]
+    scoring_cli_attempts = int(scoring_audit.get("attempts", 1))
+    scoring_semantic_rounds = int(scoring_audit.get("semantic_attempt", 1))
     lines = [
         "# CraftGround Codex 教师轨迹审计",
         "",
@@ -449,19 +462,49 @@ def report_markdown(
             f"选中课程：**{selected.title}**。快照=`{report['snapshot_id']}`。"
             "八条候选全部由 Codex CLI 教师生成，统一匿名评分。",
             "",
-            "| 候选 | Tick | 距离变化 | 执行状态 | 教师总分 | 入选 BC |",
-            "|---|---:|---:|---|---:|---|",
+            "### 模型调用与推理轮次",
+            "",
+            "报告中的“轮次”只统计可审计的模型请求和语义重试。模型服务不返回隐藏推理步骤，"
+            "因此不推测或虚构内部思维过程。",
+            "",
+            "| 阶段 | 可观察任务数 | CLI 尝试次数 | 语义轮次 |",
+            "|---|---:|---:|---:|",
+            f"| 轨迹生成 | 8 | {generation_cli_attempts} | {generation_semantic_rounds} |",
+            f"| 匿名统一评分 | 1 | {scoring_cli_attempts} | {scoring_semantic_rounds} |",
+            f"| 合计 | 9 | {generation_cli_attempts + scoring_cli_attempts} | "
+            f"{generation_semantic_rounds + scoring_semantic_rounds} |",
+            "",
+            "| 候选 | Tick | CLI 尝试 | 语义轮次 | 模型耗时 ms | "
+            "距离变化 | 执行状态 | 教师总分 | 入选 BC |",
+            "|---|---:|---:|---:|---:|---:|---|---:|---|",
         )
     )
     for item in report["trajectories"]:
+        audit = item["generation_audit"]
         lines.append(
             f"| {item['candidate_id']} | {item['ticks']} | "
+            f"{audit.get('attempts', 1)} | {audit.get('semantic_attempt', 1)} | "
+            f"{float(audit.get('wall_ms', 0.0)):.1f} | "
             f"{item['distance_progress']:+.2f} | {item['execution_status']} | "
             f"{item['teacher_score']['total']:.2f} | "
             f"{'是' if item['selected_for_bc'] else '否'} |"
         )
     for item in report["trajectories"]:
-        lines.extend(("", f"### {item['candidate_id']}", "", item["description"], ""))
+        lines.extend(
+            (
+                "",
+                f"### {item['candidate_id']}",
+                "",
+                item["description"],
+                "",
+                "模型输出动作序列：",
+                "",
+                "```text",
+                item["action_text"],
+                "```",
+                "",
+            )
+        )
         for frame in item["frames"]:
             lines.extend(
                 (f"![{item['candidate_id']} tick {frame['tick']}]({frame['path']})", "")
@@ -583,11 +626,18 @@ def run(
             ),
             encoding="utf-8",
         )
+        teacher_api = TeacherAPIConfig.from_environment()
+        if teacher_api.model != codex_model:
+            raise ValueError(
+                f"--codex-model={codex_model} 与 API_MODEL={teacher_api.model} 不一致"
+            )
         teacher_pipeline = TeacherOnlyPipeline(
             CodexClient(
                 CodexClientConfig(
                     model=codex_model,
                     executable=codex_executable,
+                    api_url=teacher_api.api_url,
+                    api_key=teacher_api.api_key,
                     timeout_seconds=codex_timeout_seconds,
                     max_attempts=codex_max_attempts,
                 )

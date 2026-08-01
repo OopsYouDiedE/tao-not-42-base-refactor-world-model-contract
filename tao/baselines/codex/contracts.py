@@ -74,7 +74,6 @@ def generation_schema(horizon_ticks: int) -> dict[str, Any]:
                         "duration_ticks": {"type": "integer", "minimum": 1},
                         "keys": {
                             "type": "array",
-                            "uniqueItems": True,
                             "items": {"type": "string", "enum": sorted(ALLOWED_KEYS)},
                         },
                         "mouse": {

@@ -101,3 +101,29 @@ def test_codex_client_terminates_timed_out_process(
     monkeypatch.setenv("TAO_FAKE_CODEX_MODE", "timeout")
     with pytest.raises(CodexInvocationError, match="timed out"):
         _fake_client(tmp_path, timeout=0.05).run_structured("prompt", {"type": "object"})
+
+
+def test_codex_client_passes_explicit_provider_without_exposing_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "arguments.json"
+    monkeypatch.setenv("TAO_FAKE_CODEX_LOG", str(log))
+    script = tmp_path / "fake_codex.py"
+    script.write_text(FAKE_CODEX, encoding="utf-8")
+    client = CodexClient(
+        CodexClientConfig(
+            model="teacher-model",
+            executable=sys.executable,
+            executable_args=(str(script),),
+            api_url="https://proxy.example/v1",
+            api_key="secret-value",
+            temporary_root=tmp_path,
+        )
+    )
+
+    client.run_structured("prompt", {"type": "object"})
+
+    arguments = json.loads(log.read_text(encoding="utf-8"))
+    assert 'model_provider="tao_teacher"' in arguments
+    assert 'model_providers.tao_teacher.base_url="https://proxy.example/v1"' in arguments
+    assert "secret-value" not in arguments

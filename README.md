@@ -17,6 +17,7 @@
 | 视觉 SFT | LMDB、落盘 JSONL 或 HDF5 | `train.bc.gemma_vision_sft`、`train.bc.qwen_vision_sft` | LoRA adapter |
 | 教师基线 | CraftGround 同一快照 | `tools.audits.codex_teacher_batch8` | 前 50% 教师轨迹与 BC JSONL |
 | 策略 RLHF | 本地 LoRA 的 on-policy rollout | `train.rlhf.gemma_vision_rlhf` | LoRA adapter |
+| 审核 RLHF | 四题型审核组与审核策略 rollout | `train.rlhf.gemma_vision_review_rlhf` | Reviewer LoRA adapter |
 | 闭环执行 | TAP 动作文本 | `game_environment.closed_loop_server` | 逐 tick RGB 与轨迹 JSON |
 
 `dataset/organization/README.md` 说明轨迹题协议、双审准入条件和 HDF5 训练格式。
@@ -84,6 +85,74 @@ uv pip install unsloth accelerate av craftground datasets gradio h5py huggingfac
 ```
 
 ## 基本用法
+
+### CUDA 服务器一键教师轨迹管线
+
+完成前面的依赖安装，并执行 `gh auth login`、`hf auth login`、安装 Codex CLI，
+再放入可用的 `.codex/config.toml` 和 `.codex/auth.json` 后，执行：
+
+```bash
+chmod +x scripts/run_teacher_pipeline.sh
+./scripts/run_teacher_pipeline.sh
+```
+
+脚本会检查 CUDA、GitHub、Hugging Face、Codex 和 Java，幂等构建带 `memorysnapshot`
+扩展的 CraftGround runtime，执行严格快照门禁，再运行同快照八轨迹生成、环境验证、
+匿名评分、前四筛选和报告导出。任一门禁失败时脚本以非零状态退出。
+
+```bash
+TAO_PYTHON=/path/to/.venv/bin/python \
+TAO_CRAFTGROUND_RUNTIME=/path/to/runtime \
+TAO_OUTPUT=/path/to/output \
+TAO_CODEX_TIMEOUT_SECONDS=300 \
+./scripts/run_teacher_pipeline.sh
+```
+
+默认产物位于 `runs/codex-teacher-batch8-<UTC 时间>/`。`preflight/` 保存门禁报告，
+`teacher/` 保存候选、执行结果、匿名评分、BC JSONL 和完整 Markdown 报告。
+
+### 完整训练演练（只跳过反向传播）
+
+在 CUDA 服务器上验证模型训练代码、数据和保存链路时执行：
+
+```bash
+chmod +x scripts/run_training_validation.sh
+./scripts/run_training_validation.sh \
+  --model unsloth/gemma-4-26B-A4B-it \
+  --dataset-dir runs/datasets/minestudio-trajectory-sft-768.h5 \
+  --output-dir runs/trains/gemma-forward-only-validation \
+  --micro-batch 4 \
+  --gradient-accumulation 2 \
+  --epochs 1 \
+  --validation-ratio 0.1
+```
+
+该模式加载真实模型与 LoRA、读取和划分真实数据、构造真实视觉 batch、执行前向与 loss、
+运行 Trainer 的优化器和调度器生命周期、评估、checkpoint 与 adapter 保存；仅把
+`accelerator.backward(loss)` 替换为计数空操作，因此不会产生梯度或参数更新。结果中
+`skip_backward=true`、`backward_calls_skipped>0` 且 `parameter_updates_expected=false`。
+
+Qwen 使用相同脚本切换入口：
+
+```bash
+TAO_TRAIN_ENTRYPOINT=train.bc.qwen_vision_sft \
+./scripts/run_training_validation.sh --model unsloth/Qwen3.6-27B ...
+```
+
+### 从全局 Codex 配置导出教师模型参数
+
+教师模型代码不会隐式读取个人配置。每次在 WSL 启动教师任务前，先把全局
+`.codex/config.toml` 和 `.codex/auth.json` 映射为当前 shell 的三个必需参数：
+
+```bash
+source <(python3 -m tools.export_codex_api_env)
+python3 -m tools.export_codex_api_env --check
+```
+
+导出结果为 `API_KEY`、`API_MODEL` 和 `API_URL`。密钥只存在于当前 shell 环境，
+不会写入仓库或运行报告。也可以通过 `--codex-home /path/to/.codex` 显式选择配置。
+教师模型入口必须通过 `TeacherAPIConfig.from_environment()` 读取参数；任一参数缺失时
+拒绝启动。
 
 下载必要模态：
 

@@ -22,6 +22,7 @@ from transformers import EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 from unsloth import FastVisionModel
 from unsloth.trainer import UnslothVisionDataCollator
+from train.forward_only import SkipBackwardTrainerMixin
 
 # Gemma 4 族：MoE 与稠密混编。26B-A4B 无官方 4bit 变体，MoE 建议走 bf16 LoRA。
 GEMMA_MODELS: dict[str, str] = {
@@ -121,6 +122,10 @@ class SFTSettings:
     logging_steps: int = 1
     save_steps: int = 200
     seed: int = 3407
+
+
+class ForwardOnlySFTTrainer(SkipBackwardTrainerMixin, SFTTrainer):
+    """执行完整训练步，但以可审计空操作替代反向传播。"""
 
 
 def resolve_model_name(model: str) -> tuple[str, str]:
@@ -226,6 +231,7 @@ def run_vision_sft(
     validation_ratio: float = 0.1,
     split_seed: int = 3407,
     early_stopping_patience: int | None = None,
+    skip_backward: bool = False,
 ) -> dict[str, Any]:
     """端到端跑一次 TAP 动作预测的视觉 SFT。
 
@@ -367,7 +373,8 @@ def run_vision_sft(
             else {}
         ),
     )
-    trainer = SFTTrainer(
+    trainer_class = ForwardOnlySFTTrainer if skip_backward else SFTTrainer
+    trainer = trainer_class(
         model=loaded_model,
         train_dataset=conversations,
         eval_dataset=validation_conversations,
@@ -396,6 +403,11 @@ def run_vision_sft(
     result["initial_adapter"] = adapter
     result["streaming"] = streaming
     result["dataloader_workers"] = dataloader_workers
+    result["skip_backward"] = skip_backward
+    result["backward_calls_skipped"] = int(
+        getattr(trainer, "backward_calls_skipped", 0)
+    )
+    result["parameter_updates_expected"] = not skip_backward
     if dataset_statistics:
         result["dataset"] = dataset_statistics
     return result

@@ -8,8 +8,14 @@ from typing import Any
 import pytest
 
 from tao.baselines.codex.client import CodexInvocation
-from tao.baselines.codex.contracts import SCORE_DIMENSIONS, compile_teacher_action
+from tao.baselines.codex.contracts import (
+    SCORE_DIMENSIONS,
+    compile_teacher_action,
+    generation_schema,
+)
 from tao.baselines.codex.teacher_only import (
+    TRAJECTORY_LANGUAGE_STYLE_PROMPTS,
+    TRAJECTORY_LANGUAGE_STYLE_TIERS,
     TeacherBatchRequest,
     TeacherOnlyPipeline,
 )
@@ -29,6 +35,11 @@ def _teacher_action(*, horizon: int = 4, key: str = "W") -> dict[str, Any]:
         ],
         "summary": f"use {key}",
     }
+
+
+def test_generation_schema_avoids_unsupported_unique_items_keyword() -> None:
+    keys_schema = generation_schema(4)["properties"]["segments"]["items"]["properties"]["keys"]
+    assert "uniqueItems" not in keys_schema
 
 
 def test_teacher_action_compiler_rejects_wrong_horizon_without_padding() -> None:
@@ -153,6 +164,21 @@ def test_teacher_only_runs_eight_selects_four_and_skips_training(tmp_path: Path)
     )
 
     assert len(client.calls) == 9
+    generation_calls = [
+        prompt
+        for prompt in client.calls
+        if '"operation": "generate_teacher_trajectory"' in prompt
+    ]
+    assert len(generation_calls) == 8
+    assert len(set(TRAJECTORY_LANGUAGE_STYLE_PROMPTS)) == 8
+    assert all(style.count("。") == 1 for style in TRAJECTORY_LANGUAGE_STYLE_PROMPTS)
+    assert TRAJECTORY_LANGUAGE_STYLE_TIERS == ("preferred", "preferred") + ("diverse",) * 6
+    for prompt, style in zip(generation_calls, TRAJECTORY_LANGUAGE_STYLE_PROMPTS, strict=True):
+        assert prompt.count(style) == 1
+    assert [
+        candidate.generation_audit["language_style_prompt"]
+        for candidate in result.candidates
+    ] == list(TRAJECTORY_LANGUAGE_STYLE_PROMPTS)
     assert executed == [f"T{index:02d}" for index in range(1, 9)]
     assert result.selected_candidate_ids == ("T01", "T02", "T03", "T04")
     assert len(result.candidates) == 8
@@ -163,12 +189,20 @@ def test_teacher_only_runs_eight_selects_four_and_skips_training(tmp_path: Path)
     assert pipeline_result["training"] == {
         "model_load_attempted": False,
         "optimizer_steps": 0,
-        "reason": "本机没有可加载的策略模型；本轮只产出 BC 训练样本。",
+        "reason": "本机没有可加载的动作策略或审核策略模型；本轮只产出 BC 训练样本。",
         "status": "skipped_no_local_model",
         "training_skipped": True,
     }
     assert pipeline_result["dataset"]["behavior_cloning_samples"] == 4
     assert pipeline_result["dataset"]["rlhf_samples"] == 0
+    assert set(pipeline_result["rlhf_tracks"]) == {
+        "environment_policy",
+        "review_policy",
+    }
+    assert (
+        pipeline_result["teacher"]["trajectory_language_style_prompts"]
+        == list(TRAJECTORY_LANGUAGE_STYLE_PROMPTS)
+    )
     selected = [
         json.loads(line)
         for line in (tmp_path / "selected.jsonl").read_text("utf-8").splitlines()

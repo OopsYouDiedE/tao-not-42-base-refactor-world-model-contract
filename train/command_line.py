@@ -120,6 +120,11 @@ def build_argument_parser(
         default=None,
         help="验证 loss 连续多少次不改善后早停；默认不早停",
     )
+    parser.add_argument(
+        "--skip-backward",
+        action="store_true",
+        help="完整执行训练流程和真实 loss，只跳过模型反向传播与参数更新",
+    )
     return parser
 
 
@@ -161,5 +166,6 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
         validation_ratio=arguments.validation_ratio,
         split_seed=arguments.split_seed,
         early_stopping_patience=arguments.early_stopping_patience,
+        skip_backward=arguments.skip_backward,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

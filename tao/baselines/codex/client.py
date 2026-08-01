@@ -24,6 +24,8 @@ class CodexClientConfig:
     model: str
     executable: str = "codex"
     executable_args: tuple[str, ...] = ()
+    api_url: str | None = None
+    api_key: str | None = None
     timeout_seconds: float = 240.0
     max_attempts: int = 3
     retry_delay_seconds: float = 1.0
@@ -38,6 +40,8 @@ class CodexClientConfig:
             raise ValueError("max_attempts 必须至少为 1")
         if self.retry_delay_seconds < 0:
             raise ValueError("retry_delay_seconds 不能为负")
+        if (self.api_url is None) != (self.api_key is None):
+            raise ValueError("api_url 和 api_key 必须同时提供")
 
 
 @dataclass(frozen=True)
@@ -121,6 +125,7 @@ class CodexClient:
             command = [
                 executable,
                 *self.config.executable_args,
+                *self._provider_arguments(),
                 "--ask-for-approval",
                 "never",
                 "exec",
@@ -156,6 +161,11 @@ class CodexClient:
                 "errors": "replace",
                 "shell": False,
             }
+            if self.config.api_key is not None:
+                popen_options["env"] = {
+                    **os.environ,
+                    "OPENAI_API_KEY": self.config.api_key,
+                }
             if os.name == "nt":
                 popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             else:
@@ -181,6 +191,22 @@ class CodexClient:
             if not isinstance(value, dict):
                 raise CodexInvocationError("结构化输出根节点必须是对象")
             return value
+
+    def _provider_arguments(self) -> list[str]:
+        if self.config.api_url is None:
+            return []
+        return [
+            "-c",
+            'model_provider="tao_teacher"',
+            "-c",
+            'model_providers.tao_teacher.name="tao_teacher"',
+            "-c",
+            f'model_providers.tao_teacher.base_url={json.dumps(self.config.api_url)}',
+            "-c",
+            'model_providers.tao_teacher.wire_api="responses"',
+            "-c",
+            "model_providers.tao_teacher.requires_openai_auth=true",
+        ]
 
 
 def _terminate_process_tree(process: subprocess.Popen[str]) -> None:

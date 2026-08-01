@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from dataset.split import (
+from dataset.organization.split import (
     _select_groups_by_frames,
     _stable_order,
     parse_episode_identity,

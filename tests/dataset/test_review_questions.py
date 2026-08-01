@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dataset.trajectory.review_questions import ReviewStore, format_reference_actions
+from dataset.review.questions import ReviewStore, format_reference_actions
 
 
 def write_jsonl(path: Path, records: list[dict]) -> None:

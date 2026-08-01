@@ -23,7 +23,7 @@ from game_environment import (
     step_commands,
     validate_identifier,
 )
-from lumine.action_codec import decode_lumine_action
+from tao.protocols.action import decode_action_sequence
 
 MAX_REQUEST_BYTES = 1_000_000
 
@@ -88,10 +88,10 @@ class ClosedLoopSession:
                 raise ValueError("模型指令次数预算已经耗尽")
             validate_identifier(plan_id, "plan_id")
             resolved_start_tick = self.tick if start_tick is None else start_tick
-            decoded = decode_lumine_action(action_text)
+            decoded = decode_action_sequence(action_text)
             submission = self.action_queue.submit(
                 plan_id,
-                decoded.chunks,
+                decoded.ticks,
                 start_tick=resolved_start_tick,
                 current_tick=self.tick,
             )
@@ -129,11 +129,11 @@ class ClosedLoopSession:
             observation = None
             for _ in range(allowed_ticks):
                 scheduled = self.action_queue.pop(self.tick)
-                chunk = scheduled.chunk if scheduled is not None else None
+                action_tick = scheduled.tick if scheduled is not None else None
                 action = self.action_adapter.convert(
-                    chunk.keys if chunk is not None else (),
-                    chunk.mouse if chunk is not None else (0, 0),
-                    chunk.scroll if chunk is not None else 0,
+                    action_tick.keys if action_tick is not None else (),
+                    action_tick.mouse if action_tick is not None else (0, 0),
+                    action_tick.scroll if action_tick is not None else 0,
                 )
                 observation = self.environment.step(action)[0]
                 executed.append(
@@ -170,16 +170,16 @@ class ClosedLoopSession:
                 raise ValueError("必须先 reset")
             if self.turn >= self.max_turns:
                 raise ValueError("模型指令次数预算已经耗尽")
-            decoded = decode_lumine_action(action_text)
-            allowed_ticks = min(len(decoded.chunks), self.max_ticks - self.tick)
+            decoded = decode_action_sequence(action_text)
+            allowed_ticks = min(len(decoded.ticks), self.max_ticks - self.tick)
             if allowed_ticks < 1:
                 raise ValueError("模拟 tick 预算已经耗尽")
             started = time.perf_counter()
             observation = None
             frame_paths: list[str] = []
             executed_chunks: list[dict[str, Any]] = []
-            for chunk in decoded.chunks[:allowed_ticks]:
-                action = self.action_adapter.convert(chunk.keys, chunk.mouse, chunk.scroll)
+            for tick in decoded.ticks[:allowed_ticks]:
+                action = self.action_adapter.convert(tick.keys, tick.mouse, tick.scroll)
                 observation = self.environment.step(action)[0]
                 self.tick += 1
                 self.frame += 1
@@ -188,9 +188,9 @@ class ClosedLoopSession:
                 frame_paths.append(destination.name)
                 executed_chunks.append(
                     {
-                        "keys": list(chunk.keys),
-                        "mouse": list(chunk.mouse),
-                        "scroll": chunk.scroll,
+                        "keys": list(tick.keys),
+                        "mouse": list(tick.mouse),
+                        "scroll": tick.scroll,
                         "selected_hotbar": self.action_adapter.selected_hotbar,
                     }
                 )

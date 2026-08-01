@@ -10,14 +10,14 @@
 ## 复现
 
 ```bash
-python -m train.gemma_vision_rlhf \
+python -m train.rlhf.gemma_vision_rlhf \
   --adapter unjustify/minestudio-gemma4-26b-a4b-trajectory-lora \
   --execution runs/craftground-observation-curriculum-terra-2plus6-20260731-retry10/execution.json \
   --output-dir runs/gemma4-26b-a4b-trajectory-rlhf-retry10 \
   --epochs 1 \
   --hf-repo unjustify/minestudio-gemma4-26b-a4b-trajectory-rlhf
 
-python -m train.gemma_vision_review_rlhf rollout \
+python -m train.rlhf.gemma_vision_review_rlhf rollout \
   --adapter unjustify/minestudio-gemma4-26b-a4b-trajectory-lora \
   --archive runs/datasets/reviewer-rlhf-source/minestudio-trajectory-sft-237.h5 \
   --output-dir runs/gemma4-26b-a4b-reviewer-rollouts-20260731

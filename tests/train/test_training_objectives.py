@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 import torch
 
-from train.gemma_vision_rlhf import token_logprobs, top_half_training_mask
 from train.objectives import (
     JointObjective,
     JointObjectiveWeights,
@@ -10,6 +9,7 @@ from train.objectives import (
     grouped_relative_advantages,
     masked_mean,
 )
+from train.rlhf.gemma_vision_rlhf import token_logprobs, top_half_training_mask
 
 
 def test_grouped_relative_advantages_are_independent() -> None:
@@ -99,7 +99,7 @@ def test_clipped_token_joint_objective_clips_large_policy_update() -> None:
 
 
 def test_top_half_training_mask_selects_four_highest_rewards() -> None:
-    from train.rollout_contract import RolloutSample
+    from train.rlhf.rollout_contract import RolloutSample
 
     samples = [
         RolloutSample("g", f"C{i}", "policy_sample", "a", reward, 0.0, (), 1, 1)

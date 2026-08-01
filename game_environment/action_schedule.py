@@ -6,7 +6,7 @@ from collections import deque
 from dataclasses import dataclass
 from math import ceil
 
-from lumine.action_codec import LumineActionChunk
+from tao.protocols.action import ActionTick
 
 MIN_PLAN_TICKS = 8
 MIN_REPLAN_LEAD_TICKS = 4
@@ -22,7 +22,7 @@ def replan_remaining_ticks(plan_ticks: int) -> int:
 @dataclass(frozen=True)
 class ScheduledAction:
     target_tick: int
-    chunk: LumineActionChunk
+    tick: ActionTick
     plan_id: str
     plan_index: int
 
@@ -61,19 +61,19 @@ class RollingActionQueue:
     def submit(
         self,
         plan_id: str,
-        chunks: tuple[LumineActionChunk, ...],
+        ticks: tuple[ActionTick, ...],
         *,
         start_tick: int,
         current_tick: int,
     ) -> PlanSubmission:
         if not plan_id:
             raise ValueError("plan_id 不能为空")
-        plan_ticks = len(chunks)
+        plan_ticks = len(ticks)
         lead = replan_remaining_ticks(plan_ticks)
         expired = max(0, min(plan_ticks, current_tick - start_tick))
         accepted = [
-            ScheduledAction(start_tick + index, chunk, plan_id, index)
-            for index, chunk in enumerate(chunks)
+            ScheduledAction(start_tick + index, tick, plan_id, index)
+            for index, tick in enumerate(ticks)
             if start_tick + index >= current_tick
         ]
         if not accepted:

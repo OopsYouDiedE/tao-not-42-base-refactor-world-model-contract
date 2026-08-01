@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dataset.trajectory.generate_questions import (
+from dataset.organization.generate_questions import (
     AI_REVIEW_PROMPT,
     HUMAN_REVIEW_PROMPT,
     OUTPUT_CONTRACT,

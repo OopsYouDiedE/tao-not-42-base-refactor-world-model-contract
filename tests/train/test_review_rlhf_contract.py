@@ -1,6 +1,6 @@
 import json
 
-from train.review_rlhf_contract import (
+from train.rlhf.review_contract import (
     make_review_candidate,
     parse_review,
     reference_review,

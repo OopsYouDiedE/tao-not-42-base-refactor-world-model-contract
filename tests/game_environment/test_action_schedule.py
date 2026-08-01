@@ -1,11 +1,11 @@
 import pytest
 
 from game_environment import RollingActionQueue, replan_remaining_ticks
-from lumine.action_codec import LumineActionChunk
+from tao.protocols.action import ActionTick
 
 
-def _chunks(count: int) -> tuple[LumineActionChunk, ...]:
-    return tuple(LumineActionChunk(keys=("W",)) for _ in range(count))
+def _chunks(count: int) -> tuple[ActionTick, ...]:
+    return tuple(ActionTick(keys=("W",)) for _ in range(count))
 
 
 @pytest.mark.parametrize(

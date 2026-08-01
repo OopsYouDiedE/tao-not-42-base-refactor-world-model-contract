@@ -1,12 +1,12 @@
-# CraftGround Lumine 闭环
+# CraftGround TAP 闭环
 
 ## 数据流
 
 ```text
 历史 RGB 帧
-  -> 策略模型生成 Lumine 动作块
-  -> decode_lumine_action()
-  -> lumine_chunk_to_v2_action()
+  -> 策略模型生成 TAP 动作块
+  -> decode_action_sequence()
+  -> action_tick_to_v2_action()
   -> CraftGround environment.step()
   -> 新 RGB 帧和 trajectory.json
 ```
@@ -43,7 +43,7 @@ Content-Type: application/json
 {"trajectory_id": "T1"}
 ```
 
-执行一个完整 Lumine 动作块：
+执行一个完整 TAP 动作块：
 
 ```http
 POST /step
@@ -95,7 +95,7 @@ CraftGround V2 没有相对滚轮字段，闭环适配器会维护当前快捷�
 ## 已验证结果
 
 2026-07-31 的四轨迹闭环实验使用同一内存快照作为起点。T4 在第 9 次模型指令、tick 25 打开箱子
-界面。该结果证明 Lumine 动作文本、逐 tick V2 适配、真实 RGB 回灌和内存快照恢复可以组成完整
+界面。该结果证明 TAP 动作文本、逐 tick V2 适配、真实 RGB 回灌和内存快照恢复可以组成完整
 闭环。实验图片、原始模型回复和运行日志属于 `runs/` 生成物，不进入源码仓库。
 
 ## 状态边界

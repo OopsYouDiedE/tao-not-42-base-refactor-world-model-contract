@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from dataset.trajectory.review_actions import ActionReviewStore, optimize_action_sequence
-from lumine.action_codec import decode_lumine_action
+from dataset.review.actions import ActionReviewStore, optimize_action_sequence
+from tao.protocols.action import decode_action_sequence
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -36,7 +36,7 @@ def test_gameplay_compression_preserves_held_duration_and_merges_mouse() -> None
     assert stats["raw_ticks"] == 5
     assert stats["optimized_ticks"] == 5
     assert stats["compressed_held_ticks"] == 0
-    chunks = decode_lumine_action(optimized[0]).chunks
+    chunks = decode_action_sequence(optimized[0]).ticks
     assert [chunk.mouse for chunk in chunks] == [(3, 0), (0, 0), (0, 0), (0, 0), (9, 3)]
     assert all(chunk.keys == ("W",) for chunk in chunks)
 

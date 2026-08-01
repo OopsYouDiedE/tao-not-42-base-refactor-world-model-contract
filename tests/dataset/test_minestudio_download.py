@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from dataset.minestudio import download
+from dataset.extraction.minestudio import download
 
 
 def test_partial_image_download_patterns(monkeypatch, tmp_path: Path) -> None:

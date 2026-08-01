@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from train.objectives import torch_joint_objective
-from train.rollout_contract import load_execution_group, masks, require_on_policy_logprobs
+from train.rlhf.rollout_contract import load_execution_group, masks, require_on_policy_logprobs
 from train.vision_geometry import camera_degrees_after_resize, plan_gemma4_geometry
 
 RUN = Path("runs/craftground-observation-curriculum-terra-2plus6-20260731-retry10/execution.json")

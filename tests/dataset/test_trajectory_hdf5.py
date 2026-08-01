@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from dataset.trajectory.load_hdf5 import format_question_prompt, load_hdf5_conversations
-from dataset.trajectory.pack_hdf5 import pack_approved_questions
-from dataset.trajectory.sft_protocol import format_assistant_response, sanitize_intent
+from dataset.organization.load_hdf5 import format_question_prompt, load_hdf5_conversations
+from dataset.organization.pack_hdf5 import pack_approved_questions
+from dataset.organization.sft_protocol import format_assistant_response, sanitize_intent
 
 ACTION = "<|action_start|> ; MouseLeft ; ; MouseLeft <|action_end|>"
 

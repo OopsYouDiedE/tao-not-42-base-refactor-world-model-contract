@@ -7,7 +7,7 @@
 | 范围 | 状态 | 证据或限制 |
 |---|---|---|
 | Python 全量测试 | 通过 | `117 passed` |
-| Python 语法编译 | 通过 | `compileall` 覆盖 `dataset/game_environment/lumine/tools/train/tests` |
+| Python 语法编译 | 通过 | `compileall` 覆盖 `dataset/game_environment/tao/tools/train/tests` |
 | 差异空白检查 | 通过 | `git diff --check` 无空白错误；仅有 Git 行尾提示 |
 | Ruff | 环境阻塞 | 本机未安装，代理不可用导致无法下载；不能记为通过 |
 | 玩家与静态世界快照 | 真实通过 | 连续 8 次恢复，位置、视角、背包、生命、饥饿、经验、状态效果一致 |
@@ -76,7 +76,7 @@ Gemma 4 使用 `16×16` patch，视觉池化核为 `3×3`。`640×360` 在示例
 | 方块/流体计划刻依赖 | 当前拒绝公平快照 batch |
 | 跨维度 | 当前拒绝公平快照 batch |
 
-`tools/audits/terra_tree_approach_batch8.py` 是伐木场景的真实执行夹具。它证明执行、复位、截图和报告链路，不证明课程生成已经通用于采矿或长期任务。通用状态决策位于 `curriculum/runtime.py`，真正的观察驱动课程提议器仍需在正式模型接入时输出结构化目标、前置条件、可度量进展和快照能力要求。
+`tools/audits/codex_teacher_batch8.py` 是教师轨迹的真实执行入口。它证明执行、复位、截图和报告链路，不证明课程生成已经通用于采矿或长期任务。通用状态决策位于 `curriculum/runtime.py`，真正的观察驱动课程提议器仍需在正式模型接入时输出结构化目标、前置条件、可度量进展和快照能力要求。
 
 ## 正式开训前剩余门槛
 

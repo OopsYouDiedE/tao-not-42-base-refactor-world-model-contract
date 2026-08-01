@@ -8,7 +8,6 @@ from game_environment.action_schedule import (
     ScheduledAction,
     replan_remaining_ticks,
 )
-
 from game_environment.craftground_memory import (
     MemorySnapshot,
     MemorySnapshotCoordinator,
@@ -20,9 +19,9 @@ from game_environment.craftground_runtime import (
     RESET_PLAYER_COMMANDS,
     SCENE_COMMANDS,
     CraftGroundActionAdapter,
+    action_tick_to_v2_action,
     build_environment,
     build_v2_action,
-    lumine_chunk_to_v2_action,
     save_rgb,
     scroll_hotbar_slot,
     step_commands,
@@ -45,7 +44,7 @@ __all__ = [
     "ScheduledAction",
     "build_environment",
     "build_v2_action",
-    "lumine_chunk_to_v2_action",
+    "action_tick_to_v2_action",
     "replan_remaining_ticks",
     "save_rgb",
     "scroll_hotbar_slot",

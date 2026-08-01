@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from train.lumine_streaming_dataset import (
+from train.bc.streaming_dataset import (
     StreamingSettings,
     _observation_frame_indices,
     _sample_positions,
@@ -24,7 +24,7 @@ def test_default_settings_produce_minimum_rolling_plan() -> None:
 def test_settings_reject_indivisible_chunk_size() -> None:
     """chunk 帧数不整除窗口帧数时报错，与落盘路径同一约束。"""
     with pytest.raises(ValueError):
-        StreamingSettings(window_frames=4, frames_per_chunk=3)
+        StreamingSettings(window_frames=4, frames_per_tick=3)
 
 
 def test_sample_positions_do_not_run_past_episode_end() -> None:

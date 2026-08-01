@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from train.policy_rollout import _truncate_at_action_end
+from train.rlhf.policy_rollout import _truncate_at_action_end
 
 
 class BoundaryMergingTokenizer:

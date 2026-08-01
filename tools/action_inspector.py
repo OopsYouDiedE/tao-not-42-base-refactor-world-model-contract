@@ -15,14 +15,14 @@ from pathlib import Path
 import gradio as gr
 import numpy as np
 
-from dataset.minestudio.reader import (
+from dataset.extraction.minestudio.reader import (
     TrajectoryReader,
     discover_part_directories,
 )
-from lumine.action_codec import (
+from tao.protocols.action import (
     DEGREES_PER_PIXEL,
     MINECRAFT_KEYMAP,
-    encode_lumine_action,
+    encode_action_sequence,
 )
 
 # 查看窗口的帧数。
@@ -110,14 +110,14 @@ def _encoded_variants(actions: dict[str, np.ndarray]) -> str:
     """
     num_frames = np.asarray(actions["camera"]).shape[0]
     lines = ["### 编码结果"]
-    for frames_per_chunk in (1, 5):
-        if num_frames % frames_per_chunk != 0:
+    for frames_per_tick in (1, 5):
+        if num_frames % frames_per_tick != 0:
             continue
-        window = encode_lumine_action(actions, frames_per_chunk=frames_per_chunk)
-        chunk_ms = frames_per_chunk * 50
+        window = encode_action_sequence(actions, frames_per_tick=frames_per_tick)
+        chunk_ms = frames_per_tick * 50
         lines.append(
-            f"**{frames_per_chunk} 帧/chunk（{chunk_ms}ms，{1000 // chunk_ms}Hz，"
-            f"{len(window.chunks)} 个 chunk）**",
+            f"**{frames_per_tick} 帧/chunk（{chunk_ms}ms，{1000 // chunk_ms}Hz，"
+            f"{len(window.ticks)} 个 chunk）**",
         )
         lines.append(f"```\n{window.to_text()}\n```")
     return "\n\n".join(lines)
@@ -172,9 +172,9 @@ def build_interface(state: InspectorState) -> gr.Blocks:
         maximum = max(0, state.frame_count(episode) - WINDOW_FRAMES)
         return gr.Slider(maximum=maximum, value=0)
 
-    with gr.Blocks(title="Lumine 动作查看器") as interface:
+    with gr.Blocks(title="TAP 动作查看器") as interface:
         gr.Markdown(
-            f"# Lumine 动作查看器\n"
+            f"# TAP 动作查看器\n"
             f"选一条轨迹，拖进度条查看该帧起 {WINDOW_FRAMES} 帧的动作编码。"
             + ("" if state.has_images else "\n\nimage 模态未下载，不显示画面。"),
         )
@@ -220,7 +220,7 @@ def build_interface(state: InspectorState) -> gr.Blocks:
 
 def main() -> None:
     """命令行入口：启动查看器。"""
-    parser = argparse.ArgumentParser(description="Lumine 动作编码查看器")
+    parser = argparse.ArgumentParser(description="TAP 动作编码查看器")
     parser.add_argument(
         "--dataset-dir",
         type=Path,

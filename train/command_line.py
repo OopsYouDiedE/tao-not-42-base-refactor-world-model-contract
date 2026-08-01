@@ -42,7 +42,7 @@ def build_argument_parser(
         "--dataset-dir",
         type=Path,
         required=True,
-        help="MineStudio 数据集目录、Lumine 落盘目录，或轨迹题 .h5/.hdf5 文件",
+        help="MineStudio 数据集目录、TAP 落盘目录，或轨迹题 .h5/.hdf5 文件",
     )
     parser.add_argument(
         "--output-dir",
@@ -93,7 +93,7 @@ def build_argument_parser(
     parser.add_argument(
         "--no-streaming",
         action="store_true",
-        help="改读 lumine_pretraining_dataset 的落盘产物；默认直接从 LMDB 流式加载",
+        help="改读 tap_pretraining_dataset 的落盘产物；默认直接从 LMDB 流式加载",
     )
     parser.add_argument(
         "--dataloader-workers",
@@ -127,7 +127,7 @@ def run_from_arguments(arguments: argparse.Namespace) -> None:
     """按解析结果跑训练并打印统计。"""
 
     # unsloth 必须在 transformers 之前完成补丁，因此训练模块延迟到此处导入。
-    from train.unsloth_vision_sft import (
+    from train.bc.vision_sft import (
         LoRASettings,
         SFTSettings,
         run_vision_sft,

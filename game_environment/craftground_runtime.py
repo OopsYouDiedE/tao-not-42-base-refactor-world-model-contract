@@ -10,7 +10,7 @@ from typing import Any
 
 from PIL import Image
 
-from lumine.action_codec import DEGREES_PER_PIXEL, MINECRAFT_KEYMAP
+from tao.protocols.action.codec import DEGREES_PER_PIXEL, MINECRAFT_KEYMAP
 
 SCENE_COMMANDS = (
     "gamemode survival @s",
@@ -116,7 +116,7 @@ def scroll_hotbar_slot(selected_hotbar: int, scroll: int) -> int:
     return (selected_hotbar - int(scroll) - 1) % HOTBAR_SLOT_COUNT + 1
 
 
-def lumine_chunk_to_v2_action(
+def action_tick_to_v2_action(
     keys: tuple[str, ...],
     mouse: tuple[int, int],
     scroll: int = 0,
@@ -124,7 +124,7 @@ def lumine_chunk_to_v2_action(
     selected_hotbar: int | None = None,
     action_factory: Callable[[], dict[str, bool | float]] | None = None,
 ) -> dict[str, bool | float]:
-    """把一个 Lumine tick 转为完整 CraftGround V2 动作。"""
+    """把一个 TAP tick 转为完整 CraftGround V2 动作。"""
     if scroll:
         if selected_hotbar is None:
             raise ValueError("转换 Scroll 动作时必须提供当前快捷栏槽位")
@@ -145,7 +145,7 @@ def lumine_chunk_to_v2_action(
 
 @dataclass
 class CraftGroundActionAdapter:
-    """维护快捷栏位置，并把连续 Lumine tick 转成 CraftGround V2 动作。"""
+    """维护快捷栏位置，并把连续 TAP tick 转成 CraftGround V2 动作。"""
 
     selected_hotbar: int = 1
     action_factory: Callable[[], dict[str, bool | float]] | None = None
@@ -170,7 +170,7 @@ class CraftGroundActionAdapter:
         hotbar_keys = [key for key in keys if key in _HOTBAR_KEYS]
         if len(hotbar_keys) > 1:
             raise ValueError("同一 tick 只能选择一个快捷栏槽位")
-        action = lumine_chunk_to_v2_action(
+        action = action_tick_to_v2_action(
             keys,
             mouse,
             scroll,

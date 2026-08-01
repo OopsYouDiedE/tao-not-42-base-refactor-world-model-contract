@@ -2,10 +2,10 @@ import pytest
 
 from game_environment import (
     CraftGroundActionAdapter,
-    lumine_chunk_to_v2_action,
+    action_tick_to_v2_action,
     scroll_hotbar_slot,
 )
-from lumine.action_codec import decode_lumine_action
+from tao.protocols.action import decode_action_sequence
 
 
 def _no_op_v2() -> dict[str, bool | float]:
@@ -22,13 +22,13 @@ def _no_op_v2() -> dict[str, bool | float]:
 
 
 def _chunk_action(keys: tuple[str, ...], mouse: tuple[int, int]) -> dict[str, bool | float]:
-    return lumine_chunk_to_v2_action(keys, mouse, action_factory=_no_op_v2)
+    return action_tick_to_v2_action(keys, mouse, action_factory=_no_op_v2)
 
 
 def test_project_action_chunk_maps_to_craftground_v2() -> None:
-    chunk = decode_lumine_action(
+    chunk = decode_action_sequence(
         "<|action_start|> ; Mouse -20 10 W A MouseRight <|action_end|>"
-    ).chunks[0]
+    ).ticks[0]
     action = _chunk_action(chunk.keys, chunk.mouse)
     assert action["forward"] is True
     assert action["left"] is True
@@ -39,7 +39,7 @@ def test_project_action_chunk_maps_to_craftground_v2() -> None:
 
 
 def test_absent_key_releases_on_next_tick() -> None:
-    chunks = decode_lumine_action("<|action_start|> ; W ; Mouse 2 -1 <|action_end|>").chunks
+    chunks = decode_action_sequence("<|action_start|> ; W ; Mouse 2 -1 <|action_end|>").ticks
     first = _chunk_action(chunks[0].keys, chunks[0].mouse)
     second = _chunk_action(chunks[1].keys, chunks[1].mouse)
     assert first["forward"] is True
@@ -82,7 +82,7 @@ def test_scroll_and_explicit_hotbar_key_are_rejected_in_same_tick() -> None:
 
 def test_scroll_requires_known_hotbar_for_stateless_conversion() -> None:
     with pytest.raises(ValueError, match="当前快捷栏槽位"):
-        lumine_chunk_to_v2_action((), (0, 0), 1, action_factory=_no_op_v2)
+        action_tick_to_v2_action((), (0, 0), 1, action_factory=_no_op_v2)
 
 
 @pytest.mark.parametrize(

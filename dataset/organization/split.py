@@ -30,10 +30,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
-from dataset.extraction.minestudio.reader import (
-    LMDBModalityReader,
-    discover_part_directories,
-)
+from dataset.extraction.minestudio import MineStudioDataset
 
 HoldoutLevel = Literal["prefix", "episode"]
 
@@ -168,14 +165,9 @@ def _select_groups_by_frames(
 
 def read_episode_frames(dataset_directories: list[Path]) -> dict[str, int]:
     """读取各 episode 的帧数，只碰 ``action`` 模态的元数据，不解码任何帧。"""
-    parts: list[Path] = []
-    for directory in dataset_directories:
-        parts.extend(discover_part_directories(Path(directory), "action"))
-    if not parts:
-        raise FileNotFoundError("没找到任何含 data.mdb 的 action 分片")
-    reader = LMDBModalityReader(parts, "action")
+    reader = MineStudioDataset(dataset_directories[0], ["action"]).updata_index()
     try:
-        return {name: reader.episode_info(name).num_frames for name in reader.episode_names()}
+        return dict(reader.lengths)
     finally:
         reader.close()
 
@@ -207,7 +199,7 @@ def build_split(
     output_path : Path or None
         给定时把结果写成 JSON。
     episode_frames : dict of str to int or None
-        预先读好的 episode → 帧数。调用方已持有打开的 ``LMDBModalityReader`` 时必须
+        预先读好的 episode → 帧数。调用方已持有打开的 ``MineStudioDataset`` 时必须
         走这条路径：LMDB 不允许同进程重复打开同一环境。
 
     Returns

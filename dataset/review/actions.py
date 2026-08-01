@@ -13,7 +13,7 @@ try:
 except ModuleNotFoundError:
     gr = None  # type: ignore[assignment]
 
-from dataset.extraction.minestudio.reader import TrajectoryReader
+from dataset.extraction.minestudio import MineStudioDataset
 from dataset.review.questions import (
     TASK_LABELS,
     TASK_PROMPTS_ZH,
@@ -207,12 +207,9 @@ class ActionReviewStore:
         existing = {row["id"]: row for row in read_jsonl(self.candidate_path)}
         reader = None
         if raw_dataset_directory:
-            reader = TrajectoryReader(
-                [Path(raw_dataset_directory)],
-                ["action", "meta_info"],
-                320,
-                180,
-            )
+            reader = MineStudioDataset(
+                Path(raw_dataset_directory), ["action", "meta_info"]
+            ).updata_index()
         try:
             self.candidates = {}
             for question in self.questions:
@@ -223,8 +220,9 @@ class ActionReviewStore:
                 answer = self.answers[sample_id]
                 start, end = question["target_interval"]
                 gui_flags = None
-                if reader and question["source"]["episode"] in set(reader.episode_names()):
-                    metadata = reader.readers["meta_info"].read_frames(
+                if reader and question["source"]["episode"] in set(reader.keys):
+                    metadata = reader.read_modality(
+                        "meta_info",
                         question["source"]["episode"],
                         start,
                         end - start,

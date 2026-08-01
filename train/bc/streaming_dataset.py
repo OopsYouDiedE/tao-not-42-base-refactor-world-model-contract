@@ -11,7 +11,7 @@
 全量下载好的 MineStudio 数据集在盘上是按模态解耦的 LMDB 分片，训练要的是
 「图像 + 指令 → 动作串」的对话。两者之间的转换在本模块里逐样本完成：
 
-1. **建索引，不读数据。** ``TrajectoryReader`` 打开 ``action`` 与 ``image`` 两个模态，
+1. **建索引，不读数据。** ``MineStudioDataset`` 打开 ``action`` 与 ``image`` 两个模态，
    取 episode 名的交集（各模态分片边界不同，只能按名字对齐）。此时只读了每个分片的
    ``__chunk_infos__`` 元数据，拿到每条 episode 的帧数，一帧像素都没解码。
 
@@ -53,7 +53,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from dataset.extraction.minestudio.reader import TrajectoryReader
+from dataset.extraction.minestudio import MineStudioDataset
 from dataset.organization.split import HoldoutLevel, build_split
 from tao.protocols.action import (
     DEFAULT_WINDOW_FRAMES,
@@ -231,27 +231,23 @@ class TAPStreamingDataset:
         self.positions = positions
         self.settings = settings
         self.include_images = include_images
-        self._reader: TrajectoryReader | None = None
+        self._reader: MineStudioDataset | None = None
 
     def __len__(self) -> int:
         """样本总数。"""
         return len(self.positions)
 
-    def _ensure_reader(self) -> TrajectoryReader:
+    def _ensure_reader(self) -> MineStudioDataset:
         """取本进程的 reader，尚未打开时打开。"""
         if self._reader is None:
             modalities = ["action", "image"] if self.include_images else ["action"]
-            self._reader = TrajectoryReader(
-                dataset_directories=self.dataset_directories,
-                modalities=modalities,
-                frame_width=self.settings.frame_width,
-                frame_height=self.settings.frame_height,
-            )
+            self._reader = MineStudioDataset(self.dataset_directories[0], modalities).updata_index()
         return self._reader
 
-    def _encode_window(self, reader: TrajectoryReader, episode: str, start: int) -> str:
+    def _encode_window(self, reader: MineStudioDataset, episode: str, start: int) -> str:
         """读一个动作窗口并编码为 TAP 动作串。"""
-        window = reader.readers["action"].read_frames(
+        window = reader.read_modality(
+            "action",
             episode,
             start,
             self.settings.window_frames,
@@ -280,9 +276,9 @@ class TAPStreamingDataset:
             previous_action_text = self._encode_window(reader, episode, previous_start)
 
         images: list[Image.Image] = []
-        if self.include_images and "image" in reader.readers:
+        if self.include_images and "image" in reader.modalities:
             for frame_index in _observation_frame_indices(start, self.settings):
-                frame = reader.readers["image"].read_frames(episode, frame_index, 1)[0]
+                frame = reader.read_modality("image", episode, frame_index, 1)[0]
                 images.append(Image.fromarray(np.asarray(frame, dtype=np.uint8), "RGB"))
 
         # 复用落盘路径的对话组装：图像已是内存对象，用 loaded_images 绕过按路径读盘。
@@ -351,14 +347,9 @@ def build_streaming_dataset(
     """
     resolved = settings if settings is not None else StreamingSettings()
     modalities = ["action", "image"] if include_images else ["action"]
-    reader = TrajectoryReader(
-        dataset_directories=dataset_directories,
-        modalities=modalities,
-        frame_width=resolved.frame_width,
-        frame_height=resolved.frame_height,
-    )
+    reader = MineStudioDataset(dataset_directories[0], modalities).updata_index()
     try:
-        episode_frames = {name: reader.episode_length(name) for name in reader.episode_names()}
+        episode_frames = dict(reader.lengths)
     finally:
         reader.close()
 

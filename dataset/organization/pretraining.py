@@ -32,7 +32,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from dataset.extraction.minestudio.reader import TrajectoryReader
+from dataset.extraction.minestudio import MineStudioDataset
 from dataset.organization.split import HoldoutLevel, build_split
 from tao.protocols.action import (
     DEFAULT_WINDOW_FRAMES,
@@ -161,20 +161,19 @@ def _observation_frame_indices(start_frame: int, layout: WindowLayout) -> list[i
 
 
 def _iterate_episode_samples(
-    reader: TrajectoryReader,
+    reader: MineStudioDataset,
     episode: str,
     layout: WindowLayout,
     frames_directory: Path | None,
     jpeg_quality: int,
 ) -> Iterator[PretrainingSample]:
     """对单条 episode 逐窗口产出样本。"""
-    has_image = "image" in reader.readers
-    total_frames = reader.episode_length(episode)
+    has_image = "image" in reader.modalities
+    total_frames = reader.lengths[episode]
     # 起始帧必须留足历史回溯空间，且窗口不能越过 episode 末尾。
     first_start = layout.history_span_frames
-    action_reader = reader.readers["action"]
     for start in range(first_start, total_frames - layout.window_frames + 1, layout.stride_frames):
-        window = action_reader.read_frames(episode, start, layout.window_frames)
+        window = reader.read_modality("action", episode, start, layout.window_frames)
         action = encode_action_sequence(window, frames_per_tick=layout.frames_per_tick)
         action_text = action.to_text()
 
@@ -182,7 +181,8 @@ def _iterate_episode_samples(
         previous_action_text = ""
         previous_start = start - layout.window_frames
         if previous_start >= 0:
-            previous_window = action_reader.read_frames(
+            previous_window = reader.read_modality(
+                "action",
                 episode,
                 previous_start,
                 layout.window_frames,
@@ -196,8 +196,9 @@ def _iterate_episode_samples(
         action_image_paths: list[str] = []
         if has_image and frames_directory is not None:
             # 动作窗口与图片窗口必须逐帧对应；历史观测单独保存，不参与动作对齐计数。
-            action_frames = action_reader.read_frames(episode, start, layout.window_frames)
-            aligned_images = reader.readers["image"].read_frames(
+            action_frames = reader.read_modality("action", episode, start, layout.window_frames)
+            aligned_images = reader.read_modality(
+                "image",
                 episode,
                 start,
                 layout.window_frames,
@@ -218,7 +219,7 @@ def _iterate_episode_samples(
             indices = _observation_frame_indices(start, layout)
             # 历史帧按感知步稀疏采样，逐帧单读避免把中间帧全解码进内存。
             frames = np.stack(
-                [reader.readers["image"].read_frames(episode, index, 1)[0] for index in indices],
+                [reader.read_modality("image", episode, index, 1)[0] for index in indices],
                 axis=0,
             )
             image_paths = _write_frames(
@@ -295,12 +296,7 @@ def build_pretraining_dataset(
     if not 1 <= jpeg_quality <= 100:
         raise ValueError("jpeg_quality 必须在 1–100")
     modalities = ["action", "image"] if include_images else ["action"]
-    reader = TrajectoryReader(
-        dataset_directories=dataset_directories,
-        modalities=modalities,
-        frame_width=frame_width,
-        frame_height=frame_height,
-    )
+    reader = MineStudioDataset(dataset_directories[0], modalities).updata_index()
     output_directory.mkdir(parents=True, exist_ok=True)
     frames_directory = output_directory / "frames" if include_images else None
 
@@ -310,7 +306,7 @@ def build_pretraining_dataset(
         validation_ratio=validation_ratio,
         seed=split_seed,
         output_path=output_directory / "split.json",
-        episode_frames={name: reader.episode_length(name) for name in reader.episode_names()},
+        episode_frames=dict(reader.lengths),
     )
     subsets = {
         "train": split.train_episodes,

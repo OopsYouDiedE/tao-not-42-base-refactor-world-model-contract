@@ -12,7 +12,7 @@ from typing import Any, Literal, TypeAlias
 import numpy as np
 from PIL import Image
 
-from dataset.extraction.minestudio.reader import TrajectoryReader
+from dataset.extraction.minestudio import MineStudioDataset
 from dataset.organization.sft_protocol import TASK_PROMPTS
 from tao.protocols.action import decode_action_sequence, encode_action_sequence
 
@@ -369,7 +369,7 @@ def write_dataset_readme(
 
 
 def _save_images(
-    reader: TrajectoryReader,
+    reader: MineStudioDataset,
     output: Path,
     sample_id: str,
     episode: str,
@@ -378,7 +378,7 @@ def _save_images(
     paths: list[str] = []
     for index, frame_index in enumerate(frames):
         relative = f"images/{sample_id}_{index:02d}.jpg"
-        frame = reader.readers["image"].read_frames(episode, frame_index, 1)[0]
+        frame = reader.read_modality("image", episode, frame_index, 1)[0]
         Image.fromarray(np.asarray(frame, dtype=np.uint8)).save(
             output / relative,
             quality=95,
@@ -388,18 +388,18 @@ def _save_images(
 
 
 def _read_source_images(
-    reader: TrajectoryReader,
+    reader: MineStudioDataset,
     episode: str,
     frames: list[int],
 ) -> list[np.ndarray]:
     return [
-        np.asarray(reader.readers["image"].read_frames(episode, frame, 1)[0], dtype=np.uint8)
+        np.asarray(reader.read_modality("image", episode, frame, 1)[0], dtype=np.uint8)
         for frame in frames
     ]
 
 
 def _action_blocks_between(
-    reader: TrajectoryReader,
+    reader: MineStudioDataset,
     episode: str,
     nodes: list[int],
 ) -> list[str]:
@@ -407,8 +407,8 @@ def _action_blocks_between(
         raise ValueError("动作节点必须至少有两个，并且帧号严格递增")
     start = nodes[0]
     total_frames = nodes[-1] - start
-    actions = reader.readers["action"].read_frames(episode, start, total_frames)
-    metadata = reader.readers["meta_info"].read_frames(episode, start, total_frames)
+    actions = reader.read_modality("action", episode, start, total_frames)
+    metadata = reader.read_modality("meta_info", episode, start, total_frames)
     normalized = normalize_gui_clicks(actions, metadata)
     return [
         encode_action_sequence(
@@ -506,18 +506,15 @@ def build_questions(
         raise ValueError("--overwrite 与 --append 不能同时使用")
     _prepare_output(output, overwrite, append)
     randomizer = random.Random(seed)
-    reader = TrajectoryReader(
-        dataset_directories,
-        ["action", "image", "meta_info"],
-        frame_width,
-        frame_height,
-    )
+    reader = MineStudioDataset(
+        dataset_directories[0], ["action", "image", "meta_info"]
+    ).updata_index()
     questions: list[dict[str, Any]] = _read_jsonl(output / "questions.jsonl") if append else []
     answers: list[dict[str, Any]] = _read_jsonl(output / "answer_key.jsonl") if append else []
     initial_count = len(questions)
     generated_per_type: dict[str, int] = {}
     try:
-        episodes = reader.episode_names()
+        episodes = reader.keys
         if not episodes:
             raise ValueError("action 与 image 模态没有共同 episode")
         for task_type in TASK_TYPES:
@@ -535,7 +532,7 @@ def build_questions(
                     "history_to_future_action": WINDOW_FRAMES,
                     "single_frame_intent_to_action": WINDOW_FRAMES,
                 }[task_type]
-                last = reader.episode_length(episode) - needed
+                last = reader.lengths[episode] - needed
                 if last < first:
                     continue
                 start = randomizer.randint(first, last)
@@ -544,12 +541,14 @@ def build_questions(
                 target_interval = target_interval_for(task_type, start)
                 action_frame_count = target_interval[1] - target_interval[0]
                 action_nodes = action_node_frames(task_type, frames, target_interval)
-                target_actions = reader.readers["action"].read_frames(
+                target_actions = reader.read_modality(
+                    "action",
                     episode,
                     start,
                     action_frame_count,
                 )
-                target_metadata = reader.readers["meta_info"].read_frames(
+                target_metadata = reader.read_modality(
+                    "meta_info",
                     episode,
                     start,
                     action_frame_count,

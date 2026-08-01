@@ -15,10 +15,7 @@ from pathlib import Path
 import gradio as gr
 import numpy as np
 
-from dataset.extraction.minestudio.reader import (
-    TrajectoryReader,
-    discover_part_directories,
-)
+from dataset.extraction.minestudio import MineStudioDataset
 from tao.protocols.action import (
     DEGREES_PER_PIXEL,
     MINECRAFT_KEYMAP,
@@ -36,7 +33,7 @@ class InspectorState:
 
     Attributes
     ----------
-    reader : TrajectoryReader
+    reader : MineStudioDataset
         多模态读取器。image 模态缺失时只含 action。
     has_images : bool
         image 模态是否可用。
@@ -46,18 +43,17 @@ class InspectorState:
 
     def __init__(self, dataset_directory: Path) -> None:
         modalities = ["action"]
-        if discover_part_directories(dataset_directory, "image"):
+        if any((dataset_directory / "image").glob("part-*/data.mdb")):
             modalities.append("image")
-        # TrajectoryReader 取各模态 episode 的交集，只有部分 image 分片时会自动落到
-        # 那些分片对应的 episode 上。
-        self.reader = TrajectoryReader([dataset_directory], modalities)
+        # 数据集只保留各模态共有的 episode。
+        self.reader = MineStudioDataset(dataset_directory, modalities).updata_index()
         self.has_images = "image" in modalities
-        names = sorted(self.reader.episode_names())
+        names = self.reader.keys
         self.episodes = names[:MAX_EPISODES]
 
     def frame_count(self, episode: str) -> int:
         """episode 的帧数。"""
-        return self.reader.episode_length(episode)
+        return self.reader.lengths[episode]
 
     def close(self) -> None:
         """关闭底层 LMDB 环境。"""
@@ -150,7 +146,7 @@ def build_interface(state: InspectorState) -> gr.Blocks:
                 f"最大可选 {max(0, total - WINDOW_FRAMES)}），不显示。"
             )
             return message, [], "", None
-        window = state.reader.read_window(episode, start, WINDOW_FRAMES)
+        window = state.reader.read(episode, start, WINDOW_FRAMES)
         actions = window["action"]
         frames = window.get("image") if state.has_images else None
         gallery = (

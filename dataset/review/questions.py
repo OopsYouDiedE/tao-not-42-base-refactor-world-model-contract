@@ -15,7 +15,7 @@ except ModuleNotFoundError:
 import numpy as np
 from PIL import Image
 
-from dataset.extraction.minestudio.reader import TrajectoryReader
+from dataset.extraction.minestudio import MineStudioDataset
 from dataset.organization.generate_questions import (
     AI_REVIEW_PROMPT,
     HUMAN_REVIEW_PROMPT,
@@ -162,16 +162,13 @@ class ReviewStore:
         }
         self._lock = threading.Lock()
         self.raw_reader = (
-            TrajectoryReader(
-                [Path(raw_dataset_directory)],
-                ["action", "image", "meta_info"],
-                320,
-                180,
-            )
+            MineStudioDataset(
+                Path(raw_dataset_directory), ["action", "image", "meta_info"]
+            ).updata_index()
             if raw_dataset_directory
             else None
         )
-        self.raw_episodes = set(self.raw_reader.episode_names()) if self.raw_reader else set()
+        self.raw_episodes = set(self.raw_reader.keys) if self.raw_reader else set()
         if self.raw_reader is not None:
             self.ensure_review_references()
 
@@ -244,7 +241,8 @@ class ReviewStore:
         reference_directory = self.root / "review_images"
         reference_directory.mkdir(parents=True, exist_ok=True)
         end_relative = f"review_images/{question['id']}_end.jpg"
-        array = self.raw_reader.readers["image"].read_frames(
+        array = self.raw_reader.read_modality(
+            "image",
             question["source"]["episode"],
             frames[1],
             1,
@@ -305,22 +303,24 @@ class ReviewStore:
         if action_interval[1] - action_interval[0] > 64:
             raise ValueError("单题动作区间不能超过 64 帧")
         episode = question["source"]["episode"]
-        episode_length = self.raw_reader.episode_length(episode)
+        episode_length = self.raw_reader.lengths[episode]
         if any(frame < 0 or frame >= episode_length for frame in image_frames):
             raise ValueError(f"图像帧必须位于 0 到 {episode_length - 1}")
         if action_interval[0] < 0 or action_interval[1] > episode_length:
             raise ValueError(f"动作区间必须位于 0 到 {episode_length}")
         new_images = [
-            self.raw_reader.readers["image"].read_frames(episode, frame, 1)[0]
+            self.raw_reader.read_modality("image", episode, frame, 1)[0]
             for frame in image_frames
         ]
         nodes = action_node_frames(task_type, image_frames, action_interval)
-        actions = self.raw_reader.readers["action"].read_frames(
+        actions = self.raw_reader.read_modality(
+            "action",
             episode,
             action_interval[0],
             action_interval[1] - action_interval[0],
         )
-        metadata = self.raw_reader.readers["meta_info"].read_frames(
+        metadata = self.raw_reader.read_modality(
+            "meta_info",
             episode,
             action_interval[0],
             action_interval[1] - action_interval[0],

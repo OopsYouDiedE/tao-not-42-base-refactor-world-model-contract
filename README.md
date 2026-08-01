@@ -8,7 +8,7 @@
 
 | 阶段 | 输入 | 正式入口 | 输出 |
 |---|---|---|---|
-| 下载 | Hugging Face MineStudio 数据 | `dataset.extraction.minestudio.download` | LMDB 模态分片 |
+| 下载与读取 | Hugging Face MineStudio 数据 | `dataset.extraction.minestudio.download_and_read_minestudio_lmdb_dataset` | LMDB 模态分片与轨迹窗口 |
 | 预训练数据 | LMDB 图像与动作 | `dataset.organization.pretraining` | TAP JSONL 与图片 |
 | 流式训练数据 | LMDB 图像与动作 | `train.bc.streaming_dataset` | 内存中的视觉对话样本 |
 | 轨迹题生成 | LMDB 轨迹 | `dataset.organization.generate_questions` | 候选题、隔离答案和审核请求 |
@@ -154,13 +154,18 @@ python3 -m tools.export_codex_api_env --check
 教师模型入口必须通过 `TeacherAPIConfig.from_environment()` 读取参数；任一参数缺失时
 拒绝启动。
 
-下载必要模态：
+下载一个数据集并只保留指定模态：
 
-```bash
-python -m dataset.extraction.minestudio.download \
-  --dataset 10xx \
-  --modality action meta_info image \
-  --output-dir runs/datasets
+```python
+from dataset.extraction.minestudio import load
+
+dataset = load(
+    ["7xx"],
+    ["action", "image"],
+    force_remove_other_dataset_in_this_group=True,
+)
+dataset.updata_index()
+first_frame = dataset[0]
 ```
 
 默认使用 LMDB 流式训练，不生成中间图片数据集：

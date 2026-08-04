@@ -31,7 +31,7 @@ def _chat_template(model: str) -> str:
     if "gemma-4" in lowered:
         return "gemma-4-thinking" if any(name in lowered for name in ("26b", "31b")) else "gemma-4"
     if "qwen" in lowered:
-        return "qwen-3.6"
+        return "qwen-3"
     raise ValueError(f"unsupported vision model family: {model!r}")
 
 

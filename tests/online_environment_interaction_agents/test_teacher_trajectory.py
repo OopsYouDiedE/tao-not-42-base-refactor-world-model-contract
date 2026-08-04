@@ -100,6 +100,23 @@ def test_openai_config_loads_dedicated_environment(
 
     assert config.model == "teacher-model"
     assert config.base_url == "https://example.test/v1"
+    assert config.wire_api == "chat_completions"
+
+
+def test_openai_config_reads_optional_wire_and_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`responses` 专用模型必须能从环境变量选中对应 wire，否则服务端拒绝协议。"""
+    monkeypatch.setenv("TEACHER_API_URL", "https://example.test/v1")
+    monkeypatch.setenv("TEACHER_API_KEY", "secret")
+    monkeypatch.setenv("TEACHER_MODEL", "teacher-model")
+    monkeypatch.setenv("TEACHER_WIRE_API", "responses")
+    monkeypatch.setenv("TEACHER_TIMEOUT_SECONDS", "300")
+
+    config = OpenAICompatibleConfig.from_environment()
+
+    assert config.wire_api == "responses"
+    assert config.timeout_seconds == 300.0
 
 
 def test_decision_envelope_preserves_pure_control() -> None:

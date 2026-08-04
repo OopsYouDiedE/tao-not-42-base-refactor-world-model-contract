@@ -412,7 +412,7 @@ def run(
             return observation, info
 
         with ThreadPoolExecutor(
-            max_workers=initialization_workers or trajectory_count,
+            max_workers=initialization_workers or selected_environment_count,
             thread_name_prefix="craftground-initialize",
         ) as initialization_executor:
             initialized = tuple(initialization_executor.map(initialize, enumerate(environments)))
@@ -478,7 +478,7 @@ def run(
             environment.add_command(f"tp @p ~{index + 1} ~ ~")
             environment.step(no_op_v2())
         coordinator.reset_all(snapshot)
-        with ThreadPoolExecutor(max_workers=trajectory_count) as verification_executor:
+        with ThreadPoolExecutor(max_workers=selected_environment_count) as verification_executor:
             restored = tuple(verification_executor.map(restore_player_start, environments))
         restored_states = tuple(_state_summary(value[0][4]) for value in restored)
         _assert_same_logical_state(restored_states, "快照倒档后的四实例状态")
@@ -892,6 +892,19 @@ def main() -> None:
     parser.add_argument("--baseline-world", type=Path)
     parser.add_argument("--target-log-count", type=int, default=1)
     parser.add_argument("--trajectory-count", type=int, default=TRAJECTORY_COUNT)
+    parser.add_argument(
+        "--environment-count",
+        type=int,
+        help=(
+            "并行 CraftGround 环境槽位数，默认等于 --trajectory-count。"
+            "内存不足以为每个 arm 各开一个客户端时显式调小；超额 arm 在环境池外排队。"
+        ),
+    )
+    parser.add_argument(
+        "--rollout-workers",
+        type=int,
+        help="并行推演线程数，默认等于环境槽位数。",
+    )
     parser.add_argument("--env-file", type=Path)
     arguments = parser.parse_args()
     if arguments.env_file is not None:
@@ -908,6 +921,8 @@ def main() -> None:
             baseline_world_path=arguments.baseline_world,
             target_log_count=arguments.target_log_count,
             trajectory_count=arguments.trajectory_count,
+            environment_count=arguments.environment_count,
+            rollout_workers=arguments.rollout_workers,
         )
     )
 

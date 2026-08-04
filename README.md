@@ -175,6 +175,18 @@ python -m environment_validation_tools.run_four_teacher_trajectories --output ru
 位置计算快照区域，并在正式推演前执行一次“扰动 → 倒档 → 状态比对”。输出包含轨迹、逐轨迹审核、
 相对优势比较样本和比较结论复核。
 
+`--trajectory-count` 控制 arm 数，`--environment-count` 控制并行 CraftGround 环境槽位数。内存不足
+以为每个 arm 各开一个客户端时调小槽位数；超额 arm 由 `ParallelRolloutRunner` 在环境池外排队。
+
+WSL 上「轨迹完全由云端模型生成 + 统一相对优势评估」的封装入口、`responses` wire 要求、内存槽位
+建议和已知评分缺陷见 [`docs/CLOUD_RELATIVE_ADVANTAGE_RUN.md`](docs/CLOUD_RELATIVE_ADVANTAGE_RUN.md)：
+
+```bash
+export TEACHER_API_KEY=replace-me
+TRAJECTORY_COUNT=8 ENVIRONMENT_COUNT=2 MAX_GENERATIONS=10 \
+  bash scripts/run_wsl_cloud_relative_advantage.sh
+```
+
 ## 验证
 
 检查重组目录和 README 路径合同：

@@ -76,10 +76,19 @@ class OpenAICompatibleConfig:
 
     @classmethod
     def from_environment(cls) -> OpenAICompatibleConfig:
+        """从环境变量装配配置。
+
+        除 `TEACHER_API_URL`、`TEACHER_API_KEY` 和 `TEACHER_MODEL` 外，同时读取可选的
+        `TEACHER_WIRE_API` 与 `TEACHER_TIMEOUT_SECONDS`。缺少 wire 选择时保持
+        `chat_completions` 默认值；只支持 `responses` 协议的模型必须显式设置
+        `TEACHER_WIRE_API=responses`，否则服务端会以 `protocol_not_supported` 拒绝请求。
+        """
         return cls(
             base_url=require_env("TEACHER_API_URL"),
             api_key=require_env("TEACHER_API_KEY"),
             model=require_env("TEACHER_MODEL"),
+            timeout_seconds=float(os.getenv("TEACHER_TIMEOUT_SECONDS", "180")),
+            wire_api=os.getenv("TEACHER_WIRE_API", "chat_completions"),
         )
 
 

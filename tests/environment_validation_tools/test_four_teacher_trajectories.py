@@ -255,3 +255,21 @@ def test_default_rollout_contract_is_four_trajectories_and_ten_rounds() -> None:
 
     assert parameters["trajectory_count"].default == 4
     assert parameters["max_generations"].default == 10
+
+
+def test_cli_exposes_environment_slot_over_subscription() -> None:
+    """内存不足以为每个 arm 各开一个客户端时，CLI 必须能把 arm 数与环境槽位数解耦。"""
+    source = Path(run_four_teacher_trajectories.__file__).read_text(encoding="utf-8")
+
+    assert '"--environment-count"' in source
+    assert '"--rollout-workers"' in source
+    assert "environment_count=arguments.environment_count" in source
+    assert "rollout_workers=arguments.rollout_workers" in source
+
+
+def test_initialization_and_verification_pools_track_environment_count() -> None:
+    """初始化与倒档校验线程池按环境槽位数收敛，不随 arm 数放大。"""
+    source = Path(run_four_teacher_trajectories.__file__).read_text(encoding="utf-8")
+
+    assert "max_workers=initialization_workers or selected_environment_count" in source
+    assert "ThreadPoolExecutor(max_workers=selected_environment_count)" in source

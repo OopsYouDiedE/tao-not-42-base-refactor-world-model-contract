@@ -12,8 +12,9 @@ from .runtime import (
     create_environment,
     directory_sha256,
     install_baseline_world,
-    prepare_patched_runtime,
     prepare_runtime_instance,
+    prepare_runtime_template,
+    validate_maintained_runtime,
 )
 from .snapshot_pool import (
     EnvironmentLease,
@@ -44,7 +45,8 @@ __all__ = [
     "create_environment",
     "directory_sha256",
     "install_baseline_world",
-    "prepare_patched_runtime",
     "prepare_runtime_instance",
+    "prepare_runtime_template",
     "scroll_hotbar_slot",
+    "validate_maintained_runtime",
 ]

@@ -1,4 +1,4 @@
-"""CraftGround runtime 补丁安装与环境创建入口。"""
+"""CraftGround 维护版 runtime 准备与环境创建入口。"""
 
 from __future__ import annotations
 
@@ -13,81 +13,12 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-DISPATCH = "        if (MemorySnapshotStore.handle(command, client)) return true\n"
-SIGNATURE = "    ): Boolean {\n"
-# runtime 编译的 noboost_ipc.cpp 只映射 24 字节的 j2p 头部，随后把整帧观察 memcpy
-# 到该映射之后，导致 JVM 在 writeObservationImpl 内 SIGSEGV。同仓库的 boost_ipc.cpp
-# 已有正确做法（先按需扩容再映射），这里把同样的扩容补进被编译的那份实现。
-OBSERVATION_MMAP_ORIGINAL = """    void *j2pPtr = mmap(
-        0,
-        sizeof(J2PSharedMemoryLayout),
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED,
-        j2pFd,
-        0
-    );
-    if (j2pPtr == MAP_FAILED) {
-        perror("mmap j2p failed while writing to shared memory");
-        munmap(p2jPtr, sizeof(SharedMemoryLayout));
-        close(p2jFd);
-        close(j2pFd);
-        return;
-    }
-#endif
-    J2PSharedMemoryLayout *j2pLayout =
-        static_cast<J2PSharedMemoryLayout *>(j2pPtr);
-    j2pLayout->data_offset = sizeof(J2PSharedMemoryLayout);
-"""
-OBSERVATION_MMAP_PATCHED = """    const size_t j2pRequiredSize =
-        sizeof(J2PSharedMemoryLayout) + observation_size;
-    struct stat j2pStat;
-    if (fstat(j2pFd, &j2pStat) == -1) {
-        perror("fstat j2p failed while writing to shared memory");
-        munmap(p2jPtr, sizeof(SharedMemoryLayout));
-        close(p2jFd);
-        close(j2pFd);
-        return;
-    }
-    if (static_cast<size_t>(j2pStat.st_size) < j2pRequiredSize &&
-        ftruncate(j2pFd, static_cast<off_t>(j2pRequiredSize)) == -1) {
-        perror("ftruncate j2p failed while writing to shared memory");
-        munmap(p2jPtr, sizeof(SharedMemoryLayout));
-        close(p2jFd);
-        close(j2pFd);
-        return;
-    }
-    void *j2pPtr = mmap(
-        0,
-        j2pRequiredSize,
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED,
-        j2pFd,
-        0
-    );
-    if (j2pPtr == MAP_FAILED) {
-        perror("mmap j2p failed while writing to shared memory");
-        munmap(p2jPtr, sizeof(SharedMemoryLayout));
-        close(p2jFd);
-        close(j2pFd);
-        return;
-    }
-#endif
-    J2PSharedMemoryLayout *j2pLayout =
-        static_cast<J2PSharedMemoryLayout *>(j2pPtr);
-    j2pLayout->layout_size = sizeof(J2PSharedMemoryLayout);
-    j2pLayout->data_offset = sizeof(J2PSharedMemoryLayout);
-"""
-OBSERVATION_UNMAP_ORIGINAL = "    munmap(j2pPtr, sizeof(J2PSharedMemoryLayout));\n"
-OBSERVATION_UNMAP_PATCHED = "    munmap(j2pPtr, j2pRequiredSize);\n"
 _PREPARE_LOCK = Lock()
 ACTION_BACKEND = "keyboard_and_mouse_only"
 CRAFTGROUND_ACTION_SPACE = "V2_MINERL_HUMAN"
+CRAFTGROUND_RUNTIME_VERSION = "0.1.0+tao.1"
 _INSTANCE_MARKER = ".tao-runtime-instance"
-_SHARED_MEMORY_PATCH_LOCK = Lock()
-_SHARED_MEMORY_PATCHED = False
-# 动作段容量按最长命令估算；内存快照 save 命令是当前最长的一条。
-_LONGEST_COMMAND = "memorysnapshot save " + "s" * 64 + " -30000 -64 -30000 30000 320 30000"
-_COMMAND_SLOTS = 8
+_RUNTIME_BUILD_MARKER = ".tao-runtime-build"
 # 实例目录只需要模板的构建产物；这些运行时目录由 JVM 重新生成。
 _INSTANCE_PRUNED_PATHS = (
     "CMakeCache.txt",
@@ -143,95 +74,58 @@ def install_baseline_world(
     }
 
 
-def action_segment_capacity() -> int:
-    """按最大真实动作消息给出动作段容量。
+def validate_maintained_runtime(runtime_path: Path | str) -> None:
+    """校验 runtime 包含自维护分支承诺的源码能力。
 
-    上游用 `no_op_v2()` 的序列化长度作为动作段容量，而全默认值的 protobuf 序列化为
-    0 字节。任何真实动作都超过该容量，JVM 写入时越界并以 SIGABRT 终止。这里改用
-    “全部按键按下 + 非零视角 + 一条最长命令” 的消息长度，并留出余量。
+    Args:
+        runtime_path: `craftground_runtime_mc121` 包目录或它的副本。
+
+    Raises:
+        FileNotFoundError: runtime 缺少维护版要求的文件。
+        RuntimeError: 文件存在，但关键实现并非维护版合同。
     """
-    from craftground.environment.action_space import action_v2_dict_to_message, no_op_v2
+    root = Path(runtime_path).expanduser().resolve()
+    required_files = (
+        "src/main/java/com/kyhsgeekcode/minecraftenv/MemorySnapshotStore.kt",
+        "src/main/java/com/kyhsgeekcode/minecraftenv/MinecraftEnv.kt",
+        "src/main/cpp/noboost_ipc.cpp",
+        "src/main/cpp/CMakeLists.txt",
+        "src/main/cpp/include/framebuffer_capturer.h",
+    )
+    missing = [relative for relative in required_files if not (root / relative).is_file()]
+    if missing:
+        raise FileNotFoundError(f"CraftGround 维护版 runtime 缺少文件：{missing}")
 
-    action = no_op_v2()
-    for key in action:
-        action[key] = True if isinstance(action[key], bool) else 24.0
-    message = action_v2_dict_to_message(action)
-    message.commands.extend([_LONGEST_COMMAND] * _COMMAND_SLOTS)
-    return len(message.SerializeToString()) * 2
-
-
-def enable_shared_memory_reuse() -> None:
-    """修正共享内存段容量，并让同一端口只初始化一次。
-
-    上游共享内存路径有两处缺陷。
-
-    其一是重复初始化：`CraftGroundEnvironment.__init__` 已经通过 `BoostIPC` 创建
-    `/craftground_<port>_p2j` 与 `_j2p` 并写入初始环境消息，随后 `reset()` 内的
-    `ensure_alive()` 会对同一端口再构造一个 `BoostIPC`，命中 native 层的
-    “already exists” 检查而失败。先 `destroy()` 再让它重建同样不可行：destroy 之后
-    native 模块对该段名的映射失效，读侧拿到坏 fd 并返回空字节，Python 侧表现为
-    `cannot reshape array of size 0`。
-
-    其二是动作段容量按 `no_op_v2()` 计算，而该消息序列化为 0 字节，JVM 写入真实
-    观察时越界并以退出码 134 终止。
-
-    这里按端口缓存首次初始化结果：重复构造复用已有段名，不再调用 native 初始化，
-    也不销毁正在使用的段；容量改由 `action_segment_capacity()` 给出。同时把隐式析构
-    改为显式 `release()`，避免被丢弃的旧实例 unlink 掉新实例仍在使用的段。
-    """
-    global _SHARED_MEMORY_PATCHED
-    with _SHARED_MEMORY_PATCH_LOCK:
-        if _SHARED_MEMORY_PATCHED:
-            return
-        from craftground.craftground_native import initialize_shared_memory
-        from craftground.environment.boost_ipc import BoostIPC
-
-        registry: dict[int, int] = {}
-        registry_lock = Lock()
-        capacity = action_segment_capacity()
-
-        def patched_init(self, port, find_free_port, initial_environment, logger):
-            self.logger = logger
-            self.find_free_port = find_free_port
-            self.SHMEM_PREFIX = "Global\\" if sys.platform == "win32" else "/"
-            with registry_lock:
-                established = registry.get(int(port))
-                if established is None:
-                    initial_bytes = initial_environment.SerializeToString()
-                    established = initialize_shared_memory(
-                        int(port),
-                        initial_bytes,
-                        len(initial_bytes),
-                        capacity,
-                        find_free_port,
-                    )
-                    registry[int(port)] = established
-            self.port = established
-            self.p2j_shared_memory_name = f"{self.SHMEM_PREFIX}craftground_{established}_p2j"
-            self.j2p_shared_memory_name = f"{self.SHMEM_PREFIX}craftground_{established}_j2p"
-
-        def release(self) -> None:
-            """真正回收本端口的共享内存段；只应在环境关闭时调用一次。"""
-            port = getattr(self, "port", None)
-            with registry_lock:
-                if port is not None:
-                    registry.pop(int(port), None)
-            original_destroy(self)
-
-        original_destroy = BoostIPC.destroy
-        BoostIPC.__init__ = patched_init
-        # `terminate()` 与 `__del__` 都会调用 destroy；改为空操作后由 release 显式回收。
-        BoostIPC.destroy = lambda self: None
-        BoostIPC.release = release
-        _SHARED_MEMORY_PATCHED = True
+    minecraft_env = (
+        root / "src/main/java/com/kyhsgeekcode/minecraftenv/MinecraftEnv.kt"
+    ).read_text(encoding="utf-8")
+    native_ipc = (root / "src/main/cpp/noboost_ipc.cpp").read_text(encoding="utf-8")
+    cmake = (root / "src/main/cpp/CMakeLists.txt").read_text(encoding="utf-8")
+    contracts = {
+        "内存快照命令分发": "MemorySnapshotStore.handle(command, client)" in minecraft_env,
+        "观察共享内存按帧扩容": (
+            "j2pRequiredSize" in native_ipc and "ftruncate(j2pFd" in native_ipc
+        ),
+        "runtime native 源码自包含": "CMAKE_CURRENT_LIST_DIR" in cmake,
+    }
+    failed = [name for name, satisfied in contracts.items() if not satisfied]
+    if failed:
+        raise RuntimeError(f"CraftGround runtime 不满足维护版合同：{failed}")
 
 
-def prepare_patched_runtime(target: Path | None = None, *, build: bool = True) -> Path:
-    """把已安装的 CraftGround runtime 复制到缓存、注入补丁并按需构建。"""
+def prepare_runtime_template(target: Path | None = None, *, build: bool = True) -> Path:
+    """复制并构建已安装的 CraftGround 维护版 runtime，不修改其中源码。"""
     distribution = importlib.metadata.distribution("craftground-runtime-mc121")
+    if distribution.version != CRAFTGROUND_RUNTIME_VERSION:
+        raise RuntimeError(
+            "craftground-runtime-mc121 版本不符："
+            f"期望 {CRAFTGROUND_RUNTIME_VERSION}，实际 {distribution.version}"
+        )
     source = Path(distribution.locate_file("craftground_runtime_mc121")).resolve()
     if not source.is_dir():
         raise FileNotFoundError(f"找不到 CraftGround runtime 源目录：{source}")
+    validate_maintained_runtime(source)
+    source_digest = directory_sha256(source)
 
     if target is None:
         safe_version = re.sub(r"[^A-Za-z0-9_.-]", "-", distribution.version)
@@ -239,48 +133,21 @@ def prepare_patched_runtime(target: Path | None = None, *, build: bool = True) -
             Path.home()
             / ".cache"
             / "tao"
-            / f"craftground-runtime-mc121-{safe_version}-memorysnapshot"
+            / f"craftground-runtime-mc121-{safe_version}-{source_digest[:12]}"
         )
     target = target.expanduser().resolve()
-    patch = Path(__file__).with_name("runtime_patch") / "MemorySnapshotStore.kt"
-    # 构建标记覆盖全部补丁内容：Kotlin 快照扩展和 j2p 观察写入扩容。
-    patch_digest = hashlib.sha256(
-        patch.read_bytes() + OBSERVATION_MMAP_PATCHED.encode("utf-8")
-    ).hexdigest()
+    build_identity = f"{distribution.version}\n{source_digest}\n"
 
     with _PREPARE_LOCK:
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(source, target)
-
-        package = target / "src/main/java/com/kyhsgeekcode/minecraftenv"
-        minecraft_env = package / "MinecraftEnv.kt"
-        if not minecraft_env.is_file():
-            raise FileNotFoundError(f"runtime 缺少 MinecraftEnv.kt：{minecraft_env}")
-
-        installed_patch = package / patch.name
-        content = minecraft_env.read_text(encoding="utf-8")
-        changed = (
-            not installed_patch.is_file() or installed_patch.read_bytes() != patch.read_bytes()
-        )
-        if changed:
-            shutil.copy2(patch, installed_patch)
-        if DISPATCH not in content:
-            handle_start = content.index("    private fun handleCommand(")
-            insertion = content.index(SIGNATURE, handle_start) + len(SIGNATURE)
-            minecraft_env.write_text(
-                content[:insertion] + DISPATCH + content[insertion:],
-                encoding="utf-8",
-            )
-            changed = True
-        changed = _patch_observation_write(target) or changed
-
-        build_marker = target / ".tao-memorysnapshot-build"
+        validate_maintained_runtime(target)
+        build_marker = target / _RUNTIME_BUILD_MARKER
         already_built = (
-            build_marker.is_file()
-            and build_marker.read_text(encoding="ascii").strip() == patch_digest
+            build_marker.is_file() and build_marker.read_text(encoding="ascii") == build_identity
         )
-        if build and (changed or not already_built):
+        if build and not already_built:
             gradle = target / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
             if not gradle.is_file():
                 raise FileNotFoundError(f"runtime 缺少 Gradle wrapper：{gradle}")
@@ -289,39 +156,8 @@ def prepare_patched_runtime(target: Path | None = None, *, build: bool = True) -
                 cwd=target,
                 check=True,
             )
-            build_marker.write_text(patch_digest + "\n", encoding="ascii")
+            build_marker.write_text(build_identity, encoding="ascii")
     return target
-
-
-def _patch_observation_write(target: Path) -> bool:
-    """让被编译的 IPC 实现在写观察前扩容并映射完整 j2p 段。
-
-    runtime 的 `CMakeLists.txt` 编译 `noboost_ipc.cpp`。该文件的 `write_observation`
-    只映射 `sizeof(J2PSharedMemoryLayout)`（24 字节），随后把整帧观察 memcpy 到该映射
-    之后；640x360x3 的观察约 691 KB，于是 JVM 在
-    `Java_..._writeObservationImpl` 内 SIGSEGV，Gradle 报退出码 134。同仓库的
-    `boost_ipc.cpp` 已有正确做法：先 `truncate` 到
-    `observation_size + sizeof(J2PSharedMemoryLayout)` 再映射。这里把等价的扩容补进
-    实际参与编译的那一份。
-    """
-    source = target / "src/main/cpp/noboost_ipc.cpp"
-    if not source.is_file():
-        raise FileNotFoundError(f"runtime 缺少 noboost_ipc.cpp：{source}")
-    content = source.read_text(encoding="utf-8")
-    if OBSERVATION_MMAP_PATCHED in content:
-        return False
-    if OBSERVATION_MMAP_ORIGINAL not in content:
-        raise RuntimeError(f"noboost_ipc.cpp 的 j2p 映射代码与预期不符，无法安全打补丁：{source}")
-    patched = content.replace(OBSERVATION_MMAP_ORIGINAL, OBSERVATION_MMAP_PATCHED, 1)
-    write_start = patched.index(OBSERVATION_MMAP_PATCHED)
-    unmap_at = patched.index(OBSERVATION_UNMAP_ORIGINAL, write_start)
-    source.write_text(
-        patched[:unmap_at]
-        + OBSERVATION_UNMAP_PATCHED
-        + patched[unmap_at + len(OBSERVATION_UNMAP_ORIGINAL) :],
-        encoding="utf-8",
-    )
-    return True
 
 
 def prepare_runtime_instance(
@@ -335,7 +171,7 @@ def prepare_runtime_instance(
     if not safe_id:
         raise ValueError("instance_id 必须包含字母、数字或安全分隔符")
     resolved_template = (
-        prepare_patched_runtime() if template is None else template.expanduser().resolve()
+        prepare_runtime_template() if template is None else template.expanduser().resolve()
     )
     if not resolved_template.is_dir():
         raise FileNotFoundError(f"CraftGround runtime 模板不存在：{resolved_template}")
@@ -345,7 +181,7 @@ def prepare_runtime_instance(
         else instances_root.expanduser().resolve()
     )
     target = root / safe_id
-    template_marker = resolved_template / ".tao-memorysnapshot-build"
+    template_marker = resolved_template / _RUNTIME_BUILD_MARKER
     template_identity = hashlib.sha256(
         (str(resolved_template) + "\n").encode("utf-8")
         + (template_marker.read_bytes() if template_marker.is_file() else b"unbuilt")
@@ -388,8 +224,8 @@ def create_environment(
     port: int = 18300,
     find_free_port: bool = False,
     use_shared_memory: bool = True,
-    auto_install_patch: bool = True,
-    patched_runtime_target: Path | None = None,
+    auto_prepare_runtime: bool = True,
+    runtime_template_target: Path | None = None,
     instance_id: str | None = None,
     runtime_instances_root: Path | None = None,
     baseline_world_path: Path | str | None = None,
@@ -397,18 +233,17 @@ def create_environment(
     cleanup_world: bool = True,
     verbose: bool = False,
 ) -> Any:
-    """创建 CraftGround 键鼠后端环境；默认自动准备内存快照 runtime。
+    """创建 CraftGround 键鼠后端环境；默认准备维护版 runtime 的独立副本。
 
-    默认使用共享内存 IPC，观察不经 socket 序列化。共享内存段按端口命名，配合
-    `enable_shared_memory_reuse()` 消除上游同端口重复初始化，可支持多实例并行；
-    该路径也不触发 SocketIPC 那个不分端口的全局 java 进程扫描。
+    默认使用共享内存 IPC，观察不经 socket 序列化。维护版 CraftGround 负责共享内存
+    的容量、重建和幂等销毁；该路径也不触发 SocketIPC 的全局 java 进程扫描。
     """
-    if runtime_path is not None and patched_runtime_target is not None:
-        raise ValueError("runtime_path 与 patched_runtime_target 不能同时提供")
+    if runtime_path is not None and runtime_template_target is not None:
+        raise ValueError("runtime_path 与 runtime_template_target 不能同时提供")
     if runtime_path is None:
-        if not auto_install_patch:
-            raise ValueError("关闭自动补丁时必须提供 runtime_path")
-        template = prepare_patched_runtime(patched_runtime_target)
+        if not auto_prepare_runtime:
+            raise ValueError("关闭自动准备 runtime 时必须提供 runtime_path")
+        template = prepare_runtime_template(runtime_template_target)
         resolved_runtime = prepare_runtime_instance(
             instance_id or f"environment-{uuid.uuid4().hex}",
             template=template,
@@ -431,8 +266,6 @@ def create_environment(
     from craftground.environment.action_space import ActionSpaceVersion
     from craftground.screen_encoding_modes import ScreenEncodingMode
 
-    if use_shared_memory:
-        enable_shared_memory_reuse()
     config = InitialEnvironmentConfig(
         image_width=image_width,
         image_height=image_height,
@@ -456,21 +289,4 @@ def create_environment(
     )
     environment.tao_baseline_world = baseline_world
     environment.tao_runtime_path = str(resolved_runtime)
-    if use_shared_memory:
-        _release_shared_memory_on_close(environment)
     return environment
-
-
-def _release_shared_memory_on_close(environment: Any) -> None:
-    """把共享内存段的回收绑定到环境关闭，替代被停用的隐式析构。"""
-    original_close = environment.close
-
-    def close() -> None:
-        try:
-            original_close()
-        finally:
-            release = getattr(environment.ipc, "release", None)
-            if release is not None:
-                release()
-
-    environment.close = close

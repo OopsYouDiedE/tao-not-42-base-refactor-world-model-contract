@@ -116,7 +116,8 @@ bash scripts/bootstrap.sh --latest
 检查模块。本地 GitHub 和 Hugging Face 按需自行执行 `gh auth login` 与 `hf auth login`；教师模型
 API 通过根目录 `.env` 或进程环境变量配置。完整安装、鉴权与配置合同见 `docs/INSTALLATION.md`。
 
-创建真实 CraftGround 环境还需要 CraftGround Python 包、`craftground-runtime-mc121` 和 JDK 21。首次自动安装内存快照补丁时会复制 runtime 并执行 Gradle 构建。
+创建真实 CraftGround 环境还需要 JDK 21。CraftGround Python 包与 mc121 runtime 均锁定到
+`OopsYouDiedE/CraftGround` 的同一精确提交；首次创建环境时会复制维护版 runtime 并执行 Gradle 构建。
 
 ## 动作编译器
 
@@ -136,7 +137,7 @@ decision = compiler.pull()
 
 ## CraftGround
 
-默认入口会准备带内存快照补丁的构建模板，为每个环境复制独立可写 runtime，并创建
+默认入口会从已安装的维护版 CraftGround 准备构建模板，为每个环境复制独立可写 runtime，并创建
 `keyboard_and_mouse_only` 后端环境。环境默认使用共享内存 IPC 和固定端口，避免 SocketIPC 的全局
 孤儿进程扫描影响并行实例：
 
@@ -151,11 +152,12 @@ observation, info = environment.reset(options={"fast_reset": False})
 
 ```python
 environment = create_environment(
-    runtime_path="C:/craftground/patched-runtime",
+    runtime_path="C:/craftground/maintained-runtime",
 )
 ```
 
-CraftGround 快照和并行推演说明见 `online_interactive_environments/craftground/README.md`。runtime 补丁边界见 `online_interactive_environments/craftground/runtime_patch/README.md`。
+CraftGround fork、依赖锁定、快照和并行推演说明见
+`online_interactive_environments/craftground/README.md`。
 
 ## 四分支轨迹
 

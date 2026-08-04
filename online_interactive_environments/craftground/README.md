@@ -5,9 +5,14 @@
 
 ## 环境入口
 
-默认入口会从已安装的 `craftground-runtime-mc121` 创建构建模板，自动注入内存快照补丁并完成首次
-Gradle 构建。每次创建环境时再从模板复制独立可写实例目录，使 `.gradle/`、`build/`、`run/saves/`、
-`run/logs/` 和 `options.txt` 不在 JVM 之间共享：
+项目直接维护 [OopsYouDiedE/CraftGround](https://github.com/OopsYouDiedE/CraftGround/tree/tao-maintained)
+的 `tao-maintained` 分支。核心包与 mc121 runtime 当前共同锁定到提交
+`94d211204757fa8ba0f6182a72b81071e80c3fd5`，不得改回 PyPI 范围依赖或只锁分支名。
+只有上游通过公开 API 提供等价可调能力并完成真实环境验证后，才重新评估迁回上游。
+
+默认入口从已安装的维护版 `craftground-runtime-mc121` 创建构建模板，校验维护版能力并完成首次
+Gradle 构建，不再修改第三方包源码。每次创建环境时再从模板复制独立可写实例目录，使
+`.gradle/`、`build/`、`run/saves/`、`run/logs/` 和 `options.txt` 不在 JVM 之间共享：
 
 ```python
 from online_interactive_environments.craftground import create_environment
@@ -16,11 +21,11 @@ environment = create_environment()
 observation, info = environment.reset(options={"fast_reset": False})
 ```
 
-模板缓存按 runtime 版本隔离，实例缓存按 `instance_id` 隔离。补丁内容未变化时不会重复构建。传入 `runtime_path` 表示直接使用一个
-已经准备好的 runtime，此时入口不会修改它：
+模板缓存按 runtime 版本和源码摘要隔离，实例缓存按 `instance_id` 隔离。源码未变化时不会重复构建。
+传入 `runtime_path` 表示直接使用一个已经准备好的 runtime，此时入口不会修改它：
 
 ```python
-environment = create_environment(runtime_path="C:/craftground/patched-runtime")
+environment = create_environment(runtime_path="C:/craftground/maintained-runtime")
 ```
 
 显式 `runtime_path` 由调用方负责可写目录隔离。入口默认 `find_free_port=False`；端口已占用时直接
@@ -31,15 +36,19 @@ environment = create_environment(runtime_path="C:/craftground/patched-runtime")
 入口默认使用共享内存 IPC，观察不经 socket 序列化，也不触发 SocketIPC 那个不分端口的全局 java
 进程扫描。
 
-上游共享内存路径存在一处重复初始化：`CraftGroundEnvironment.__init__` 已经通过 `BoostIPC` 创建
-`/craftground_<port>_p2j` 与 `_j2p` 并写入初始环境消息，随后 `reset()` 内的 `ensure_alive()` 会对
-同一端口再构造一个 `BoostIPC`，命中 native 层的 “already exists” 检查而失败。先 `destroy()` 再让
-它重建同样不可行：destroy 之后 native 模块对该段名的映射失效，读侧拿到坏 fd 并返回空字节，Python
-侧表现为 `cannot reshape array of size 0`。
+维护分支直接修复共享内存重复初始化、动作段 0 字节定容、动作越界写入、重复销毁和 POSIX 观察段
+扩容问题。主项目不再 monkeypatch `BoostIPC`，也不在运行时替换 Kotlin 或 C++ 源码。
 
-`enable_shared_memory_reuse()` 按端口缓存首次初始化结果，重复构造直接复用已有段名，不再调用
-native 初始化，也不销毁正在使用的段。同时把隐式析构改为显式 `release()`，由 `create_environment`
-绑定到环境 `close()` 之后，避免被丢弃的旧实例 unlink 掉新实例仍在使用的段。
+## 依赖边界
+
+| 层级 | 维护版约束或上游现状 |
+| --- | --- |
+| 主项目 pin | 两个 CraftGround 包使用同一 40 位 Git 提交 |
+| Python | 主项目要求 Python `>=3.11`；runtime 上游声明 `>=3.9`，核心包未声明下限 |
+| Java/Minecraft 1.21 | JDK 21、Gradle 8.8、Kotlin 2.0.0、Fabric Loader 0.15.11 |
+| Native | CMake 实际要求 `>=3.28`，并需要 JNI、OpenGL；非 macOS 需要 GLEW |
+| 可选渲染 | PNG `>=1.6`、CUDA Toolkit；CUDA 不属于本轮验证范围 |
+| Python 间接依赖 | 上游多数未设版本边界，由本项目环境锁定与真实验收控制 |
 
 该包负责把 CraftGround 常驻实例分配给多个 SubAgent。每个实例在同一时刻只归一个 SubAgent 使用。
 

@@ -7,8 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from online_environment_interaction_agents import LocalVisionPolicyBackend
-from shared_tools import atomic_write_json
 
+from .artifacts import atomic_write_json
 from .run_four_teacher_trajectories import run
 
 

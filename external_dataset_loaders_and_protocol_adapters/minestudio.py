@@ -12,7 +12,8 @@ from typing import Any, Self
 import numpy as np
 
 from online_interactive_environments import ActionSequence, ActionTick
-from shared_tools.datasets import download_dataset_snapshot
+
+from .huggingface import download_dataset_snapshot
 
 REPOS = {
     name: f"CraftJarvis/minestudio-data-{name}-v110"

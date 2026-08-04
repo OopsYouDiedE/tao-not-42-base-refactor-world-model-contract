@@ -22,8 +22,9 @@ REQUIRED_DIRECTORIES = (
 REQUIRED_FILES = (
     "README.md",
     "pyproject.toml",
-    "docs/AUTHENTICATION_AND_CONFIGURATION.md",
     "docs/INSTALLATION.md",
+    "scripts/bootstrap.sh",
+    "scripts/bootstrap_gpu_craftground.sh",
     "online_interactive_environments/STANDARD_INPUT_ACTION_PROTOCOL.md",
     "online_interactive_environments/CRAFTGROUND_KEYBOARD_AND_MOUSE_ONLY_BACKEND.md",
     "online_environment_interaction_agents/TRAJECTORY_GENERATION_PROMPT.md",

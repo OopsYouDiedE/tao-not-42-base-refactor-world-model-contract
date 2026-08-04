@@ -10,11 +10,12 @@
 | Claude CLI | 可复用本机 Claude 登录；非交互 JSON 输出便于审计；可通过只读工具读取观察图片 | 图片依赖 CLI 的 `Read` 工具；进程开销较大；会话和工具行为比纯 API 多一层；批量调度成本高 | Claude 能力对照、少量轨迹验证 |
 | OpenAI Python/兼容 API | 长连接和并发调度容易；返回请求 ID 与用量；容器和远程任务稳定；便于限流、重试与监控 | 需要显式管理密钥、超时、限流和兼容差异；不同服务对图像消息与参数支持程度不同 | 正式批量生产、数据工厂、服务化执行 |
 
-本实现选择统一 `TeacherBackend` 接口。`TeacherTrajectoryGenerator` 不知道请求来自 CLI 还是 API，因此协议校验、预算校验和 JSONL 审计只有一份实现。
+本实现以统一 `TeacherBackend` 隔离 CLI 与 API 调用差异，并由正式的
+`TeacherTrajectoryExecutor` 完成协议解析、动作编译、环境执行和轨迹审计。项目不再保留一套仅生成并校验动作、却不执行环境的并行生成器。
 
 ## 建议
 
-正式批量生成使用 `OpenAICompatibleBackend`。CLI 后端保留为可复现的研发基线和供应商能力对照。项目当前没有声明 Python 依赖管理文件，所以 API 后端使用 Python 标准库实现 OpenAI Chat Completions 兼容请求；后续建立依赖锁定后，可以在后端内部替换为官方 SDK，不改变生成器接口。
+正式批量生成使用 `OpenAICompatibleBackend`。CLI 后端保留为可复现的研发基线和供应商能力对照。API 后端使用 Python 标准库实现 OpenAI Chat Completions 兼容请求，不额外引入仅用于传输的第三方客户端。
 
 ## API 示例
 
@@ -25,15 +26,12 @@ from online_environment_interaction_agents import (
     OpenAICompatibleBackend,
     OpenAICompatibleConfig,
     TeacherRequest,
-    TeacherTrajectoryGenerator,
+    TeacherTrajectoryExecutor,
 )
 
 backend = OpenAICompatibleBackend(OpenAICompatibleConfig.from_environment())
-generator = TeacherTrajectoryGenerator(
-    backend,
-    record_path=Path("runs/teacher/teacher-generations.jsonl"),
-)
-step = generator.generate_step(
+executor = TeacherTrajectoryExecutor(environment, backend)
+step = executor.execute_generation(
     TeacherRequest(
         system_prompt=Path(
             "online_environment_interaction_agents/TRAJECTORY_GENERATION_PROMPT.md"
@@ -42,10 +40,9 @@ step = generator.generate_step(
         step_context="<trajectory_step>...</trajectory_step>",
         observation_paths=(Path("latest.png"),),
     ),
-    trajectory_id="trajectory-001",
-    step_index=0,
+    observation=latest_observation,
+    info=latest_info,
     remaining_action_ticks=32,
-    expected_device="KeyboardMouse",
 )
 ```
 
@@ -79,9 +76,9 @@ CLI 调用均使用参数数组和 `shell=False`。Codex 运行在临时只读�
 | 顺序 | 责任方 | 输出 |
 | --- | --- | --- |
 | 1 | 环境执行器 | 最新观察、状态、剩余预算和终止状态 |
-| 2 | 教师生成器 | 一段通过严格解析的动作序列 |
-| 3 | 环境执行器 | 实际执行 tick、奖励、异常和新观察 |
-| 4 | 轨迹记录器 | 请求、原始输出、编译动作和环境事实 |
+| 2 | 教师后端 | 一段待解析的标准动作协议文本 |
+| 3 | 教师轨迹执行器 | 严格解析并实际执行 tick，记录奖励、异常和新观察 |
+| 4 | 教师轨迹执行器 | 导出请求、原始输出、编译动作和环境事实 |
 | 5 | 调度器 | 未终止时构造下一轮请求 |
 
-生成器拒绝协议外说明文字、错误设备和超预算动作。它不会静默截断，也不会自动重试语义错误。上层调度器可以把拒绝原因加入下一轮提示词，并采用有界重试。
+轨迹执行器拒绝协议外说明文字和超预算动作。它不会把计划动作写成已执行事实；上层调度器可以把失败原因加入下一轮提示词，并采用有界重试。

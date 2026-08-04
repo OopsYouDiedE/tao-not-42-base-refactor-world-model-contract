@@ -12,7 +12,6 @@ from .teacher_trajectory import (
     ClaudeCLIBackend,
     CLIConfig,
     CodexCLIBackend,
-    GeneratedTrajectoryStep,
     OpenAICompatibleBackend,
     OpenAICompatibleConfig,
     TeacherBackend,
@@ -20,7 +19,6 @@ from .teacher_trajectory import (
     TeacherModelError,
     TeacherRequest,
     TeacherResponse,
-    TeacherTrajectoryGenerator,
     parse_teacher_decision,
 )
 
@@ -31,7 +29,6 @@ __all__ = [
     "ClaudeCLIBackend",
     "CodexCLIBackend",
     "ExecutedTeacherGeneration",
-    "GeneratedTrajectoryStep",
     "LocalPolicyGeneration",
     "LocalVisionPolicyBackend",
     "OpenAICompatibleBackend",
@@ -42,7 +39,6 @@ __all__ = [
     "TeacherRequest",
     "TeacherResponse",
     "TeacherTrajectoryExecutor",
-    "TeacherTrajectoryGenerator",
     "export_trajectory_markdown",
     "parse_teacher_decision",
 ]

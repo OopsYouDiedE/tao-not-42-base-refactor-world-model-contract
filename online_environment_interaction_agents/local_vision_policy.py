@@ -14,8 +14,8 @@ from online_interactive_environments import (
     extract_action_sequence_text,
     parse_action_sequence_strict,
 )
-from shared_tools.model_clients import ModelResponse
 
+from .model_contracts import ModelResponse
 from .teacher_trajectory import TeacherModelError, TeacherRequest
 
 

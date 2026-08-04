@@ -10,7 +10,8 @@ from typing import Any
 from behavior_cloning_training import load_vision_model
 from online_interactive_environments import parse_action_sequence_strict
 from relative_advantage_comparison_training import PolicyGeneration, generate_policy_rollouts
-from shared_tools import atomic_write_json
+
+from .artifacts import atomic_write_json
 
 DEFAULT_ACTIONS = ("W", "NoOp", "A", "D")
 

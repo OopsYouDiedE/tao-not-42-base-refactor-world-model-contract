@@ -14,8 +14,8 @@
 | 行为克隆、相对优势、联合目标、视觉几何 | 迁入并合并 | `relative_advantage_comparison_training/objectives.py`；PyTorch 延迟导入 |
 | `RolloutSample` 与 2+6 校验函数 | 迁入并合并 | `relative_advantage_comparison_training/rollouts.py` |
 | on-policy rollout 与 clipped RLHF | 已按新职责恢复 | `relative_advantage_comparison_training/policy_rollout.py`、`relative_advantage_comparison_training/train_policy.py` |
-| `ReviewCandidate` 与审核奖励函数 | 迁入 | `model_judgment_review_agents/review_contract.py` |
-| 课程状态、快照准入、继续决策、分层抽样 | 迁入并合并 | `environment_validation_tools/curriculum_validation.py` |
+| `ReviewCandidate` 与审核奖励函数 | 删除 | 迁移后未接入模型判断审核生产流程，只有自测消费者 |
+| 课程状态、快照准入、继续决策、分层抽样 | 删除 | 迁移后未接入环境验证生产流程，只有包级重导出 |
 | 旧 CraftGround runtime、动作调度、内存快照 | 由当前实现替代 | `online_interactive_environments/` 已存在职责更清楚的新实现，不重复定义协议 |
 | 旧 Codex client、teacher pipeline | 由当前实现替代 | `online_environment_interaction_agents/` 已有教师执行链路 |
 | Gradio 审核 UI、HTTP server、GPU watchdog、凭证导出、旧 CLI `main` | 删除 | 属于工具外壳、临时运行设施或不合适的职责耦合 |

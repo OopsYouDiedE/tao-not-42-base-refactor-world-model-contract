@@ -11,7 +11,8 @@ from typing import Any
 
 from interaction_trajectory_review_agents import review_trajectory
 from relative_advantage_comparison_training import build_comparison_group
-from shared_tools import atomic_write_json
+
+from .artifacts import atomic_write_json
 
 
 def _load_json(path: Path) -> dict[str, Any]:

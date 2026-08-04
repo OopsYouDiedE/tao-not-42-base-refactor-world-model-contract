@@ -54,7 +54,7 @@ CraftGround Python 包中的 `ActionSpaceVersion.V2_MINERL_HUMAN` 是上游枚�
 | `model_judgment_review_agents/` | 模型判断结果审核代理 | 比较均值、排序和选择结论复核 |
 | `relative_advantage_comparison_training/` | 相对优势样本、计算和训练 | 同起点 2+6 样本、on-policy 采样和 clipped LoRA 更新 |
 | `environment_validation_tools/` | 环境接口、协议链路和项目结构验证 | 项目结构校验工具 |
-| `shared_tools/` | 跨职责模块共享的无领域语义基础设施 | 配置、鉴权、数据集传输、模型传输合同、日志、产物、环境检查和可视化 |
+| `shared_tools/` | 跨职责共享且无领域语义的基础设施 | 环境变量与 `.env` 配置读取 |
 | `tests/` | 当前已迁移模块的自动化测试 | 动作编译器、CraftGround 组件和项目结构测试 |
 
 旧入口仍然不可用；BC 与 RLHF 必须通过当前职责目录运行。
@@ -103,17 +103,18 @@ python -m environment_validation_tools.run_gpu_training_validation \
 bash scripts/bootstrap_gpu_craftground.sh
 ```
 
-项目提供锁定版本和最新兼容版本两种安装方式。安装器自动选择 CPU 或 CUDA；CPU 路径不会安装
-Unsloth、Flash Attention、xFormers 或 CUDA runtime 等 GPU 专用包：
+不需要 CraftGround 时使用通用安装脚本。项目提供锁定版本和最新兼容版本两种方式，脚本按已安装
+PyTorch 的真实 CUDA 可用性自动选择 CPU 或 CUDA；CPU 路径不会安装 Unsloth、Flash Attention、
+xFormers 或 CUDA runtime 等 GPU 专用包：
 
 ```bash
-python scripts/bootstrap.py
-python scripts/bootstrap.py --latest
+bash scripts/bootstrap.sh
+bash scripts/bootstrap.sh --latest
 ```
 
-本地 GitHub 和 Hugging Face 分别使用 `gh auth login` 与 `hf auth login`，也可以在安装和检查时通过
-`--skip-optional-auth` 跳过。完整安装合同见 `docs/INSTALLATION.md`，鉴权合同见
-`docs/AUTHENTICATION_AND_CONFIGURATION.md`。
+两个脚本都在安装后校验 Python 版本、核心依赖导入和目标计算后端。项目源码不包含环境检查与鉴权
+检查模块。本地 GitHub 和 Hugging Face 按需自行执行 `gh auth login` 与 `hf auth login`；教师模型
+API 通过根目录 `.env` 或进程环境变量配置。完整安装、鉴权与配置合同见 `docs/INSTALLATION.md`。
 
 创建真实 CraftGround 环境还需要 CraftGround Python 包、`craftground-runtime-mc121` 和 JDK 21。首次自动安装内存快照补丁时会复制 runtime 并执行 Gradle 构建。
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from shared_tools import atomic_write_json, atomic_write_text
+from .artifacts import atomic_write_json, atomic_write_text
 
 DEFAULT_MODEL = "unsloth/Qwen3-VL-2B-Instruct-unsloth-bnb-4bit"
 

@@ -12,18 +12,15 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from online_interactive_environments import (
-    ActionSequence,
-    extract_action_sequence_text,
-    parse_action_sequence_strict,
-)
+from online_interactive_environments import extract_action_sequence_text
 from shared_tools.configuration import require_env
-from shared_tools.model_clients import ModelResponse
+
+from .model_contracts import ModelResponse
 
 
 class TeacherModelError(RuntimeError):
@@ -644,112 +641,6 @@ class ClaudeCLIBackend:
             output_tokens=usage.get("output_tokens"),
             elapsed_ms=elapsed_ms,
         )
-
-
-@dataclass(frozen=True)
-class GeneratedTrajectoryStep:
-    trajectory_id: str
-    step_index: int
-    response: TeacherResponse
-    action: ActionSequence
-    raw_output: str
-
-
-class TeacherTrajectoryGenerator:
-    """调用教师后端，执行协议与预算校验，并追加审计记录。"""
-
-    def __init__(self, backend: TeacherBackend, *, record_path: Path | None = None) -> None:
-        self.backend = backend
-        self.record_path = record_path
-
-    def generate_step(
-        self,
-        request: TeacherRequest,
-        *,
-        trajectory_id: str,
-        step_index: int,
-        remaining_action_ticks: int,
-        expected_device: str,
-    ) -> GeneratedTrajectoryStep:
-        if remaining_action_ticks < 1:
-            raise ValueError("remaining_action_ticks 必须大于零")
-        response = self.backend.generate(request)
-        try:
-            decision = parse_teacher_decision(response.text)
-        except ValueError as error:
-            self._record_failure(trajectory_id, step_index, response, str(error))
-            raise TeacherModelError(f"教师输出不符合决策协议：{error}") from error
-        if decision.non_control_text:
-            error = "教师输出不符合动作协议：动作控制块之外包含非协议文字"
-            self._record_failure(trajectory_id, step_index, response, error)
-            raise TeacherModelError(error)
-        try:
-            action = parse_action_sequence_strict(decision.control)
-        except ValueError as error:
-            self._record_failure(trajectory_id, step_index, response, str(error))
-            raise TeacherModelError(f"教师输出不符合动作协议：{error}") from error
-        if action.device != expected_device:
-            error = f"教师输出设备 {action.device} 与预期 {expected_device} 不一致"
-            self._record_failure(trajectory_id, step_index, response, error)
-            raise TeacherModelError(error)
-        if len(action.ticks) > remaining_action_ticks:
-            error = f"教师输出 {len(action.ticks)} tick，超过剩余预算 {remaining_action_ticks} tick"
-            self._record_failure(trajectory_id, step_index, response, error)
-            raise TeacherModelError(error)
-        result = GeneratedTrajectoryStep(
-            trajectory_id=trajectory_id,
-            step_index=step_index,
-            response=response,
-            action=action,
-            raw_output=response.text,
-        )
-        self._append_record(
-            {
-                "record_type": "teacher_generation",
-                "status": "accepted",
-                "trajectory_id": trajectory_id,
-                "step_index": step_index,
-                "provider": response.provider,
-                "model": response.model,
-                "request_id": response.request_id,
-                "input_tokens": response.input_tokens,
-                "output_tokens": response.output_tokens,
-                "elapsed_ms": round(response.elapsed_ms, 3),
-                "raw_output": response.text,
-                "device": action.device,
-                "tick_count": len(action.ticks),
-            }
-        )
-        return result
-
-    def _record_failure(
-        self,
-        trajectory_id: str,
-        step_index: int,
-        response: TeacherResponse,
-        error: str,
-    ) -> None:
-        self._append_record(
-            {
-                "record_type": "teacher_generation",
-                "status": "rejected",
-                "trajectory_id": trajectory_id,
-                "step_index": step_index,
-                "provider": response.provider,
-                "model": response.model,
-                "request_id": response.request_id,
-                "raw_output": response.text,
-                "error": error,
-            }
-        )
-
-    def _append_record(self, value: Mapping[str, Any]) -> None:
-        if self.record_path is None:
-            return
-        self.record_path.parent.mkdir(parents=True, exist_ok=True)
-        row = {"recorded_at_unix_ns": time.time_ns(), **value}
-        with self.record_path.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def _chat_completions_url(base_url: str) -> str:

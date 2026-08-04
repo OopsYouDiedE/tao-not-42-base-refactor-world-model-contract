@@ -1,0 +1,3 @@
+-r locked-common.txt
+
+# torch 由 bootstrap.py 从 PyTorch 官方 CPU 索引单独安装，防止引入 CUDA wheel。

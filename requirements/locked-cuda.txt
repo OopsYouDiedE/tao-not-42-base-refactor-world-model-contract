@@ -1,0 +1,10 @@
+-r locked-common.txt
+
+# CUDA 候选基线；必须在 GPU Linux 权威环境完成真实训练和推理后确认。
+accelerate==1.14.0
+peft==0.20.0
+tensorboard==2.20.0
+torch==2.12.0
+transformers==5.14.1
+trl==1.9.2
+unsloth==2026.8.2

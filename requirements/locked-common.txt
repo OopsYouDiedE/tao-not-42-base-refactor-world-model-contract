@@ -1,0 +1,9 @@
+# 直接依赖锁定基线。完整传递依赖和哈希需在权威 GPU Linux 环境重新生成。
+huggingface-hub==1.25.1
+httpx==0.28.1
+matplotlib==3.10.9
+numpy==2.2.4
+pillow==11.1.0
+pyarrow==23.0.1
+rich==13.9.4
+tenacity==9.1.4

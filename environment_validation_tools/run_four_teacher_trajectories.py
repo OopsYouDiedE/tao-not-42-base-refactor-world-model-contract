@@ -306,6 +306,7 @@ def run(
     baseline_world_path: Path | None = None,
     target_log_count: int = 1,
     trajectory_count: int = TRAJECTORY_COUNT,
+    initialization_workers: int | None = None,
 ) -> Path:
     """执行四条可比较分支，并写出轨迹、审核和相对优势产物。"""
     if (
@@ -314,6 +315,7 @@ def run(
         or warmup_ticks < 0
         or target_log_count < 1
         or trajectory_count < 1
+        or (initialization_workers is not None and initialization_workers < 1)
     ):
         raise ValueError("预算和生成轮数必须为正，warmup_ticks 不能为负")
     if enforce_wsl:
@@ -405,7 +407,7 @@ def run(
             return observation, info
 
         with ThreadPoolExecutor(
-            max_workers=trajectory_count,
+            max_workers=initialization_workers or trajectory_count,
             thread_name_prefix="craftground-initialize",
         ) as initialization_executor:
             initialized = tuple(initialization_executor.map(initialize, enumerate(environments)))

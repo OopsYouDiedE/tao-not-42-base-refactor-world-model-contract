@@ -1,16 +1,15 @@
-"""Stable episode splitting and action-first SFT conversion contracts."""
+"""MineStudio v110 系列数据集的行为克隆课程转换合同。"""
 
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import re
-from collections import Counter
-from dataclasses import asdict, dataclass, field
-from itertools import combinations
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from .utils import SplitResult, build_grouped_split
 
 HoldoutLevel = Literal["prefix", "episode"]
 _EPISODE_PATTERN = re.compile(
@@ -20,6 +19,8 @@ _EPISODE_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class EpisodeIdentity:
+    """MineStudio v110 episode 名称中编码的身份信息。"""
+
     episode: str
     prefix: str
     session: str
@@ -27,50 +28,18 @@ class EpisodeIdentity:
     time: str
 
 
-@dataclass
-class SplitResult:
-    holdout_level: str
-    train_episodes: list[str] = field(default_factory=list)
-    validation_episodes: list[str] = field(default_factory=list)
-    train_frames: int = 0
-    validation_frames: int = 0
-    validation_prefixes: list[str] = field(default_factory=list)
-    achieved_validation_ratio: float = 0.0
-    target_validation_ratio: float = 0.0
-
-
 def parse_episode_identity(episode: str) -> EpisodeIdentity:
+    """解析 v110 的 ``prefix-session-date-time`` episode 名称。"""
     matched = _EPISODE_PATTERN.match(episode)
     if matched is None:
-        raise ValueError(f"invalid episode identity: {episode!r}")
+        raise ValueError(f"invalid MineStudio v110 episode identity: {episode!r}")
     return EpisodeIdentity(
-        episode, matched["prefix"], matched["session"], matched["date"], matched["time"]
+        episode=episode,
+        prefix=matched["prefix"],
+        session=matched["session"],
+        date=matched["date"],
+        time=matched["time"],
     )
-
-
-def _stable_order(names: list[str], seed: int) -> list[str]:
-    return sorted(names, key=lambda name: hashlib.md5(f"{seed}:{name}".encode()).hexdigest())
-
-
-def _select_groups_by_frames(group_frames: dict[str, int], target_ratio: float) -> list[str]:
-    names, total = sorted(group_frames), sum(group_frames.values())
-    if total == 0:
-        raise ValueError("total frame count is zero")
-    target = total * target_ratio
-    if len(names) <= 20:
-        best: tuple[float, tuple[str, ...]] = (float("inf"), ())
-        for size in range(1, len(names)):
-            for candidate in combinations(names, size):
-                best = min(
-                    best, (abs(sum(group_frames[name] for name in candidate) - target), candidate)
-                )
-        return sorted(best[1])
-    selected, accumulated = [], 0
-    for name in sorted(names, key=lambda value: -group_frames[value]):
-        if accumulated + group_frames[name] <= target or not selected:
-            selected.append(name)
-            accumulated += group_frames[name]
-    return sorted(selected)
 
 
 def build_split(
@@ -81,50 +50,29 @@ def build_split(
     seed: int = 3407,
     output_path: Path | None = None,
 ) -> SplitResult:
-    if not 0 < validation_ratio < 1 or not episode_frames:
-        raise ValueError("validation_ratio must be in (0, 1) and episodes cannot be empty")
-    frames, episodes = dict(episode_frames), sorted(episode_frames)
-    identities = {name: parse_episode_identity(name) for name in episodes}
-    if holdout_level == "prefix":
-        group_frames: Counter[str] = Counter()
-        for name in episodes:
-            group_frames[identities[name].prefix] += frames[name]
-        held_out = set(_select_groups_by_frames(dict(group_frames), validation_ratio))
-        validation = [name for name in episodes if identities[name].prefix in held_out]
-    elif holdout_level == "episode":
-        validation, accumulated, target = [], 0, sum(frames.values()) * validation_ratio
-        for name in _stable_order(episodes, seed):
-            if accumulated >= target:
-                break
-            validation.append(name)
-            accumulated += frames[name]
-    else:
-        raise ValueError(f"unknown holdout level: {holdout_level!r}")
-    validation_set = set(validation)
-    train = [name for name in episodes if name not in validation_set]
-    if not train or not validation:
-        raise ValueError("split produced an empty subset")
-    validation_frames, total = sum(frames[name] for name in validation), sum(frames.values())
-    result = SplitResult(
-        holdout_level,
-        sorted(train),
-        sorted(validation),
-        total - validation_frames,
-        validation_frames,
-        sorted({identities[name].prefix for name in validation}),
-        validation_frames / total,
-        validation_ratio,
+    """按 MineStudio v110 的前缀或 episode 合同划分数据集。"""
+    identities = {episode: parse_episode_identity(episode) for episode in sorted(episode_frames)}
+    result = build_grouped_split(
+        episode_frames=episode_frames,
+        episode_groups={episode: identity.prefix for episode, identity in identities.items()},
+        holdout_level="group" if holdout_level == "prefix" else "episode",
+        validation_ratio=validation_ratio,
+        seed=seed,
+        result_holdout_level=holdout_level,
     )
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(
-            json.dumps(asdict(result), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        payload = asdict(result)
+        payload["validation_prefixes"] = payload.pop("validation_groups")
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
 
 
 def load_split(path: Path) -> SplitResult:
-    return SplitResult(**json.loads(Path(path).read_text(encoding="utf-8")))
+    """读取采用旧版 ``validation_prefixes`` 字段的 v110 划分结果。"""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload["validation_groups"] = payload.pop("validation_prefixes", [])
+    return SplitResult(**payload)
 
 
 FUTURE_TASKS = {"history_to_future_action", "single_frame_intent_to_action"}
@@ -137,12 +85,14 @@ TASK_PROMPTS = {
 
 
 def sanitize_intent(intent: str) -> str:
+    """清理 v110 人工意图文本中残留的 tick 标记和乱码。"""
     text = re.sub(r"[（(]\s*\d+\s*ticks?\s*[，,]?\s*", "（", intent, flags=re.IGNORECASE)
     text = re.sub(r"[，,]?\s*\d+\s*ticks?\s*", "", text, flags=re.IGNORECASE)
     return text.replace("（）", "").replace("()", "").strip()
 
 
 def normalize_question(question: dict[str, Any]) -> dict[str, Any]:
+    """将 v110 课程题面规范化为标准输入动作协议 v1 合同。"""
     normalized = copy.deepcopy(question)
     task = normalized.get("task_type")
     if task in TASK_PROMPTS:
@@ -163,6 +113,7 @@ def normalize_question(question: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_question_prompt(question: dict[str, Any]) -> str:
+    """把 v110 结构化题面格式化为行为克隆 user 文本。"""
     question = normalize_question(question)
     prompt, inputs = question["prompt"], question.get("inputs", {})
     ticks = inputs.get("action_block_ticks")
@@ -182,13 +133,15 @@ def format_question_prompt(question: dict[str, Any]) -> str:
 
 
 def training_reason(question: dict[str, Any], answer: dict[str, Any]) -> str:
+    """返回 v110 监督答案已有的理由或稳定的缺省理由。"""
+    del question
     existing = str(answer.get("answer_reason", "")).strip()
-    return (
-        existing
-        or "The action sequence follows the visible transition, intent, and required duration."
+    return existing or (
+        "The action sequence follows the visible transition, intent, and required duration."
     )
 
 
 def format_assistant_response(question: dict[str, Any], answer: dict[str, Any]) -> str:
+    """把 v110 参考动作和训练理由格式化为 assistant 文本。"""
     actions = json.dumps(answer["reference_action_sequence"], ensure_ascii=False)
     return f"{actions}\nReason: {training_reason(question, answer)}"

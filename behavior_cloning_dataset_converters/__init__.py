@@ -1,6 +1,5 @@
-from .dataset_conversion import (
+from .minestudio_v110 import (
     EpisodeIdentity,
-    SplitResult,
     build_split,
     format_assistant_response,
     format_question_prompt,
@@ -10,10 +9,12 @@ from .dataset_conversion import (
     sanitize_intent,
     training_reason,
 )
+from .utils import SplitResult, build_grouped_split
 
 __all__ = [
     "EpisodeIdentity",
     "SplitResult",
+    "build_grouped_split",
     "build_split",
     "format_assistant_response",
     "format_question_prompt",

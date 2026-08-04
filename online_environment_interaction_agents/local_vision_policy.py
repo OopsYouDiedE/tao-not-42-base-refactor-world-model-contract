@@ -41,7 +41,7 @@ class LocalVisionPolicyBackend:
         self,
         model_name: str,
         *,
-        adapter: str,
+        adapter: str | None = None,
         load_in_4bit: bool = True,
         temperature: float = 1.0,
         top_p: float = 1.0,
@@ -52,7 +52,7 @@ class LocalVisionPolicyBackend:
         if temperature <= 0 or not 0 < top_p <= 1 or max_new_tokens < 1:
             raise ValueError("本地策略采样参数无效")
         self.model = model_name
-        self.adapter = str(Path(adapter).resolve())
+        self.adapter = None if adapter is None else str(Path(adapter).resolve())
         self._model, self._processor = load_vision_model(
             model_name,
             adapter=adapter,
@@ -71,7 +71,15 @@ class LocalVisionPolicyBackend:
 
     @property
     def policy_version(self) -> str:
-        return f"{self.model}@{self.adapter}"
+        return f"{self.model}@{self.adapter or 'fresh-lora'}"
+
+    def save_adapter(self, path: Path) -> Path:
+        """保存生成轨迹时使用的精确 LoRA 权重和 processor。"""
+        path.mkdir(parents=True, exist_ok=True)
+        self._model.save_pretrained(str(path))
+        self._processor.save_pretrained(str(path))
+        self.adapter = str(path.resolve())
+        return path
 
     def records(self) -> tuple[LocalPolicyGeneration, ...]:
         with self._lock:

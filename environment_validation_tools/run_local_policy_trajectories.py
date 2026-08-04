@@ -15,7 +15,8 @@ from .run_four_teacher_trajectories import run
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
-    parser.add_argument("--adapter", required=True)
+    parser.add_argument("--adapter")
+    parser.add_argument("--initial-adapter-output", type=Path)
     parser.add_argument("--baseline-world", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--port-base", type=int, default=19900)
@@ -36,6 +37,10 @@ def main() -> None:
         top_p=arguments.top_p,
         max_new_tokens=arguments.max_new_tokens,
     )
+    if arguments.adapter is None:
+        if arguments.initial_adapter_output is None:
+            parser.error("不提供 --adapter 时必须提供 --initial-adapter-output")
+        backend.save_adapter(arguments.initial_adapter_output)
     run(
         arguments.output,
         action_budget_ticks=arguments.action_budget_ticks,

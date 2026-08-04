@@ -43,6 +43,8 @@
 
 `dataset_id` 使用 Hugging Face 数据集路径并将 `/` 替换为 `_`。只有任务明确要求发布并提供目标账户、可见性和凭证时才允许上传 Hugging Face。
 
+`runs/` 中的运行产物不得提交到 Git，但这一限制不等同于禁止发布到 Hugging Face。任务明确要求发布，并提供目标 Hugging Face 仓库、可见性和可用凭证后，应通过项目正式发布接口将指定产物上传到对应的数据集或模型仓库；不得因为产物被 Git 忽略而拒绝发布，也不得使用强制加入 Git 的方式代替 Hugging Face 发布。未明确目标仓库或可见性时，不得自行创建永久公开仓库。
+
 ## 文档
 
 `docs/DATA_INDEX.md` 记录所有数据集的 Hugging Face 路径、本地路径、格式和处理阶段。标准输入动作协议写入 `docs/STANDARD_INPUT_ACTION_PROTOCOL.md`。每个在线环境的用法分别写入 `docs/` 下的独立文档。

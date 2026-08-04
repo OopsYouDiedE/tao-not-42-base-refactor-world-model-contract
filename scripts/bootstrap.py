@@ -39,7 +39,7 @@ def main() -> int:
         _run([sys.executable, "-m", "pip", "install", "-r", str(lock)])
         _run([sys.executable, "-m", "pip", "install", "--no-deps", "-e", "."])
     if accelerator == "cpu":
-        torch_specification = "torch" if arguments.latest else "torch==2.12.0"
+        torch_specification = "torch" if arguments.latest else "torch==2.11.0"
         _run(
             [
                 sys.executable,

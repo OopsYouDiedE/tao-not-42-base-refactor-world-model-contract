@@ -24,5 +24,9 @@ runtime 或其他 GPU 专用包。CUDA 安装使用 `requirements/locked-cuda.tx
 必须在带 GPU 的 Linux 远程服务器完成真实行为克隆、相对优势训练和本地模型推理后，才能认定为已
 验证锁定环境。
 
+CUDA 候选基线使用 PyTorch 2.11、Transformers 5.5 和 TRL 0.24。Unsloth 2026.8 要求
+PyTorch `<2.12`、Transformers `<=5.5`，且其数据集依赖与 TRL 1.x 不兼容；更新候选版本时必须先
+使用 pip 完整解析全部锁定依赖，不能只验证单个包的版本范围。
+
 当前锁文件固定直接依赖，尚未包含完整传递依赖哈希。权威 GPU Linux 验证完成后，应在对应环境生成
 完整带哈希锁文件并提交仓库。

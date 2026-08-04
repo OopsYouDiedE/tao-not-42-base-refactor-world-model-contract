@@ -111,24 +111,10 @@ class LocalVisionPolicyBackend:
                 **inputs, **self._parameters, return_dict_in_generate=True, output_scores=True
             )
             generated = output.sequences[0, inputs["input_ids"].shape[1] :]
-            raw_text = self._processor.tokenizer.decode(generated, skip_special_tokens=False)
-            try:
-                response_text = extract_action_sequence_text(raw_text)
-                parse_action_sequence_strict(response_text)
-            except ValueError as error:
-                raise TeacherModelError(
-                    f"本地策略未生成完整动作协议：{raw_text[:500]!r}"
-                ) from error
-            token_ids = tuple(
-                self._processor.tokenizer.encode(response_text, add_special_tokens=False)
+            token_ids, response_text = _complete_protocol_prefix(
+                tuple(map(int, generated.tolist())), self._processor.tokenizer
             )
-            generated_ids = tuple(map(int, generated.tolist()))
-            start = _find_subsequence(generated_ids, token_ids)
-            if start is None or start + len(token_ids) > len(output.scores):
-                raise TeacherModelError("无法将动作协议文本对齐到实际生成 token")
-            scores = torch.stack(
-                tuple(score[0] for score in output.scores[start : start + len(token_ids)])
-            )
+            scores = torch.stack(tuple(score[0] for score in output.scores[: len(token_ids)]))
             selected = torch.tensor(token_ids, device=scores.device)[:, None]
             old_logprobs = scores.log_softmax(-1).gather(1, selected).squeeze(1)
             trajectory_id = _trajectory_id(request.task_context)
@@ -153,11 +139,21 @@ class LocalVisionPolicyBackend:
         )
 
 
-def _find_subsequence(values: tuple[int, ...], target: tuple[int, ...]) -> int | None:
-    for index in range(len(values) - len(target) + 1):
-        if values[index : index + len(target)] == target:
-            return index
-    return None
+def _complete_protocol_prefix(
+    generated_ids: tuple[int, ...], tokenizer: Any
+) -> tuple[tuple[int, ...], str]:
+    for end in range(1, len(generated_ids) + 1):
+        text = tokenizer.decode(generated_ids[:end], skip_special_tokens=False)
+        try:
+            control = extract_action_sequence_text(text)
+            parse_action_sequence_strict(control)
+        except ValueError:
+            continue
+        if text.strip() != control:
+            raise TeacherModelError("本地策略动作协议之外包含非协议文字")
+        return generated_ids[:end], control
+    raw_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
+    raise TeacherModelError(f"本地策略未生成完整动作协议：{raw_text[:500]!r}")
 
 
 def _trajectory_id(task_context: str) -> str:

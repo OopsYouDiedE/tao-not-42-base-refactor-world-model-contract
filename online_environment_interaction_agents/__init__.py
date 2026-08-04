@@ -1,6 +1,14 @@
 """读取环境观察、生成动作并记录交互轨迹的代理。"""
 
 from .local_vision_policy import LocalPolicyGeneration, LocalVisionPolicyBackend
+from .model_contracts import (
+    TeacherBackend,
+    TeacherDecisionEnvelope,
+    TeacherModelError,
+    TeacherRequest,
+    TeacherResponse,
+    parse_teacher_decision,
+)
 from .teacher_executor import (
     ExecutedTeacherGeneration,
     TeacherTrajectoryExecutor,
@@ -14,12 +22,6 @@ from .teacher_trajectory import (
     CodexCLIBackend,
     OpenAICompatibleBackend,
     OpenAICompatibleConfig,
-    TeacherBackend,
-    TeacherDecisionEnvelope,
-    TeacherModelError,
-    TeacherRequest,
-    TeacherResponse,
-    parse_teacher_decision,
 )
 
 __all__ = [

@@ -15,8 +15,7 @@ from online_interactive_environments import (
     parse_action_sequence_strict,
 )
 
-from .model_contracts import ModelResponse
-from .teacher_trajectory import TeacherModelError, TeacherRequest
+from .model_contracts import TeacherModelError, TeacherRequest, TeacherResponse
 
 
 @dataclass(frozen=True)
@@ -85,7 +84,7 @@ class LocalVisionPolicyBackend:
         with self._lock:
             return tuple(self._records)
 
-    def generate(self, request: TeacherRequest) -> ModelResponse:
+    def generate(self, request: TeacherRequest) -> TeacherResponse:
         import torch
         from PIL import Image
 
@@ -147,7 +146,7 @@ class LocalVisionPolicyBackend:
                     dict(self._parameters),
                 )
             )
-        return ModelResponse(
+        return TeacherResponse(
             text=response_text,
             provider=self.provider,
             model=self.model,

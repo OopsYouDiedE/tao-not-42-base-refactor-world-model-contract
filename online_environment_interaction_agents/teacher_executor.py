@@ -22,7 +22,7 @@ from online_interactive_environments.craftground.action_adapter import (
     CraftGroundKeyboardMouseAdapter,
 )
 
-from .teacher_trajectory import (
+from .model_contracts import (
     TeacherBackend,
     TeacherModelError,
     TeacherRequest,

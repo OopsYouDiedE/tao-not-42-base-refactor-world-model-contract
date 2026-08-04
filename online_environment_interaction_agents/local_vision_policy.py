@@ -42,8 +42,8 @@ class LocalVisionPolicyBackend:
         *,
         adapter: str,
         load_in_4bit: bool = True,
-        temperature: float = 0.8,
-        top_p: float = 0.95,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
         max_new_tokens: int = 1024,
     ) -> None:
         from behavior_cloning_training import load_vision_model
@@ -63,6 +63,7 @@ class LocalVisionPolicyBackend:
             "temperature": temperature,
             "top_p": top_p,
             "max_new_tokens": max_new_tokens,
+            "stop_strings": ["</action>"],
         }
         self._lock = threading.Lock()
         self._records: list[LocalPolicyGeneration] = []
@@ -99,7 +100,10 @@ class LocalVisionPolicyBackend:
         started = time.perf_counter()
         with self._lock, torch.inference_mode():
             rendered = self._processor.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False
+                messages,
+                add_generation_prompt=True,
+                tokenize=False,
+                enable_thinking=False,
             )
             inputs = self._processor(images=images, text=[rendered], return_tensors="pt")
             device = next(self._model.parameters()).device
@@ -108,7 +112,11 @@ class LocalVisionPolicyBackend:
                 for key, value in inputs.items()
             }
             output = self._model.generate(
-                **inputs, **self._parameters, return_dict_in_generate=True, output_scores=True
+                **inputs,
+                **self._parameters,
+                tokenizer=self._processor.tokenizer,
+                return_dict_in_generate=True,
+                output_scores=True,
             )
             generated = output.sequences[0, inputs["input_ids"].shape[1] :]
             token_ids, response_text = _complete_protocol_prefix(

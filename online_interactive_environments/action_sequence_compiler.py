@@ -56,6 +56,10 @@ _GAMEPAD_BUTTONS = {
 _RESERVED_ACTION_TOKENS = {"Device", "Tick", "<action>", "</action>"}
 
 
+def _elapsed_ms(start: int, end: int | None) -> float | None:
+    return None if end is None else (end - start) / 1_000_000
+
+
 class UnderflowPolicy(Enum):
     NOOP = "noop"
     REPEAT_LAST = "repeat_last"
@@ -151,27 +155,21 @@ class GenerationRecord:
 
     @property
     def time_to_first_content_ms(self) -> float | None:
-        if self.first_content_at_ns is None:
-            return None
-        return (self.first_content_at_ns - self.started_at_ns) / 1_000_000
+        return _elapsed_ms(self.started_at_ns, self.first_content_at_ns)
 
     @property
     def time_to_first_action_ms(self) -> float | None:
-        if self.first_action_at_ns is None:
-            return None
-        return (self.first_action_at_ns - self.started_at_ns) / 1_000_000
+        return _elapsed_ms(self.started_at_ns, self.first_action_at_ns)
 
     @property
     def first_content_to_complete_ms(self) -> float | None:
-        if self.first_content_at_ns is None or self.completed_at_ns is None:
+        if self.first_content_at_ns is None:
             return None
-        return (self.completed_at_ns - self.first_content_at_ns) / 1_000_000
+        return _elapsed_ms(self.first_content_at_ns, self.completed_at_ns)
 
     @property
     def total_observed_generation_ms(self) -> float | None:
-        if self.completed_at_ns is None:
-            return None
-        return (self.completed_at_ns - self.started_at_ns) / 1_000_000
+        return _elapsed_ms(self.started_at_ns, self.completed_at_ns)
 
 
 @dataclass
@@ -368,7 +366,7 @@ def _validate_action_tokens(device: str, tokens: list[str]) -> str | None:
         if parsed is None:
             return f"{command} 参数数量或类型错误"
         values, index = parsed
-        if command in {"Tap", "LongPress", "Swipe"} and any(value < 0 for value in values):
+        if any(value < 0 for value in values):
             warnings.warn(
                 f"{command} 包含负坐标或时长，保留原始值",
                 RuntimeWarning,
@@ -664,12 +662,7 @@ class ActionSequenceCompiler:
         stream = self._streaming_sequence
         if stream is None:
             raise RuntimeError("流式动作状态缺失")
-        try:
-            ticks = _parse_action_ticks(segment, stream.device)
-        except ValueError as error:
-            warnings.warn(f"跳过无效流式 tick：{error}", RuntimeWarning, stacklevel=2)
-            return None
-
+        ticks = _parse_action_ticks(segment, stream.device)
         submission = self._submit_at(
             stream.next_tick,
             stream.device,
@@ -794,6 +787,9 @@ class ActionSequenceCompiler:
             raise RuntimeError("只能记录当前 tick 的 WAIT 决策")
         if decision.revision != self._revision:
             raise RuntimeError("WAIT 决策已被新序列覆盖")
+        self._record_waiting_tick("noop")
+
+    def _record_waiting_tick(self, source: str) -> None:
         self.current_waiting_ticks += 1
         self.total_waiting_ticks += 1
         self.max_waiting_ticks = max(self.max_waiting_ticks, self.current_waiting_ticks)
@@ -810,7 +806,10 @@ class ActionSequenceCompiler:
             record.waiting_before_first_content_ticks += 1
         if record.first_action_at_ns is None:
             record.waiting_before_first_action_ticks += 1
-        record.noop_waiting_ticks += 1
+        if source == "noop":
+            record.noop_waiting_ticks += 1
+        else:
+            record.repeated_waiting_ticks += 1
 
     def commit(self, decision: TickDecision) -> None:
         """确认环境已完成当前动作；调用后下一逻辑 tick 可立即执行。"""
@@ -831,28 +830,7 @@ class ActionSequenceCompiler:
             if self._active_generation is not None:
                 self._active_generation.current_waiting_ticks = 0
         elif decision.source in {"noop", "repeat_last"}:
-            self.current_waiting_ticks += 1
-            self.total_waiting_ticks += 1
-            self.max_waiting_ticks = max(
-                self.max_waiting_ticks,
-                self.current_waiting_ticks,
-            )
-            record = self._active_generation
-            if record is not None:
-                record.waiting_ticks += 1
-                record.current_waiting_ticks += 1
-                record.max_consecutive_waiting_ticks = max(
-                    record.max_consecutive_waiting_ticks,
-                    record.current_waiting_ticks,
-                )
-                if record.first_content_at_ns is None:
-                    record.waiting_before_first_content_ticks += 1
-                if record.first_action_at_ns is None:
-                    record.waiting_before_first_action_ticks += 1
-                if decision.source == "noop":
-                    record.noop_waiting_ticks += 1
-                else:
-                    record.repeated_waiting_ticks += 1
+            self._record_waiting_tick(decision.source)
         self._last_action = (
             _ScheduledTick(
                 decision.device,
@@ -907,10 +885,8 @@ class ActionSequenceCompiler:
 
     def discard_buffered_from_current_tick(self) -> int:
         """丢弃当前及未来未执行动作，供失败生成事务回滚。"""
-        discarded = sum(tick >= self.current_tick for tick in self._queue)
-        self._queue = {
-            tick: action for tick, action in self._queue.items() if tick < self.current_tick
-        }
+        discarded = len(self._queue)
+        self._queue.clear()
         self._input_buffer = ""
         self._retained_text = ""
         self._streaming_sequence = None

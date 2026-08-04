@@ -49,6 +49,8 @@ def main() -> None:
         target_log_count=1,
         trajectory_count=6,
         initialization_workers=1,
+        environment_count=1,
+        rollout_workers=1,
     )
     records_path = arguments.output / "on-policy-generations.json"
     atomic_write_json(

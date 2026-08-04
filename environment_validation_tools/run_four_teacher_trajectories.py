@@ -307,6 +307,8 @@ def run(
     target_log_count: int = 1,
     trajectory_count: int = TRAJECTORY_COUNT,
     initialization_workers: int | None = None,
+    environment_count: int | None = None,
+    rollout_workers: int | None = None,
 ) -> Path:
     """执行四条可比较分支，并写出轨迹、审核和相对优势产物。"""
     if (
@@ -316,6 +318,8 @@ def run(
         or target_log_count < 1
         or trajectory_count < 1
         or (initialization_workers is not None and initialization_workers < 1)
+        or (environment_count is not None and environment_count < 1)
+        or (rollout_workers is not None and rollout_workers < 1)
     ):
         raise ValueError("预算和生成轮数必须为正，warmup_ticks 不能为负")
     if enforce_wsl:
@@ -337,6 +341,7 @@ def run(
     trajectory_specs = tuple(
         (f"T{index + 1:02d}", selected_backend_name) for index in range(trajectory_count)
     )
+    selected_environment_count = environment_count or trajectory_count
 
     progress.emit(
         "run_started",
@@ -348,7 +353,7 @@ def run(
         max_generations=max_generations,
     )
     environment_values = []
-    for index in range(trajectory_count):
+    for index in range(selected_environment_count):
         instance_id = f"four-teacher-{run_id}-{index}"
         progress.emit(
             "runtime_creation_started",
@@ -386,7 +391,7 @@ def run(
         )
         source_hashes = {value["source_sha256"] for value in installed_baselines}
         instance_paths = {value["instance_world_path"] for value in installed_baselines}
-        if len(source_hashes) != 1 or len(instance_paths) != trajectory_count:
+        if len(source_hashes) != 1 or len(instance_paths) != selected_environment_count:
             for environment in environments:
                 environment.close()
             raise RuntimeError("固定基准存档哈希不一致或实例路径未隔离")
@@ -758,9 +763,9 @@ def run(
             )
             for index, spec in enumerate(trajectory_specs)
         )
-        rollout_results = ParallelRolloutRunner(coordinator, max_workers=trajectory_count).run(
-            requests
-        )
+        rollout_results = ParallelRolloutRunner(
+            coordinator, max_workers=rollout_workers or selected_environment_count
+        ).run(requests)
 
         reviews = []
         summaries = []

@@ -161,7 +161,7 @@ def validate_mode(
 
         changed_pairs = sum(
             not np.array_equal(previous, current)
-            for previous, current in zip(frames, frames[1:], strict=True)
+            for previous, current in zip(frames, frames[1:])
         )
         if changed_pairs == 0:
             raise RuntimeError(f"{mode} 的所有相邻帧完全相同")

@@ -10,6 +10,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -46,6 +47,34 @@ from relative_advantage_comparison_training import (
 
 TRAJECTORY_COUNT = 4
 SNAPSHOT_ID = "teacher-log-shared-start"
+
+
+@dataclass(frozen=True)
+class TaskSpecification:
+    """一个可替换的环境任务，供轨迹生成与成功判定共用。
+
+    `item_suffix` 按 CraftGround 物品 translation_key 的末段匹配，例如 `_log` 命中
+    `item.minecraft.oak_log` 与 `item.minecraft.birch_log`。任务描述不含针对某个具体
+    目标的操作教法，避免把通用策略退化成单任务脚本。
+    """
+
+    task_id: str
+    description: str
+    success_criteria: str
+    item_suffix: str
+    target_count: int = 1
+    environment_setup: str = "未人工放置目标物品，需要完成观察、探索、寻路、破坏和拾取"
+
+    def with_target_count(self, target_count: int) -> TaskSpecification:
+        return replace(self, target_count=target_count)
+
+
+COLLECT_LOG_TASK = TaskSpecification(
+    task_id="collect-log",
+    description="在当前 Minecraft 生存环境中获得原木",
+    success_criteria="物品栏中所有原木方块的总数",
+    item_suffix="_log",
+)
 NORMALIZATION_COMMANDS = (
     "gamerule doDaylightCycle false",
     "gamerule doWeatherCycle false",
@@ -141,8 +170,6 @@ def _request(
     remaining_ticks: int,
     observation_path: Path,
     previous_observation_path: Path | None,
-    latest_state: dict[str, Any],
-    previous_state: dict[str, Any] | None,
     previous_action: str | None,
     previous_result: dict[str, Any] | None,
     target_log_count: int = 1,
@@ -162,6 +189,8 @@ def _request(
                 "observation_policy: 当前轮已由 Observe 触发；在认为必须取得新画面的动作 tick 写 Observe（可位于序列中间）；Observe 必须与首个填充动作写在同一 tick，并在其后提供共 4 至 12 tick 的安全填充",
                 "available_inputs: W A S D Space Shift Ctrl MouseLeft MouseRight MouseMove NoOp Observe",
                 "control_mapping: Minecraft 默认键鼠映射；MouseMove 每单位改变 0.15 度，x 正数向右，y 正数向下；找到树后靠近并持续 MouseLeft 攻击树干，掉落后靠近拾取",
+                "repeat_semantics: `xN` 重复整个 tick 的全部输入；若该 tick 含 MouseMove，则每个重复 tick 都会再次施加同样的视角增量。只想转一次视角时，必须把 MouseMove 单独写成一个 tick，不要与 `xN` 合写",
+                "state_feedback: 不提供位置、朝向、生命值、物品栏或准星命中方块。除过去动作外，唯一的状态来源是观察图片；对自身状态的判断必须由你自己维护",
                 "environment_setup: 未人工放置原木，需要完成观察、探索、寻路、破坏和拾取",
                 "</trajectory_task>",
             )
@@ -173,10 +202,6 @@ def _request(
                 f"environment_tick: {environment_tick}",
                 f"remaining_action_ticks: {remaining_ticks}",
                 f"latest_observation_id: observe-{round_index:03d}",
-                "current_state:",
-                _format_observable_state(latest_state),
-                "previous_state:",
-                _format_observable_state(previous_state),
                 f"previous_action: {previous_action or '无；这是第一轮'}",
                 f"previous_result: {_format_previous_result(previous_result)}",
                 "termination_status: running",
@@ -191,28 +216,6 @@ def _request(
             if previous_observation_path is not None
             else (observation_path,)
         ),
-    )
-
-
-def _format_observable_state(state: dict[str, Any] | None) -> str:
-    if not state:
-        return "  无；这是第一轮"
-    inventory = state.get("inventory") or []
-    inventory_text = (
-        ", ".join(f"{item.get('item', 'unknown')} x{item.get('count', 0)}" for item in inventory)
-        or "空"
-    )
-    position = state.get("position") or []
-    position_text = ", ".join(str(value) for value in position) or "未知"
-    return "\n".join(
-        (
-            f"  位置: {position_text}",
-            f"  yaw: {state.get('yaw', '未知')}",
-            f"  pitch: {state.get('pitch', '未知')}",
-            f"  生命值: {state.get('health', '未知')}",
-            f"  物品栏: {inventory_text}",
-            f"  准星命中方块: {state.get('raycast_block') or '环境未返回'}",
-        )
     )
 
 
@@ -545,7 +548,6 @@ def run(
             total_reward = 0.0
             previous_result = None
             previous_action = None
-            previous_state = None
             previous_observation_path = None
             trajectory_error = None
             trajectory_success = _has_log(info, target_log_count)
@@ -591,8 +593,6 @@ def run(
                                 remaining_ticks=action_budget_ticks - executed_ticks,
                                 observation_path=observation_path,
                                 previous_observation_path=previous_observation_path,
-                                latest_state=_state_summary(info),
-                                previous_state=previous_state,
                                 previous_action=previous_action,
                                 previous_result=retry_result,
                                 target_log_count=target_log_count,
@@ -656,7 +656,6 @@ def run(
                 if result is None:
                     trajectory_error = rejection
                     break
-                state_before_action = _state_summary(info)
                 observation = result.observation
                 info = result.info
                 terminated = result.terminated
@@ -669,7 +668,6 @@ def run(
                     "terminated": terminated,
                     "truncated": truncated,
                 }
-                previous_state = state_before_action
                 previous_action = _format_executed_action_history(
                     executor.execution_ticks[round_execution_start:]
                 )

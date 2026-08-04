@@ -210,22 +210,6 @@ def test_request_returns_one_history_frame_and_executed_action(tmp_path: Path) -
         remaining_ticks=20,
         observation_path=current_image,
         previous_observation_path=previous_image,
-        latest_state={
-            "position": [1, 2, 3],
-            "yaw": 4,
-            "pitch": 5,
-            "health": 20,
-            "inventory": [],
-            "raycast_block": None,
-        },
-        previous_state={
-            "position": [0, 2, 3],
-            "yaw": 4,
-            "pitch": 5,
-            "health": 20,
-            "inventory": [],
-            "raycast_block": None,
-        },
         previous_action="Device KeyboardMouse\nTick 0\n<action>W</action>",
         previous_result={"completed_ticks": 1, "reward": 0.0},
     )
@@ -234,8 +218,30 @@ def test_request_returns_one_history_frame_and_executed_action(tmp_path: Path) -
     assert "previous_action: Device KeyboardMouse" in request.step_context
     assert "model_memory_from_previous_round" not in request.step_context
     assert "<assessment>" not in request.step_context
-    assert "准星命中方块: 环境未返回" in request.step_context
     assert "目标太远" not in request.step_context
+
+
+def test_request_withholds_environment_ground_truth(tmp_path: Path) -> None:
+    """除过去动作和图像外不得提供任何环境真值。"""
+    current_image = tmp_path / "current.png"
+    current_image.touch()
+    request = run_four_teacher_trajectories._request(
+        "system",
+        trajectory_id="T01",
+        round_index=0,
+        environment_tick=0,
+        remaining_ticks=128,
+        observation_path=current_image,
+        previous_observation_path=None,
+        previous_action=None,
+        previous_result=None,
+    )
+
+    for forbidden in ("位置:", "yaw:", "pitch:", "生命值:", "物品栏:", "准星命中方块"):
+        assert forbidden not in request.step_context
+    assert "current_state:" not in request.step_context
+    assert "previous_state:" not in request.step_context
+    assert "不提供位置、朝向、生命值、物品栏或准星命中方块" in request.task_context
 
 
 def test_executed_action_history_uses_only_committed_ticks() -> None:

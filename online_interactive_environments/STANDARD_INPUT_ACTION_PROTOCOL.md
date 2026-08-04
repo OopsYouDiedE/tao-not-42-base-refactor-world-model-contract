@@ -1,10 +1,8 @@
-# 标准输入动作协议 v1
+# 标准输入动作协议
 
 协议标识：`standard-input-action/v1`
 
-本协议版本描述模型输出的文本结构、设备声明和逐 tick 输入语义。CraftGround 上游的
-`V2_MINERL_HUMAN` 是执行动作空间的枚举名称，不是本协议的 v2；本项目将该执行后端称为
-`keyboard_and_mouse_only`。
+本协议版本描述模型输出的文本结构、设备声明和逐 tick 输入语义。
 
 ## 1. 核心定义
 

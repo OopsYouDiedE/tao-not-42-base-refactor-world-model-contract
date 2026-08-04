@@ -23,8 +23,14 @@ class PolicyGeneration:
 
 def policy_prompt(intent: str) -> str:
     return (
-        "Use the observations and intent to produce one executable standard-input-action/v1 "
-        "sequence. Return Device KeyboardMouse, Tick lines, and <action> blocks only. "
+        "Use the observations and intent to produce exactly one executable "
+        "standard-input-action/v1 sequence. The first line must be `Device KeyboardMouse`. "
+        "Each tick header must be outside its action block. Return protocol text only, with "
+        "no Markdown fence or explanation. Required structure:\n"
+        "Device KeyboardMouse\n"
+        "Tick 0\n"
+        "<action>NoOp</action>\n"
+        "Replace NoOp with the action required by the intent. "
         f"Intent: {intent}"
     )
 
@@ -44,6 +50,22 @@ def _complete_protocol_prefix(token_ids: Any, tokenizer: Any) -> tuple[Any, str]
     )
 
 
+def _allowed_next_tokens(
+    generated_ids: tuple[int, ...], candidates: tuple[tuple[int, ...], ...], eos_token_id: int
+) -> list[int]:
+    allowed: set[int] = set()
+    for candidate in candidates:
+        if candidate[: len(generated_ids)] != generated_ids:
+            continue
+        if len(generated_ids) == len(candidate):
+            allowed.add(eos_token_id)
+        else:
+            allowed.add(candidate[len(generated_ids)])
+    if not allowed:
+        raise RuntimeError("generated tokens left the configured protocol candidate set")
+    return sorted(allowed)
+
+
 def generate_policy_rollouts(
     model: Any,
     processor: Any,
@@ -55,6 +77,7 @@ def generate_policy_rollouts(
     temperature: float = 0.8,
     top_p: float = 0.95,
     max_new_tokens: int = 1024,
+    allowed_action_texts: tuple[str, ...] | None = None,
 ) -> list[PolicyGeneration]:
     import torch
     from PIL import Image
@@ -86,11 +109,35 @@ def generate_policy_rollouts(
         "top_p": top_p,
         "max_new_tokens": max_new_tokens,
     }
+    generation_parameters = dict(parameters)
+    if allowed_action_texts is not None:
+        if not allowed_action_texts:
+            raise ValueError("allowed_action_texts must not be empty")
+        for action_text in allowed_action_texts:
+            parse_action_sequence_strict(action_text)
+        candidate_ids = tuple(
+            tuple(processor.tokenizer.encode(text, add_special_tokens=False))
+            for text in allowed_action_texts
+        )
+        prompt_length = inputs["input_ids"].shape[1]
+        eos_token_id = processor.tokenizer.eos_token_id
+        if eos_token_id is None:
+            raise ValueError("the processor tokenizer must define eos_token_id")
+
+        def prefix_allowed_tokens_fn(_batch_id: int, token_ids: Any) -> list[int]:
+            generated_ids = tuple(map(int, token_ids[prompt_length:].tolist()))
+            return _allowed_next_tokens(generated_ids, candidate_ids, eos_token_id)
+
+        generation_parameters["prefix_allowed_tokens_fn"] = prefix_allowed_tokens_fn
+        parameters["allowed_action_texts"] = list(allowed_action_texts)
     results = []
     with torch.inference_mode():
         for _ in range(count):
             output = model.generate(
-                **inputs, **parameters, return_dict_in_generate=True, output_scores=True
+                **inputs,
+                **generation_parameters,
+                return_dict_in_generate=True,
+                output_scores=True,
             )
             generated = output.sequences[0, inputs["input_ids"].shape[1] :]
             token_ids, action_text = _complete_protocol_prefix(generated, processor.tokenizer)

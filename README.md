@@ -85,6 +85,16 @@ python -m relative_advantage_comparison_training.train_policy \
 
 这些训练入口需要在 GPU Linux 环境验收；离线测试不能替代真实训练结论。
 
+在 GPU Linux 上可用一条命令运行 2B 视觉模型的真实推理、单步 BC 和单轮 2+6 相对优势训练：
+
+```bash
+python -m environment_validation_tools.run_gpu_training_validation \
+  --output runs/gpu_training_validation/qwen3-vl-2b
+```
+
+该命令即时构造公开合同数据，并在策略生成阶段使用显式记录的合法协议候选集约束解码。它用于验证
+本地模型训练链路，不替代 CraftGround 环境轨迹的任务成功验收。
+
 ## 安装
 
 项目提供锁定版本和最新兼容版本两种安装方式。安装器自动选择 CPU 或 CUDA；CPU 路径不会安装

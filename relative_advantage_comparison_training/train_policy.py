@@ -112,6 +112,7 @@ def run_policy_training(
     learning_rate: float = 1e-6,
     epochs: int = 1,
     clip_epsilon: float = 0.2,
+    load_in_4bit: bool = False,
 ) -> dict[str, Any]:
     os.environ.setdefault("UNSLOTH_RETURN_LOGITS", "1")
     try:
@@ -122,7 +123,11 @@ def run_policy_training(
     samples = load_execution_group(execution)
     require_on_policy_logprobs(samples)
     loaded, processor = load_vision_model(
-        model, adapter=adapter, lora=LoRASettings(), max_sequence_length=4096
+        model,
+        adapter=adapter,
+        lora=LoRASettings(),
+        load_in_4bit=load_in_4bit,
+        max_sequence_length=4096,
     )
     batch = UnslothVisionDataCollator(loaded, processor)(
         [_conversation(sample, intent) for sample in samples]
@@ -155,6 +160,8 @@ def run_policy_training(
             reference.to(device),
             clip_epsilon=clip_epsilon,
         )
+        if result.approximate_kl is None or result.clip_fraction is None:
+            raise RuntimeError("clipped objective did not return policy diagnostics")
         result.total.backward()
         torch.nn.utils.clip_grad_norm_(
             (parameter for parameter in loaded.parameters() if parameter.requires_grad), 0.3
@@ -200,6 +207,7 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-6)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--clip-epsilon", type=float, default=0.2)
+    parser.add_argument("--load-in-4bit", action="store_true")
     arguments = parser.parse_args()
     result = run_policy_training(
         model=arguments.model,
@@ -210,6 +218,7 @@ def main() -> None:
         learning_rate=arguments.learning_rate,
         epochs=arguments.epochs,
         clip_epsilon=arguments.clip_epsilon,
+        load_in_4bit=arguments.load_in_4bit,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

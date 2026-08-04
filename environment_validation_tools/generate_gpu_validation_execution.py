@@ -80,6 +80,8 @@ def main() -> None:
         [arguments.image],
         intent=arguments.intent,
         policy_version=arguments.policy_version,
+        temperature=1.0,
+        top_p=1.0,
         max_new_tokens=arguments.max_new_tokens,
         allowed_action_texts=allowed,
     )

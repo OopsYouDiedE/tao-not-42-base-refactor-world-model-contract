@@ -10,7 +10,10 @@ from typing import Any
 
 from behavior_cloning_training import LoRASettings, load_vision_model
 from relative_advantage_comparison_training.objectives import clipped_token_joint_objective
-from relative_advantage_comparison_training.policy_rollout import policy_prompt
+from relative_advantage_comparison_training.policy_rollout import (
+    _allowed_next_tokens,
+    policy_prompt,
+)
 from relative_advantage_comparison_training.rollouts import (
     RolloutSample,
     load_execution_group,
@@ -81,6 +84,61 @@ def align_rollout_metadata(
     return old, advantages, policy, reference
 
 
+def apply_sampling_policy_logprobs(
+    values: Any,
+    logits: Any,
+    response_mask: Any,
+    samples: list[RolloutSample],
+    tokenizer: Any,
+) -> Any:
+    """按生成时记录的约束策略重新归一化当前逐 token 概率。"""
+    adjusted = values.clone()
+    for row, sample in enumerate(samples):
+        if not sample.policy_eligible:
+            continue
+        parameters = {key: json.loads(value) for key, value in sample.sampling_parameters}
+        allowed_texts = parameters.get("allowed_action_texts")
+        if allowed_texts is None:
+            if parameters.get("temperature") != 1.0 or parameters.get("top_p") != 1.0:
+                raise ValueError(
+                    "policy training requires temperature=1 and top_p=1 for raw logprob alignment"
+                )
+            continue
+        if parameters.get("temperature") != 1.0 or parameters.get("top_p") != 1.0:
+            raise ValueError(
+                "constrained policy training requires temperature=1 and top_p=1"
+            )
+        candidates = tuple(
+            tuple(tokenizer.encode(text, add_special_tokens=False)) for text in allowed_texts
+        )
+        eos_token_id = tokenizer.eos_token_id
+        if eos_token_id is None:
+            raise ValueError("the processor tokenizer must define eos_token_id")
+        positions = response_mask[row].nonzero(as_tuple=False).flatten()
+        if len(positions) != len(sample.response_token_ids):
+            raise ValueError(f"unaligned constrained response for {sample.candidate_id}")
+        prefix: tuple[int, ...] = ()
+        for token_id, position in zip(sample.response_token_ids, positions, strict=True):
+            allowed = _allowed_next_tokens(prefix, candidates, eos_token_id)
+            if token_id not in allowed:
+                raise ValueError(f"token outside recorded policy for {sample.candidate_id}")
+            position_index = int(position)
+            adjusted[row, position_index] = normalized_candidate_logprob(
+                logits[row, position_index], token_id, allowed
+            )
+            prefix = (*prefix, token_id)
+    return adjusted
+
+
+def normalized_candidate_logprob(token_logits: Any, token_id: int, allowed: list[int]) -> Any:
+    """在合法下一 token 集合内计算目标 token 的对数概率。"""
+    import torch
+
+    if token_id not in allowed:
+        raise ValueError("target token is outside the allowed candidate set")
+    return token_logits[token_id] - torch.logsumexp(token_logits[allowed], dim=0)
+
+
 def _conversation(sample: RolloutSample, intent: str) -> dict[str, Any]:
     from PIL import Image
 
@@ -149,7 +207,11 @@ def run_policy_training(
             key: value.to(device) if torch.is_tensor(value) else value
             for key, value in batch.items()
         }
-        current, response_mask = token_logprobs(loaded(**inputs).logits, inputs["labels"])
+        logits = loaded(**inputs).logits
+        current, response_mask = token_logprobs(logits, inputs["labels"])
+        current = apply_sampling_policy_logprobs(
+            current, logits, response_mask, samples, processor.tokenizer
+        )
         aligned_old = torch.nn.functional.pad(old, (current.shape[1] - old.shape[1], 0))
         result = clipped_token_joint_objective(
             current,

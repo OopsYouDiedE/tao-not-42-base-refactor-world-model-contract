@@ -26,12 +26,12 @@ class SFTSettings:
     max_sequence_length: int = 2048
 
 
-def _chat_template(model: str) -> str:
+def _chat_template(model: str) -> str | None:
     lowered = model.lower()
     if "gemma-4" in lowered:
         return "gemma-4-thinking" if any(name in lowered for name in ("26b", "31b")) else "gemma-4"
     if "qwen" in lowered:
-        return "qwen-3"
+        return None
     raise ValueError(f"unsupported vision model family: {model!r}")
 
 
@@ -75,4 +75,5 @@ def load_vision_model(
             random_state=settings.seed,
             target_modules="all-linear",
         )
-    return loaded, get_chat_template(processor, _chat_template(base_name))
+    template = _chat_template(base_name)
+    return loaded, processor if template is None else get_chat_template(processor, template)

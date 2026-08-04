@@ -6,7 +6,7 @@ from behavior_cloning_training.modeling import _chat_template
 @pytest.mark.parametrize(
     ("model", "expected"),
     [
-        ("unsloth/Qwen3-VL-2B-Instruct-unsloth-bnb-4bit", "qwen-3"),
+        ("unsloth/Qwen3-VL-2B-Instruct-unsloth-bnb-4bit", None),
         ("unsloth/gemma-4-4B-it", "gemma-4"),
         ("unsloth/gemma-4-26B-it", "gemma-4-thinking"),
     ],

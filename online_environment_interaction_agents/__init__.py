@@ -1,5 +1,6 @@
 """读取环境观察、生成动作并记录交互轨迹的代理。"""
 
+from .local_vision_policy import LocalPolicyGeneration, LocalVisionPolicyBackend
 from .teacher_executor import (
     ExecutedTeacherGeneration,
     TeacherTrajectoryExecutor,
@@ -31,6 +32,8 @@ __all__ = [
     "CodexCLIBackend",
     "ExecutedTeacherGeneration",
     "GeneratedTrajectoryStep",
+    "LocalPolicyGeneration",
+    "LocalVisionPolicyBackend",
     "OpenAICompatibleBackend",
     "OpenAICompatibleConfig",
     "TeacherBackend",

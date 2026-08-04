@@ -24,6 +24,7 @@ class LocalPolicyGeneration:
     """一次本地策略生成的文本、概率和输入来源。"""
 
     trajectory_id: str
+    raw_response: str
     response_text: str
     response_token_ids: tuple[int, ...]
     old_logprobs: tuple[float, ...]
@@ -119,16 +120,18 @@ class LocalVisionPolicyBackend:
                 output_scores=True,
             )
             generated = output.sequences[0, inputs["input_ids"].shape[1] :]
-            token_ids, response_text = _complete_protocol_prefix(
+            start, end, response_text, raw_response = _complete_protocol_span(
                 tuple(map(int, generated.tolist())), self._processor.tokenizer
             )
-            scores = torch.stack(tuple(score[0] for score in output.scores[: len(token_ids)]))
+            token_ids = tuple(map(int, generated[start:end].tolist()))
+            scores = torch.stack(tuple(score[0] for score in output.scores[start:end]))
             selected = torch.tensor(token_ids, device=scores.device)[:, None]
             old_logprobs = scores.log_softmax(-1).gather(1, selected).squeeze(1)
             trajectory_id = _trajectory_id(request.task_context)
             self._records.append(
                 LocalPolicyGeneration(
                     trajectory_id,
+                    raw_response,
                     response_text,
                     token_ids,
                     tuple(map(float, old_logprobs.tolist())),
@@ -147,9 +150,9 @@ class LocalVisionPolicyBackend:
         )
 
 
-def _complete_protocol_prefix(
+def _complete_protocol_span(
     generated_ids: tuple[int, ...], tokenizer: Any
-) -> tuple[tuple[int, ...], str]:
+) -> tuple[int, int, str, str]:
     for end in range(1, len(generated_ids) + 1):
         text = tokenizer.decode(generated_ids[:end], skip_special_tokens=False)
         try:
@@ -157,9 +160,13 @@ def _complete_protocol_prefix(
             parse_action_sequence_strict(control)
         except ValueError:
             continue
-        if text.strip() != control:
-            raise TeacherModelError("本地策略动作协议之外包含非协议文字")
-        return generated_ids[:end], control
+        for start in range(end):
+            candidate = tokenizer.decode(
+                generated_ids[start:end], skip_special_tokens=False
+            ).strip()
+            if candidate == control:
+                return start, end, control, text
+        raise TeacherModelError("无法将模型动作块定位到原始生成 token 区间")
     raw_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
     raise TeacherModelError(f"本地策略未生成完整动作协议：{raw_text[:500]!r}")
 

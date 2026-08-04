@@ -97,6 +97,12 @@ python -m environment_validation_tools.run_gpu_training_validation \
 
 ## 安装
 
+默认 GPU Linux 服务器使用以下一条命令安装完整 CraftGround 与训练环境：
+
+```bash
+bash scripts/bootstrap_gpu_craftground.sh
+```
+
 项目提供锁定版本和最新兼容版本两种安装方式。安装器自动选择 CPU 或 CUDA；CPU 路径不会安装
 Unsloth、Flash Attention、xFormers 或 CUDA runtime 等 GPU 专用包：
 

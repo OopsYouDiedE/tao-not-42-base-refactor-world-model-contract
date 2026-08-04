@@ -286,12 +286,9 @@ def _has_log(info: Any, target_log_count: int = 1) -> bool:
     return _log_count(info) >= target_log_count
 
 
-def _require_wsl_runtime() -> None:
-    distribution = os.getenv("WSL_DISTRO_NAME")
-    if platform.system() != "Linux" or distribution != "Ubuntu-24.04":
-        raise RuntimeError(
-            "四轨迹实际执行必须位于 WSL 2 Ubuntu-24.04；Windows 仅用于调用 WSL 和读取产物"
-        )
+def _require_linux_runtime() -> None:
+    if platform.system() != "Linux":
+        raise RuntimeError("CraftGround 实际执行必须位于 Linux；Windows 必须通过 WSL 2 调用")
 
 
 def run(
@@ -320,7 +317,7 @@ def run(
     ):
         raise ValueError("预算和生成轮数必须为正，warmup_ticks 不能为负")
     if enforce_wsl:
-        _require_wsl_runtime()
+        _require_linux_runtime()
     from craftground.environment.action_space import no_op_v2
 
     output_directory = output_directory.resolve()
@@ -382,8 +379,11 @@ def run(
             for environment in environments:
                 environment.close()
             raise RuntimeError("所有环境必须安装固定基准存档")
-        source_hashes = {value["source_sha256"] for value in baseline_world_instances}
-        instance_paths = {value["instance_world_path"] for value in baseline_world_instances}
+        installed_baselines = tuple(
+            value for value in baseline_world_instances if value is not None
+        )
+        source_hashes = {value["source_sha256"] for value in installed_baselines}
+        instance_paths = {value["instance_world_path"] for value in installed_baselines}
         if len(source_hashes) != 1 or len(instance_paths) != trajectory_count:
             for environment in environments:
                 environment.close()
@@ -428,6 +428,8 @@ def run(
                 synchronized_step = None
                 for _ in range(4):
                     synchronized_step = environment.step(no_op_v2())
+                if synchronized_step is None:
+                    raise RuntimeError("玩家起点同步没有执行环境 step")
                 synchronized.append(synchronized_step)
             start_observations = tuple(value[0] for value in synchronized)
             start_states = tuple(_state_summary(value[4]) for value in synchronized)
@@ -452,6 +454,8 @@ def run(
                     environment.add_command(command)
                 for _ in range(4):
                     restored_step = environment.step(no_op_v2())
+                if restored_step is None:
+                    raise RuntimeError("玩家共享起点恢复没有执行环境 step")
                 restored_state = _state_summary(restored_step[4])
                 if _logical_fingerprint(restored_state) == expected_start_fingerprint:
                     return restored_step, attempt

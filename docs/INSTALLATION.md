@@ -1,5 +1,16 @@
 # 安装
 
+带 GPU 的 Ubuntu Linux 默认环境使用一条命令安装完整 JDK 21、CraftGround 构建依赖、Xvfb 和全部
+Python 依赖：
+
+```bash
+bash scripts/bootstrap_gpu_craftground.sh
+```
+
+脚本使用 `uv pip install --system -e '.[cuda,craftground,dev]'` 完成一次 Python 依赖解析。完整 JDK
+不可替换为 headless 变体，因为 CraftGround 原生库通过 CMake 查找 JNI AWT。Xvfb 为无桌面的远程
+服务器提供真实 Minecraft 客户端所需的 X11 显示；它不替代 CraftGround 环境执行。
+
 项目提供两种版本策略。默认使用仓库中的锁定直接依赖：
 
 ```bash

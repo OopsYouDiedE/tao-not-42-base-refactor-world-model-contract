@@ -33,8 +33,8 @@ dev = [
     "ruff>=0.11,<1",
 ]
 craftground = [
-    "craftground @ git+https://github.com/OopsYouDiedE/CraftGround.git@94d211204757fa8ba0f6182a72b81071e80c3fd5",
-    "craftground-runtime-mc121 @ git+https://github.com/OopsYouDiedE/CraftGround.git@94d211204757fa8ba0f6182a72b81071e80c3fd5#subdirectory=minecraft/mc121",
+    "craftground @ git+https://github.com/OopsYouDiedE/CraftGround.git@ac71d4ef6fb12b994d35b36f8eec518aa3a307e7",
+    "craftground-runtime-mc121 @ git+https://github.com/OopsYouDiedE/CraftGround.git@ac71d4ef6fb12b994d35b36f8eec518aa3a307e7#subdirectory=minecraft/mc121",
 ]
 
 [tool.setuptools.packages.find]

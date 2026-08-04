@@ -8,7 +8,7 @@ import pytest
 
 from online_interactive_environments.craftground import runtime
 
-MAINTAINED_COMMIT = "94d211204757fa8ba0f6182a72b81071e80c3fd5"
+MAINTAINED_COMMIT = "ac71d4ef6fb12b994d35b36f8eec518aa3a307e7"
 MAINTAINED_REPOSITORY = "https://github.com/OopsYouDiedE/CraftGround.git"
 
 
@@ -50,6 +50,11 @@ def test_craftground_dependencies_pin_one_fork_commit() -> None:
     assert {match.group(2) for match in parsed} == {MAINTAINED_COMMIT}
     runtime_match = next(match for match in parsed if match.group(1) == "craftground-runtime-mc121")
     assert runtime_match.group(3) == "#subdirectory=minecraft/mc121"
+
+
+def test_environment_rejects_unsupported_screen_encoding_before_preparation() -> None:
+    with pytest.raises(ValueError, match="screen_encoding_mode"):
+        runtime.create_environment(screen_encoding_mode="png")  # type: ignore[arg-type]
 
 
 def test_maintained_runtime_contract_accepts_fork_layout(tmp_path: Path) -> None:

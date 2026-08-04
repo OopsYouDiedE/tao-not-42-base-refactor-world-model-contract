@@ -11,12 +11,14 @@ import sys
 import uuid
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 
 _PREPARE_LOCK = Lock()
 ACTION_BACKEND = "keyboard_and_mouse_only"
 CRAFTGROUND_ACTION_SPACE = "V2_MINERL_HUMAN"
-CRAFTGROUND_RUNTIME_VERSION = "0.1.0+tao.1"
+CRAFTGROUND_RUNTIME_VERSION = "0.1.0+tao.2"
+ScreenEncodingModeName = Literal["raw", "zerocopy_torch"]
+SUPPORTED_SCREEN_ENCODING_MODES = ("raw", "zerocopy_torch")
 _INSTANCE_MARKER = ".tao-runtime-instance"
 _RUNTIME_BUILD_MARKER = ".tao-runtime-build"
 # 实例目录只需要模板的构建产物；这些运行时目录由 JVM 重新生成。
@@ -232,12 +234,20 @@ def create_environment(
     baseline_world_display_name: str = "New World",
     cleanup_world: bool = True,
     verbose: bool = False,
+    verbose_gradle: bool = False,
+    verbose_jvm: bool = False,
+    screen_encoding_mode: ScreenEncodingModeName = "raw",
 ) -> Any:
     """创建 CraftGround 键鼠后端环境；默认准备维护版 runtime 的独立副本。
 
     默认使用共享内存 IPC，观察不经 socket 序列化。维护版 CraftGround 负责共享内存
     的容量、重建和幂等销毁；该路径也不触发 SocketIPC 的全局 java 进程扫描。
     """
+    if screen_encoding_mode not in SUPPORTED_SCREEN_ENCODING_MODES:
+        raise ValueError(
+            "screen_encoding_mode 必须是以下值之一："
+            f"{SUPPORTED_SCREEN_ENCODING_MODES}"
+        )
     if runtime_path is not None and runtime_template_target is not None:
         raise ValueError("runtime_path 与 runtime_template_target 不能同时提供")
     if runtime_path is None:
@@ -266,13 +276,18 @@ def create_environment(
     from craftground.environment.action_space import ActionSpaceVersion
     from craftground.screen_encoding_modes import ScreenEncodingMode
 
+    resolved_screen_encoding_mode = {
+        "raw": ScreenEncodingMode.RAW,
+        "zerocopy_torch": ScreenEncodingMode.ZEROCOPY_TORCH,
+    }[screen_encoding_mode]
+
     config = InitialEnvironmentConfig(
         image_width=image_width,
         image_height=image_height,
         seed=seed,
         render_distance=render_distance,
         simulation_distance=simulation_distance,
-        screen_encoding_mode=ScreenEncodingMode.RAW,
+        screen_encoding_mode=resolved_screen_encoding_mode,
         level_display_name_to_play=(
             baseline_world_display_name if baseline_world is not None else ""
         ),
@@ -286,6 +301,8 @@ def create_environment(
         use_shared_memory=use_shared_memory,
         cleanup_world=cleanup_world,
         verbose=verbose,
+        verbose_gradle=verbose_gradle,
+        verbose_jvm=verbose_jvm,
     )
     environment.tao_baseline_world = baseline_world
     environment.tao_runtime_path = str(resolved_runtime)

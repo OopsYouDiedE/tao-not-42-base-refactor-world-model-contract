@@ -7,7 +7,7 @@
 
 项目直接维护 [OopsYouDiedE/CraftGround](https://github.com/OopsYouDiedE/CraftGround/tree/tao-maintained)
 的 `tao-maintained` 分支。核心包与 mc121 runtime 当前共同锁定到提交
-`94d211204757fa8ba0f6182a72b81071e80c3fd5`，不得改回 PyPI 范围依赖或只锁分支名。
+`ac71d4ef6fb12b994d35b36f8eec518aa3a307e7`，不得改回 PyPI 范围依赖或只锁分支名。
 只有上游通过公开 API 提供等价可调能力并完成真实环境验证后，才重新评估迁回上游。
 
 默认入口从已安装的维护版 `craftground-runtime-mc121` 创建构建模板，校验维护版能力并完成首次
@@ -39,6 +39,71 @@ environment = create_environment(runtime_path="C:/craftground/maintained-runtime
 维护分支直接修复共享内存重复初始化、动作段 0 字节定容、动作越界写入、重复销毁和 POSIX 观察段
 扩容问题。主项目不再 monkeypatch `BoostIPC`，也不在运行时替换 Kotlin 或 C++ 源码。
 
+`create_environment(screen_encoding_mode="raw")` 返回 NumPy RGB 帧；设置
+`screen_encoding_mode="zerocopy_torch"` 后，OpenGL 颜色纹理通过设备到设备复制写入 CUDA IPC
+共享 RGBA 缓冲区，Python 内部张量是该缓冲区的 live view。公开 RGB 返回会执行逐帧 `clone()`、
+去 alpha 和垂直翻转，但仍位于 CUDA；因此这里的 zero-copy 边界是 JVM 到 Python 的 GPU 传输，
+不表示最终 RGB 张量完全不发生 GPU 内复制。
+
+## CUDA Linux 验收
+
+真实 GPU 渲染需要 JDK 21、CUDA Toolkit，以及 OpenGL/Xorg 开发包。在 Ubuntu 上安装：
+
+```bash
+apt-get update
+apt-get install -y openjdk-21-jdk libglew-dev libgl1-mesa-dev libglu1-mesa-dev \
+  libglfw3-dev xorg-dev ninja-build mesa-utils xserver-xorg-core x11-xserver-utils pciutils
+```
+
+无桌面的 NVIDIA 服务器必须先启动 NVIDIA Xorg。先用 `nvidia-xconfig --query-gpu-info` 确认 GPU
+BusID，再创建以下配置；本次 Tesla T4 环境的 BusID 为 `PCI:0:4:0`：
+
+```text
+Section "ServerLayout"
+    Identifier "Layout0"
+    Screen 0 "Screen0"
+EndSection
+Section "Device"
+    Identifier "Device0"
+    Driver "nvidia"
+    BusID "PCI:0:4:0"
+EndSection
+Section "Screen"
+    Identifier "Screen0"
+    Device "Device0"
+    DefaultDepth 24
+    Option "AllowEmptyInitialConfiguration" "True"
+EndSection
+```
+
+假设保存为 `/tmp/craftground-xorg.conf`，启动并验证：
+
+```bash
+Xorg :1 -config /tmp/craftground-xorg.conf \
+  -modulepath /usr/lib64-nvidia/xorg/modules,/usr/lib/xorg/modules \
+  -nolisten tcp -noreset -logfile /tmp/craftground-xorg.log
+
+export DISPLAY=:1
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+export LD_LIBRARY_PATH=/usr/lib64-nvidia:/usr/local/cuda/lib64
+glxinfo -B
+```
+
+`glxinfo -B` 必须同时显示 `direct rendering: Yes`、vendor `NVIDIA Corporation` 和实际 GPU
+renderer；出现 `llvmpipe` 代表软件渲染，不算通过。不要同时设置 `UseDisplayDevice=None` 与
+`Virtual`，NVIDIA 驱动会拒绝该 Screen 配置。
+
+使用正式入口依次执行真实 RAW、共享内存和 `ZEROCOPY_TORCH` 验收：
+
+```bash
+python -m online_interactive_environments.craftground.validate_cuda_rendering \
+  --output runs/craftground_cuda_validation
+```
+
+命令要求 `use_shared_memory=True`，实际启动 Minecraft、执行 reset 与多步动作，并验证 CUDA
+tensor shape、dtype、device、CUDA IPC handle、live view data pointer 和帧变化。截图与
+`report.json` 写入指定的 `runs/` 子目录，不提交到 Git。
+
 ## 依赖边界
 
 | 层级 | 维护版约束或上游现状 |
@@ -47,7 +112,7 @@ environment = create_environment(runtime_path="C:/craftground/maintained-runtime
 | Python | 主项目要求 Python `>=3.11`；runtime 上游声明 `>=3.9`，核心包未声明下限 |
 | Java/Minecraft 1.21 | JDK 21、Gradle 8.8、Kotlin 2.0.0、Fabric Loader 0.15.11 |
 | Native | CMake 实际要求 `>=3.28`，并需要 JNI、OpenGL；非 macOS 需要 GLEW |
-| 可选渲染 | PNG `>=1.6`、CUDA Toolkit；CUDA 不属于本轮验证范围 |
+| 可选渲染 | PNG `>=1.6`、CUDA Toolkit 12.8；RAW 与 CUDA IPC zero-copy 已在 Tesla T4 验证 |
 | Python 间接依赖 | 上游多数未设版本边界，由本项目环境锁定与真实验收控制 |
 
 该包负责把 CraftGround 常驻实例分配给多个 SubAgent。每个实例在同一时刻只归一个 SubAgent 使用。

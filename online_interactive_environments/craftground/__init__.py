@@ -9,6 +9,7 @@ from .parallel_rollout import (
 from .runtime import (
     ACTION_BACKEND,
     CRAFTGROUND_ACTION_SPACE,
+    SUPPORTED_SCREEN_ENCODING_MODES,
     create_environment,
     directory_sha256,
     install_baseline_world,
@@ -31,6 +32,7 @@ from .snapshots import (
 __all__ = [
     "ACTION_BACKEND",
     "CRAFTGROUND_ACTION_SPACE",
+    "SUPPORTED_SCREEN_ENCODING_MODES",
     "CraftGroundKeyboardMouseAdapter",
     "EnvironmentLease",
     "EnvironmentPool",

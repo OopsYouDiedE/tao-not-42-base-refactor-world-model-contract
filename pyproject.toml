@@ -8,30 +8,49 @@ version = "0.1.0"
 description = "标准输入动作协议驱动的环境交互、数据、审核与训练系统"
 requires-python = ">=3.11"
 dependencies = [
-    "huggingface-hub>=1.25,<2",
-    "httpx>=0.28,<1",
-    "numpy>=2.2,<3",
-    "pillow>=11,<12",
-    "pyarrow>=23,<24",
-    "tenacity>=9.1,<10",
+    "huggingface-hub",
+    "httpx",
+    "numpy",
+    "pillow",
+    "pyarrow",
+    "tenacity",
 ]
 
 [project.optional-dependencies]
-cpu = []
+cpu = [
+    "torch",
+    "torchaudio",
+    "torchvision",
+]
 cuda = [
-    "accelerate>=1.14,<2",
-    "peft>=0.20,<1",
-    "tensorboard>=2.20,<3",
-    "torch>=2.11,<2.12",
-    "transformers>=5.5,<5.6",
-    "trl>=0.24,<0.25",
-    "unsloth>=2026.8,<2027",
+    "accelerate",
+    "peft",
+    "tensorboard",
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "transformers",
+    "trl",
+    "unsloth",
 ]
 dev = [
-    "pyright>=1.1,<2",
-    "pytest>=9,<10",
-    "ruff>=0.11,<1",
+    "pyright",
+    "pytest",
+    "ruff",
 ]
+godot = [
+    "gymnasium",
+    "stable-baselines3",
+]
+visualization = [
+    "fastapi",
+    "plotly",
+    "uvicorn",
+]
+# CraftGround 是唯一锁定版本的依赖。核心包与 mc121 runtime 必须使用
+# OopsYouDiedE/CraftGround tao-maintained 分支的同一精确提交，不得改为 PyPI
+# 范围依赖或只锁分支名。安装时使用 --no-deps，再单独安装以下运行依赖：
+# gymnasium protobuf psutil typing_extensions torch
 craftground = [
     "craftground @ git+https://github.com/OopsYouDiedE/CraftGround.git@ac71d4ef6fb12b994d35b36f8eec518aa3a307e7",
     "craftground-runtime-mc121 @ git+https://github.com/OopsYouDiedE/CraftGround.git@ac71d4ef6fb12b994d35b36f8eec518aa3a307e7#subdirectory=minecraft/mc121",
@@ -39,16 +58,13 @@ craftground = [
 
 [tool.setuptools.packages.find]
 include = [
-    "behavior_cloning_dataset_converters*",
-    "behavior_cloning_training*",
-    "environment_validation_tools*",
-    "external_dataset_loaders_and_protocol_adapters*",
     "interaction_trajectory_review_agents*",
     "model_judgment_review_agents*",
     "online_environment_interaction_agents*",
     "online_interactive_environments*",
     "relative_advantage_comparison_training*",
     "shared_tools*",
+    "trajectory_visualization*",
 ]
 
 [tool.ruff]
@@ -70,7 +86,7 @@ ignore = [
 ]
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.13"
 typeCheckingMode = "standard"
 exclude = ["runs", "online_interactive_environments/godot/engine"]
 reportMissingTypeStubs = false

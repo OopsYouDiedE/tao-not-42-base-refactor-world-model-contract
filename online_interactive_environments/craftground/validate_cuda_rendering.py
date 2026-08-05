@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import subprocess
@@ -13,7 +14,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .runtime import create_environment, prepare_runtime_instance, prepare_runtime_template
+from .kernel import EnvironmentKernel
+from .runtime import prepare_runtime_template
 
 
 def _run_checked(command: list[str]) -> str:
@@ -109,24 +111,26 @@ def validate_mode(
     """启动一个真实环境并验证指定屏幕编码模式。"""
     from craftground.environment.action_space import no_op_v2
 
-    runtime_path = prepare_runtime_instance(
-        f"cuda-validation-{mode}",
+    # 本命令验证 IPC 与渲染内部事实，需要裸环境属性，因此直接借用内核持有的单槽位实例。
+    kernel = EnvironmentKernel.launch(
+        slots=1,
+        instance_prefix=f"cuda-validation-{mode}",
         template=template,
-        instances_root=output / "instances",
-    )
-    environment = create_environment(
-        runtime_path=runtime_path,
+        runtime_instances_root=output / "instances",
+        port_base=port,
+        reset_on_launch=False,
         image_width=width,
         image_height=height,
-        port=port,
         find_free_port=False,
         use_shared_memory=True,
         cleanup_world=True,
         verbose=True,
         verbose_gradle=True,
         verbose_jvm=True,
-        screen_encoding_mode=mode,  # type: ignore[arg-type]
+        screen_encoding_mode=mode,
     )
+    runtime_path = Path(kernel.describe()["slots"][0]["runtime_path"])
+    environment = kernel.raw_environment()
     frames: list[np.ndarray] = []
     frame_metrics: list[dict[str, Any]] = []
     public_data_pointers: list[int] = []
@@ -147,9 +151,7 @@ def validate_mode(
                 transport = environment.observation_converter.last_observations[0]
                 transport_data_pointers.append(transport.data_ptr())
                 if tuple(transport.shape) != (height, width, 4):
-                    raise RuntimeError(
-                        f"CUDA IPC live view shape 错误：{tuple(transport.shape)}"
-                    )
+                    raise RuntimeError(f"CUDA IPC live view shape 错误：{tuple(transport.shape)}")
                 if transport.device.type != "cuda":
                     raise RuntimeError(f"CUDA IPC live view 不在 CUDA：{transport.device}")
             if step_index == steps:
@@ -161,7 +163,7 @@ def validate_mode(
 
         changed_pairs = sum(
             not np.array_equal(previous, current)
-            for previous, current in zip(frames, frames[1:])
+            for previous, current in itertools.pairwise(frames)
         )
         if changed_pairs == 0:
             raise RuntimeError(f"{mode} 的所有相邻帧完全相同")
@@ -195,7 +197,7 @@ def validate_mode(
             "nvidia_smi_while_running": _capture_nvidia_processes(),
         }
     finally:
-        environment.close()
+        kernel.close()
         if process_handle is not None and process_handle.poll() is None:
             raise RuntimeError(f"{mode} 环境关闭后 Gradle/JVM 进程仍在运行")
 

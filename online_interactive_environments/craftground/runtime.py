@@ -245,8 +245,7 @@ def create_environment(
     """
     if screen_encoding_mode not in SUPPORTED_SCREEN_ENCODING_MODES:
         raise ValueError(
-            "screen_encoding_mode 必须是以下值之一："
-            f"{SUPPORTED_SCREEN_ENCODING_MODES}"
+            f"screen_encoding_mode 必须是以下值之一：{SUPPORTED_SCREEN_ENCODING_MODES}"
         )
     if runtime_path is not None and runtime_template_target is not None:
         raise ValueError("runtime_path 与 runtime_template_target 不能同时提供")

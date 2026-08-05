@@ -2,6 +2,7 @@
 
 from .local_vision_policy import LocalPolicyGeneration, LocalVisionPolicyBackend
 from .model_contracts import (
+    ScriptedBackend,
     TeacherBackend,
     TeacherDecisionEnvelope,
     TeacherModelError,
@@ -35,6 +36,7 @@ __all__ = [
     "LocalVisionPolicyBackend",
     "OpenAICompatibleBackend",
     "OpenAICompatibleConfig",
+    "ScriptedBackend",
     "TeacherBackend",
     "TeacherDecisionEnvelope",
     "TeacherModelError",

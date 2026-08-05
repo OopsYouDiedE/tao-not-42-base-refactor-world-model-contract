@@ -70,6 +70,15 @@ class ResetTimings:
     worker_ms: tuple[float, ...]
 
 
+#: 倒档命令落定所需的同步 tick 数。
+#:
+#: runtime 的 `memorysnapshot load` 把结构放置、玩家 NBT 读回和 `requestTeleport` 全部
+#: 排进 `server.execute {}`，因此命令返回时世界还没恢复。要让调用方拿到的第一帧确实是
+#: 快照那一刻的画面，必须多空跑几个 tick 等服务端任务执行、传送生效、客户端收到新区块。
+#: 两个 tick 只够命令入队，不够落定，会让"重置到快照"看起来没有生效。
+DEFAULT_SYNCHRONIZATION_TICKS = 12
+
+
 class MemorySnapshotCoordinator:
     """并行控制一组常驻 CraftGround 环境的内存快照。"""
 
@@ -78,7 +87,7 @@ class MemorySnapshotCoordinator:
         environments: Iterable[CraftGroundCommandEnvironment],
         *,
         noop_action: Callable[[], Any] | None = None,
-        synchronization_ticks: int = 2,
+        synchronization_ticks: int = DEFAULT_SYNCHRONIZATION_TICKS,
     ) -> None:
         self.environments = tuple(environments)
         if not self.environments:

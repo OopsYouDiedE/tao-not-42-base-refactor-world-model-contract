@@ -227,6 +227,7 @@ class _StreamingSequence:
     next_tick: int
     first_segment: bool = True
     last_tick_observe: bool = False
+    pending_observe: bool = False
 
 
 @dataclass(frozen=True)
@@ -275,7 +276,7 @@ def _validate_action_tokens(device: str, tokens: list[str]) -> str | None:
         if command in _RESERVED_ACTION_TOKENS or "<action" in command or "</action" in command:
             return "动作标签内不能出现设备声明、Tick 元数据或嵌套动作标签"
         if command == "Observe":
-            return "Observe 只能出现在 tick 开头"
+            return "Observe 必须独立成段，不能与动作输入写在同一个分号段内"
 
         if device == "KeyboardMouse":
             if command in _KEYBOARD_KEYS or command in _MOUSE_BUTTONS:
@@ -375,7 +376,14 @@ def _validate_action_tokens(device: str, tokens: list[str]) -> str | None:
     return None
 
 
-def _parse_action_ticks(actions: str, device: str) -> tuple[ActionTick, ...]:
+def _parse_action_ticks_state(
+    actions: str,
+    device: str,
+    *,
+    observe: bool = False,
+    final: bool = True,
+) -> tuple[tuple[ActionTick, ...], bool]:
+    """编译分号段；`observe` 传入尚未消费的观察，返回剩余的待消费观察。"""
     segments = actions.split(";")
     ticks: list[ActionTick] = []
     for segment in segments:
@@ -383,9 +391,14 @@ def _parse_action_ticks(actions: str, device: str) -> tuple[ActionTick, ...]:
             ticks.extend(_warn_invalid_tick("空分号段按一个 NoOp tick 处理"))
             continue
         tokens = segment.split()
-        observe = tokens[:1] == ["Observe"]
-        if observe:
-            tokens.pop(0)
+        if tokens == ["Observe"]:
+            if observe:
+                ticks.extend(
+                    _warn_invalid_tick("连续的 Observe 段只保留一次观察；多余的段按 NoOp 处理")
+                )
+                continue
+            observe = True
+            continue
         repeat = 1
         if tokens and (repeat_match := _REPEAT.fullmatch(tokens[-1])):
             repeat = int(repeat_match.group(1))
@@ -393,7 +406,7 @@ def _parse_action_ticks(actions: str, device: str) -> tuple[ActionTick, ...]:
         if tokens == ["NoOp"]:
             tokens.clear()
         elif not tokens:
-            ticks.extend(_warn_invalid_tick("Observe 后必须包含动作或 NoOp；按 NoOp 处理"))
+            ticks.extend(_warn_invalid_tick("分号段必须包含动作或 NoOp；按 NoOp 处理"))
             continue
         elif "NoOp" in tokens:
             ticks.extend(_warn_invalid_tick("NoOp 不能与其他输入同时出现；按 NoOp 处理"))
@@ -401,10 +414,19 @@ def _parse_action_ticks(actions: str, device: str) -> tuple[ActionTick, ...]:
         validation_error = _validate_action_tokens(device, tokens)
         if validation_error is not None:
             ticks.extend(_warn_invalid_tick(f"{validation_error}；按 NoOp 处理"))
+            observe = False
             continue
         tick = ActionTick(tuple(tokens), observe)
         ticks.extend(replace(tick, observe=observe and index == 0) for index in range(repeat))
-    return tuple(ticks)
+        observe = False
+    if observe and final:
+        ticks.extend(_warn_invalid_tick("末尾的 Observe 段没有后续动作；按 NoOp 处理"))
+        observe = False
+    return tuple(ticks), observe
+
+
+def _parse_action_ticks(actions: str, device: str) -> tuple[ActionTick, ...]:
+    return _parse_action_ticks_state(actions, device)[0]
 
 
 def parse_action_sequence(text: str) -> ActionSequence:
@@ -454,11 +476,12 @@ def format_action_sequence(sequence: ActionSequence) -> str:
         raise ValueError("Tick 偏移必须是非负整数")
     segments = []
     for tick in sequence.ticks:
-        tokens = (["Observe"] if tick.observe else []) + list(tick.inputs or ("NoOp",))
         validation_error = _validate_action_tokens(sequence.device, list(tick.inputs))
         if validation_error is not None:
             raise ValueError(validation_error)
-        segments.append(" ".join(tokens))
+        if tick.observe:
+            segments.append("Observe")
+        segments.append(" ".join(tick.inputs or ("NoOp",)))
     if not segments:
         raise ValueError("动作序列不能为空")
     return (
@@ -475,10 +498,13 @@ class ActionSequenceCompiler:
         *,
         record_generations: bool = False,
         auto_observe: bool = False,
+        max_overrun_ticks: int | None = None,
     ) -> None:
         self.underflow = underflow
         self.record_generations = record_generations
         self.auto_observe = auto_observe
+        self._max_overrun_ticks = None
+        self.max_overrun_ticks = max_overrun_ticks
         self._generation_records: list[_GenerationRecord] = []
         self._active_generation: _GenerationRecord | None = None
         self._next_generation_number = 0
@@ -487,10 +513,38 @@ class ActionSequenceCompiler:
         self.total_waiting_ticks = 0
         self.reset()
 
+    @property
+    def max_overrun_ticks(self) -> int | None:
+        """队列耗尽后允许按下溢策略续跑的 tick 上限；`None` 表示不限。
+
+        不是一次提交总共能执行多少 tick：队列内的空隙不计入，详见协议 2.1 节。
+        """
+        return self._max_overrun_ticks
+
+    @max_overrun_ticks.setter
+    def max_overrun_ticks(self, value: int | None) -> None:
+        if value is not None and value < 0:
+            raise ValueError("max_overrun_ticks 不能为负数")
+        self._max_overrun_ticks = value
+
+    @property
+    def overrun_exhausted(self) -> bool:
+        """队列已空且续跑预算用尽；`pull` 此时只会返回 WAIT。
+
+        队列里仍有排队 tick 时越界尚未开始：当前 tick 只是队列内的空隙，环境要继续
+        推进才能走到下一个有动作的 tick，因此此时预算无从谈起，一律返回未用尽。
+        """
+        if self._queue:
+            return False
+        if self._max_overrun_ticks is None:
+            return False
+        return self.overrun_ticks >= self._max_overrun_ticks
+
     def reset(self) -> None:
         if self._active_generation is not None:
             self._finish_generation(GenerationStatus.CANCELLED)
         self.current_waiting_ticks = 0
+        self.overrun_ticks = 0
         self.current_tick = 0
         self._queue: dict[int, _ScheduledTick] = {}
         self._last_action: _ScheduledTick | None = None
@@ -607,7 +661,7 @@ class ActionSequenceCompiler:
             is_closing = next_event == closing_tag
             consumed = len("</action>") if is_closing else 1
             self._input_buffer = self._input_buffer[next_event + consumed :]
-            submission = self._submit_stream_segment(segment)
+            submission = self._submit_stream_segment(segment, final=is_closing)
             if submission is not None:
                 submissions.append(submission)
             if is_closing:
@@ -658,11 +712,18 @@ class ActionSequenceCompiler:
             return None
         return _StreamingSequence(device, self.current_tick + offset)
 
-    def _submit_stream_segment(self, segment: str) -> Submission | None:
+    def _submit_stream_segment(self, segment: str, *, final: bool = True) -> Submission | None:
         stream = self._streaming_sequence
         if stream is None:
             raise RuntimeError("流式动作状态缺失")
-        ticks = _parse_action_ticks(segment, stream.device)
+        ticks, stream.pending_observe = _parse_action_ticks_state(
+            segment,
+            stream.device,
+            observe=stream.pending_observe,
+            final=final,
+        )
+        if not ticks:
+            return None
         submission = self._submit_at(
             stream.next_tick,
             stream.device,
@@ -671,8 +732,7 @@ class ActionSequenceCompiler:
         )
         stream.next_tick += len(ticks)
         stream.first_segment = False
-        if ticks:
-            stream.last_tick_observe = ticks[-1].observe
+        stream.last_tick_observe = ticks[-1].observe
         return submission
 
     def _submit_automatic_observe(self) -> Submission | None:
@@ -734,7 +794,13 @@ class ActionSequenceCompiler:
         return Submission(start, len(accepted), expired, overwritten, cold_start)
 
     def pull(self) -> TickDecision:
-        """读取当前环境 tick；只有 WAIT 下溢不产生可提交动作。"""
+        """读取当前环境 tick；队列真正耗尽后才可能不产生可提交动作。
+
+        当前 tick 没有排定动作、但队列里仍有更晚的 tick 时，这只是队列内部的空隙：
+        `Tick 60` 这类绝对偏移会在环境 tick 与偏移之间留下空隙，环境必须继续推进才能
+        走到下一个有动作的 tick。此时即使下溢策略是 `WAIT` 也不能停 —— 队列里有缓存，
+        只是还没走到，停下来会让任何带偏移的提交永远无法执行。空隙一律按 `NoOp` 跨越。
+        """
         scheduled = self._queue.get(self.current_tick)
         if scheduled is not None:
             if scheduled.action.observe and self._observed_tick != self.current_tick:
@@ -752,7 +818,17 @@ class ActionSequenceCompiler:
                 self._revision,
                 scheduled.device,
             )
-        if self.underflow is UnderflowPolicy.WAIT:
+        if self._queue:
+            # 队列内的空隙：下溢策略与续跑预算都不适用，按 NoOp 推进到下一个排定 tick。
+            return TickDecision(
+                DecisionKind.ACTION,
+                self.current_tick,
+                ActionTick(),
+                "gap",
+                self._revision,
+            )
+        # 队列真的空了。续跑预算用尽后不再按下溢策略造动作，等同于 WAIT。
+        if self.underflow is UnderflowPolicy.WAIT or self.overrun_exhausted:
             return TickDecision(
                 DecisionKind.WAIT,
                 self.current_tick,
@@ -827,9 +903,14 @@ class ActionSequenceCompiler:
                 raise RuntimeError("动作决策已被新序列覆盖")
             del self._queue[self.current_tick]
             self.current_waiting_ticks = 0
+            self.overrun_ticks = 0
             if self._active_generation is not None:
                 self._active_generation.current_waiting_ticks = 0
         elif decision.source in {"noop", "repeat_last"}:
+            # 只有队列真的空了才算越界；队列里还有排队 tick 时这个下溢只是跨越空隙，
+            # 环境必须推进才能走到下一个有动作的 tick，不消耗预算。
+            if not self._queue:
+                self.overrun_ticks += 1
             self._record_waiting_tick(decision.source)
         self._last_action = (
             _ScheduledTick(
@@ -845,6 +926,13 @@ class ActionSequenceCompiler:
     @property
     def buffered_ticks(self) -> int:
         return len(self._queue)
+
+    def scheduled_action(self, tick: int) -> ActionTick:
+        """读取已排入队列的某个 tick，供调用方在执行前预演转译。"""
+        scheduled = self._queue.get(tick)
+        if scheduled is None:
+            raise KeyError(tick)
+        return scheduled.action
 
     @property
     def pending_input(self) -> str:

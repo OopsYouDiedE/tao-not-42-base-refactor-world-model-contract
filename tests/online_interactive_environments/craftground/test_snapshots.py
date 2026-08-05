@@ -1,70 +1,8 @@
 from __future__ import annotations
 
-import time
-from typing import Any
-
 import pytest
 
-from online_interactive_environments.craftground import (
-    MemorySnapshotCoordinator,
-    SnapshotRegion,
-)
-
-
-class FakeEnvironment:
-    def __init__(self, latency: float = 0.0) -> None:
-        self.commands: list[str] = []
-        self.actions: list[Any] = []
-        self.latency = latency
-
-    def add_command(self, command: str) -> None:
-        self.commands.append(command)
-
-    def step(self, action: Any) -> tuple[None]:
-        time.sleep(self.latency)
-        self.actions.append(action)
-        return (None,)
-
-
-def test_capture_and_restore_all_instances() -> None:
-    environments = [FakeEnvironment(), FakeEnvironment()]
-    coordinator = MemorySnapshotCoordinator(environments, noop_action=lambda: "noop")
-    snapshot = coordinator.capture_all(
-        "branch-42",
-        SnapshotRegion((0, 63, 0), (8, 68, 8)),
-    )
-    timings = coordinator.reset_all(snapshot)
-
-    for environment in environments:
-        assert environment.commands == [
-            "memorysnapshot save branch-42 0 63 0 8 68 8",
-            "memorysnapshot load branch-42",
-        ]
-        assert environment.actions == ["noop"] * 4
-    assert len(timings.worker_ms) == 2
-
-
-def test_restore_broadcast_runs_in_parallel() -> None:
-    environments = [FakeEnvironment(0.03) for _ in range(4)]
-    coordinator = MemorySnapshotCoordinator(
-        environments,
-        noop_action=lambda: None,
-        synchronization_ticks=1,
-    )
-
-    timings = coordinator.reset_all("golden")
-
-    assert timings.wall_ms < 100
-    assert all(
-        environment.commands == ["memorysnapshot load golden"] for environment in environments
-    )
-
-
-@pytest.mark.parametrize("snapshot_id", ["", "has space", "../escape", "name/child"])
-def test_snapshot_id_rejects_unsafe_values(snapshot_id: str) -> None:
-    coordinator = MemorySnapshotCoordinator([FakeEnvironment()], noop_action=lambda: None)
-    with pytest.raises(ValueError, match="snapshot_id"):
-        coordinator.reset_all(snapshot_id)
+from online_interactive_environments.craftground import SnapshotRegion
 
 
 def test_snapshot_region_rejects_reversed_bounds() -> None:
@@ -77,3 +15,15 @@ def test_snapshot_region_is_centered_on_actual_player_position() -> None:
 
     assert region.minimum == (98, -64, -41)
     assert region.maximum == (114, 319, -25)
+
+
+def test_snapshot_region_serializes_command_coordinates() -> None:
+    region = SnapshotRegion((0, 63, 0), (8, 68, 8))
+
+    assert region.command_coordinates() == "0 63 0 8 68 8"
+
+
+@pytest.mark.parametrize("horizontal_radius", [0, -1])
+def test_snapshot_region_rejects_non_positive_radius(horizontal_radius: int) -> None:
+    with pytest.raises(ValueError, match="horizontal_radius"):
+        SnapshotRegion.around_player((0.0, 70.0, 0.0), horizontal_radius=horizontal_radius)

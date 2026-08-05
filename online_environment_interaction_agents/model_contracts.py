@@ -56,3 +56,37 @@ class TeacherBackend(Protocol):
     model: str
 
     def generate(self, request: TeacherRequest) -> TeacherResponse: ...
+
+
+class ScriptedBackend:
+    """按预先写定的动作序列作答的后端；人工提交动作时代替模型。
+
+    可视化控制台和确定性回归都需要在不调用任何模型的前提下把一段动作送进执行器，
+    因此这是正式实现而不是测试替身。每次 `generate` 取出下一段脚本；脚本用尽后
+    重复最后一段，使调用方可以持续推进而不必自己补齐轮数。
+    """
+
+    provider = "scripted"
+
+    def __init__(self, *sequences: str, model: str = "scripted-action-sequence") -> None:
+        if not sequences:
+            raise ValueError("ScriptedBackend 至少需要一段动作序列")
+        for sequence in sequences:
+            extract_action_sequence_text(sequence)
+        self.model = model
+        self.sequences = tuple(sequences)
+        self.calls = 0
+
+    def generate(self, request: TeacherRequest) -> TeacherResponse:
+        index = min(self.calls, len(self.sequences) - 1)
+        self.calls += 1
+        text = self.sequences[index]
+        return TeacherResponse(
+            text=text,
+            provider=self.provider,
+            model=self.model,
+            request_id=f"scripted-{index}",
+            input_tokens=None,
+            output_tokens=None,
+            elapsed_ms=0.0,
+        )

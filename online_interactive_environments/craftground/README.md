@@ -115,14 +115,40 @@ tensor shape、dtype、device、CUDA IPC handle、live view data pointer 和帧�
 | 可选渲染 | PNG `>=1.6`、CUDA Toolkit 12.8；RAW 与 CUDA IPC zero-copy 已在 Tesla T4 验证 |
 | Python 间接依赖 | 上游多数未设版本边界，由本项目环境锁定与真实验收控制 |
 
-该包负责把 CraftGround 常驻实例分配给多个 SubAgent。每个实例在同一时刻只归一个 SubAgent 使用。
+## 控制内核
+
+`EnvironmentKernel` 是唯一持有 CraftGround JVM 句柄的对象。装配、倒档、槽位调度和换基准都在它内部
+完成，调用方不再自己拼装 runtime 目录、快照协调器和环境池：
 
 ```python
-coordinator = MemorySnapshotCoordinator(environments)
-snapshot = coordinator.capture_all("root-state", region)
-runner = ParallelRolloutRunner(coordinator, max_workers=8)
-results = runner.run(requests, wait_timeout=30.0)
+from online_interactive_environments.craftground import EnvironmentKernel
+
+with EnvironmentKernel.launch(slots=4, port_base=19800, baseline_world="runs/baseline-world") as kernel:
+    kernel.capture("root-state", region=region, as_root=True)
+    results = kernel.rollout(requests, wait_timeout=30.0)
+    kernel.reset()
 ```
+
+`launch` 依次准备构建模板、逐槽位复制独立实例目录、安装基准存档并启动 JVM；任一槽位失败时已创建的
+JVM 全部关闭，不留下悬挂进程。`close()` 幂等，内核本身是上下文管理器。
+
+内核对外只暴露三类调用，与三种意图一一对应：
+
+| 意图 | 调用 |
+| --- | --- |
+| 操控 | `lease()` / `handles()` 取得 `EnvironmentHandle`，再 `apply(tick)` |
+| 重置 | `capture(id, region=..., as_root=True)` 保存根快照，`reset()` 或 `handle.reset_to()` 倒档 |
+| 换基准 | `capture(..., as_root=True)` 覆盖根快照，或 `rebase(baseline_world)` 重建全部槽位 |
+
+`rebase` 的两条路径代价不同。覆盖根快照不重启 JVM，但只影响快照区域；`rebase` 复用同一批端口，因此
+先关闭当前内核再重建，返回一个新内核对象。
+
+`EnvironmentHandle` 不暴露裸 CraftGround 对象。它内部持有该槽位的键鼠适配器，`apply(ActionTick)`
+完成转译并返回 `StepOutcome`，因此设备边界不会随句柄一起交给调用方。`preview_adapter()` 克隆当前
+设备状态，供调用方在不触碰环境的前提下预演转译；教师执行器正是用它在提交前拒绝非法输入。
+
+每个实例在同一时刻只归一个 SubAgent 使用。推演请求中的 `simulate(handle, payload)` 收到的是句柄，
+不是环境。
 
 ## 固定存档并行启动
 
@@ -157,10 +183,11 @@ python -m environment_validation_tools.run_four_teacher_trajectories \
 
 入口在 JVM 启动前校验四份存档源哈希相同、实例路径互不重复。世界快照加载后还会通过 `clear @p`、`tp @p` 和状态回读恢复玩家起点；状态不一致时最多重新提交五次，仍不一致则停止运行。
 
-`capture_all` 会在每个 JVM 内保存同名快照。每项推演取得独占环境后，先加载请求指定的快照，再调用
-请求中的 `simulate(environment, payload)`。线程池并行驱动多个独立 JVM，因此环境仿真和 IPC 等待可以
-同时进行。请求数量超过环境槽位时，请求在 `EnvironmentPool` 中等待；`wait_timeout=None` 表示持续
-等待，给定秒数后仍无槽位则抛出 `EnvironmentPoolTimeout`。推演成功或抛出异常时租约都会归还。
+`capture` 会在每个 JVM 内保存同名快照。每项推演取得独占句柄后，先加载请求指定的快照（`snapshot`
+为空时回到根快照），再调用请求中的 `simulate(handle, payload)`。线程池并行驱动多个独立 JVM，因此
+环境仿真和 IPC 等待可以同时进行。并发上限由环境池而不是线程池决定：请求数量超过槽位时在
+`EnvironmentPool` 中等待，`wait_timeout=None` 表示持续等待，给定秒数后仍无槽位则抛出
+`EnvironmentPoolTimeout`。推演成功或抛出异常时租约都会归还。
 
 快照是 JVM 本地对象。同一 ID 必须预先广播保存到所有可能接收该任务的环境，不能把一个 JVM 中的
 `StructureTemplate` 直接传给另一个 JVM。

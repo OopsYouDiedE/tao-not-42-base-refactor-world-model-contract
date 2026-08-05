@@ -35,9 +35,38 @@ def consume(compiler: ActionSequenceCompiler) -> tuple[str, ...]:
 
 
 def test_parser_expands_repeat_and_observes_only_once() -> None:
-    parsed = parse_action_sequence(sequence("Observe W x3 ; NoOp"))
+    parsed = parse_action_sequence(sequence("Observe ; W x3 ; NoOp"))
     assert [tick.inputs for tick in parsed.ticks] == [("W",), ("W",), ("W",), ()]
     assert [tick.observe for tick in parsed.ticks] == [True, False, False, False]
+
+
+def test_parser_rejects_observe_sharing_a_segment_with_inputs() -> None:
+    with pytest.warns(RuntimeWarning, match="Observe 必须独立成段"):
+        parsed = parse_action_sequence(sequence("Observe W ; A"))
+
+    assert [tick.inputs for tick in parsed.ticks] == [(), ("A",)]
+    assert [tick.observe for tick in parsed.ticks] == [False, False]
+
+
+def test_parser_binds_observe_to_the_following_tick_only() -> None:
+    parsed = parse_action_sequence(sequence("W ; Observe ; A ; S"))
+
+    assert [tick.inputs for tick in parsed.ticks] == [("W",), ("A",), ("S",)]
+    assert [tick.observe for tick in parsed.ticks] == [False, True, False]
+
+
+def test_parser_warns_on_trailing_observe_segment() -> None:
+    with pytest.warns(RuntimeWarning, match="末尾的 Observe 段没有后续动作"):
+        parsed = parse_action_sequence(sequence("W ; Observe"))
+
+    assert [tick.inputs for tick in parsed.ticks] == [("W",), ()]
+
+
+def test_parser_warns_on_consecutive_observe_segments() -> None:
+    with pytest.warns(RuntimeWarning, match="连续的 Observe 段"):
+        parsed = parse_action_sequence(sequence("Observe ; Observe ; W"))
+
+    assert [tick.observe for tick in parsed.ticks] == [False, True]
 
 
 @pytest.mark.parametrize(
@@ -45,7 +74,7 @@ def test_parser_expands_repeat_and_observes_only_once() -> None:
     ["MouseMove 4 -2", "MouseMove 4 -20", "MouseMove 0 0", "MouseMove -4 -2"],
 )
 def test_parser_accepts_single_digit_mouse_move_coordinates(movement: str) -> None:
-    parsed = parse_action_sequence(sequence(f"Observe {movement} x3"))
+    parsed = parse_action_sequence(sequence(f"Observe ; {movement} x3"))
 
     assert [tick.inputs for tick in parsed.ticks] == [("MouseMove", *movement.split()[1:])] * 3
     assert [tick.observe for tick in parsed.ticks] == [True, False, False]
@@ -86,7 +115,7 @@ def test_stream_automatically_appends_observe_when_sequence_ends_without_it() ->
 def test_stream_does_not_duplicate_terminal_observe() -> None:
     compiler = ActionSequenceCompiler(UnderflowPolicy.WAIT, auto_observe=True)
 
-    submissions = compiler.feed(sequence("W ; Observe NoOp"))
+    submissions = compiler.feed(sequence("W ; Observe ; NoOp"))
 
     assert len(submissions) == 2
     assert sum(item.accepted_ticks for item in submissions) == 2
@@ -247,7 +276,7 @@ def test_offset_is_relative_to_current_tick_after_consuming_previous_sequence() 
 
 def test_observe_pauses_tick_until_acknowledged() -> None:
     compiler = ActionSequenceCompiler()
-    compiler.submit(sequence("Observe W"))
+    compiler.submit(sequence("Observe ; W"))
     first = compiler.pull()
     assert first.kind is DecisionKind.OBSERVE
     assert compiler.current_tick == 0
@@ -285,6 +314,65 @@ def test_repeat_last_reuses_action_without_observe() -> None:
     assert repeated.action is not None
     assert repeated.action.inputs == ("W",)
     assert repeated.action.observe is False
+
+
+def test_overrun_budget_turns_underflow_into_wait() -> None:
+    compiler = ActionSequenceCompiler(UnderflowPolicy.REPEAT_LAST, max_overrun_ticks=2)
+    compiler.submit(sequence("W"))
+    assert consume(compiler) == ("W",)
+
+    assert consume(compiler) == ("W",)
+    assert consume(compiler) == ("W",)
+
+    assert compiler.overrun_ticks == 2
+    assert compiler.overrun_exhausted is True
+    assert compiler.pull().kind is DecisionKind.WAIT
+
+
+def test_overrun_budget_is_released_when_the_queue_continues() -> None:
+    compiler = ActionSequenceCompiler(UnderflowPolicy.NOOP, max_overrun_ticks=1)
+    compiler.submit(sequence("W"))
+    consume(compiler)
+    assert consume(compiler) == ()
+    assert compiler.overrun_exhausted is True
+
+    compiler.submit(sequence("A"))
+    assert consume(compiler) == ("A",)
+
+    assert compiler.overrun_ticks == 0
+    assert compiler.overrun_exhausted is False
+
+
+def test_unlimited_overrun_budget_never_exhausts() -> None:
+    compiler = ActionSequenceCompiler(UnderflowPolicy.NOOP, max_overrun_ticks=None)
+    for _ in range(5):
+        assert consume(compiler) == ()
+
+    assert compiler.overrun_exhausted is False
+    assert compiler.pull().kind is DecisionKind.ACTION
+
+
+def test_zero_overrun_budget_stops_immediately_after_the_queue() -> None:
+    compiler = ActionSequenceCompiler(UnderflowPolicy.NOOP, max_overrun_ticks=0)
+    compiler.submit(sequence("W"))
+    consume(compiler)
+
+    assert compiler.pull().kind is DecisionKind.WAIT
+
+
+def test_overrun_budget_rejects_negative_values() -> None:
+    with pytest.raises(ValueError, match="max_overrun_ticks"):
+        ActionSequenceCompiler(max_overrun_ticks=-1)
+
+
+def test_scheduled_action_exposes_queued_tick_before_execution() -> None:
+    compiler = ActionSequenceCompiler()
+    compiler.submit(sequence("W MouseLeft ; A"))
+
+    assert compiler.scheduled_action(0).inputs == ("W", "MouseLeft")
+    assert compiler.scheduled_action(1).inputs == ("A",)
+    with pytest.raises(KeyError):
+        compiler.scheduled_action(2)
 
 
 def test_stale_decision_cannot_be_committed_after_overwrite() -> None:

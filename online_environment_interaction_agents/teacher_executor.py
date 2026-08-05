@@ -13,6 +13,7 @@ from typing import Any, Protocol
 
 from online_interactive_environments import (
     ActionSequenceCompiler,
+    ActionTick,
     DecisionKind,
     GenerationTelemetry,
     UnderflowPolicy,
@@ -21,6 +22,7 @@ from online_interactive_environments import (
 from online_interactive_environments.craftground.action_adapter import (
     CraftGroundKeyboardMouseAdapter,
 )
+from online_interactive_environments.craftground.kernel import StepOutcome
 
 from .model_contracts import (
     TeacherBackend,
@@ -30,8 +32,15 @@ from .model_contracts import (
 )
 
 
-class StepEnvironment(Protocol):
-    def step(self, action: dict[str, bool | float]) -> tuple[Any, float, bool, bool, Any]: ...
+class TickEnvironment(Protocol):
+    """内核句柄的最小接口：转译与执行都在设备边界之内完成。"""
+
+    @property
+    def selected_hotbar(self) -> int: ...
+
+    def apply(self, tick: ActionTick) -> StepOutcome: ...
+
+    def preview_adapter(self) -> CraftGroundKeyboardMouseAdapter: ...
 
 
 @dataclass(frozen=True)
@@ -53,14 +62,11 @@ class TeacherTrajectoryExecutor:
 
     def __init__(
         self,
-        environment: StepEnvironment,
+        environment: TickEnvironment,
         backend: TeacherBackend,
-        *,
-        adapter: CraftGroundKeyboardMouseAdapter | None = None,
     ) -> None:
         self.environment = environment
         self.backend = backend
-        self.adapter = adapter or CraftGroundKeyboardMouseAdapter()
         self.compiler = ActionSequenceCompiler(
             UnderflowPolicy.WAIT,
             record_generations=True,
@@ -186,10 +192,7 @@ class TeacherTrajectoryExecutor:
                 )
             if not sequence.ticks or sequence.ticks[0].observe:
                 raise TeacherModelError("教师输出没有产生 Observe 之前的可执行 tick")
-            preview_adapter = CraftGroundKeyboardMouseAdapter(
-                selected_hotbar=self.adapter.selected_hotbar,
-                action_factory=self.adapter.action_factory,
-            )
+            preview_adapter = self.environment.preview_adapter()
             for tick in sequence.ticks:
                 preview_adapter.convert(tick)
             submission = self.compiler.submit(model_decision.control)
@@ -281,15 +284,12 @@ class TeacherTrajectoryExecutor:
     ) -> tuple[Any, float, bool, bool, Any]:
         if decision.device != "KeyboardMouse" or decision.action is None:
             raise TeacherModelError(f"CraftGround 不支持设备：{decision.device}")
-        native_action = self.adapter.convert(decision.action)
-        step_started = time.perf_counter()
-        observation, reward, terminated, truncated, info = self.environment.step(native_action)
-        step_elapsed_ms = (time.perf_counter() - step_started) * 1000
+        outcome = self.environment.apply(decision.action)
         source_generation_id = self._tick_generation_ids.pop(decision.tick, fallback_generation_id)
         self.compiler.commit(decision)
-        self.latest_observation = observation
-        self.latest_info = info
-        self.total_reward += float(reward)
+        self.latest_observation = outcome.observation
+        self.latest_info = outcome.info
+        self.total_reward += outcome.reward
         self.execution_ticks.append(
             {
                 "tick": decision.tick,
@@ -297,17 +297,28 @@ class TeacherTrajectoryExecutor:
                 "inference_generation_id": fallback_generation_id,
                 "latency_fill": latency_fill,
                 "device": decision.device,
-                "inputs": list(decision.action.inputs),
+                "inputs": list(outcome.inputs),
                 "observe": decision.action.observe,
-                "native_action": native_action,
-                "reward": float(reward),
-                "terminated": bool(terminated),
-                "truncated": bool(truncated),
-                "step_elapsed_ms": round(step_elapsed_ms, 3),
-                "info": _compact_environment_value(info),
+                "native_action": outcome.native_action,
+                "reward": outcome.reward,
+                "terminated": outcome.terminated,
+                "truncated": outcome.truncated,
+                "step_elapsed_ms": round(outcome.step_elapsed_ms, 3),
+                "info": _compact_environment_value(outcome.info),
             }
         )
-        return observation, reward, terminated, truncated, info
+        return (
+            outcome.observation,
+            outcome.reward,
+            outcome.terminated,
+            outcome.truncated,
+            outcome.info,
+        )
+
+    @property
+    def action_adapter_name(self) -> str:
+        """设备边界现在归内核句柄；导出仍需要记录实际转译器类型。"""
+        return type(self.environment.preview_adapter()).__name__
 
     def export(self, path: Path, *, trajectory_id: str) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,7 +328,7 @@ class TeacherTrajectoryExecutor:
             "action_protocol": "standard-input-action/v1",
             "action_protocol_version": "v1",
             "action_backend": "keyboard_and_mouse_only",
-            "action_adapter": type(self.adapter).__name__,
+            "action_adapter": self.action_adapter_name,
             "compiler_record_generations": self.compiler.record_generations,
             "started_at": self.started_at.isoformat(),
             "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -346,7 +357,7 @@ class TeacherTrajectoryExecutor:
             "action_protocol": "standard-input-action/v1",
             "action_protocol_version": "v1",
             "action_backend": "keyboard_and_mouse_only",
-            "action_adapter": type(self.adapter).__name__,
+            "action_adapter": self.action_adapter_name,
             "compiler_record_generations": self.compiler.record_generations,
             "started_at": self.started_at.isoformat(),
             "exported_at": datetime.now(timezone.utc).isoformat(),

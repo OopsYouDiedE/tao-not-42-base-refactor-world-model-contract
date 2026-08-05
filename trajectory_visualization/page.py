@@ -259,7 +259,7 @@ function buildInstance(instance) {
   }
 
   underflow.addEventListener("change", scheduleControl);
-  budget.addEventListener("change", scheduleControl);
+  budget.addEventListener("input", scheduleControl);
   unlimited.addEventListener("change", scheduleControl);
 
   function render(next) {

@@ -1,212 +1,178 @@
 # TAO
 
-本仓库按在线环境交互、数据适配、行为克隆、轨迹审核、模型判断审核、相对优势训练和环境验证的职责边界组织。行为克隆与 2+6 相对优势训练入口已经恢复，统一训练标准输入动作协议 v1。
+## 快速安装
 
-旧的 `tao/`、`dataset/`、`train/`、`game_environment/`、`tools/` 和 `scripts/` 入口不再代表当前工作树。训练入口只存在于当前职责目录中。
+除 CraftGround 外全部直接安装最新兼容版本，不锁定版本号。
+默认运行与验证环境是带 GPU 的 Linux；Windows 上涉及真实 CraftGround 的步骤必须在 WSL 2 中执行。
 
-## 当前能力
+### 1. 系统依赖
 
-| 能力 | 入口 | 状态 |
-| --- | --- | --- |
-| 标准输入动作协议 | `online_interactive_environments/STANDARD_INPUT_ACTION_PROTOCOL.md` | v1 合同、校验和 CraftGround 执行适配可用 |
-| 动作序列解析与逐 tick 调度 | `online_interactive_environments.ActionSequenceCompiler` | 可用 |
-| 生成记录与模型延迟指标 | `ActionSequenceCompiler(record_generations=True)` | 可用；模型墙钟延迟不换算为环境 tick |
-| CraftGround 环境创建 | `online_interactive_environments.craftground.create_environment` | 可用 |
-| CraftGround 内存快照 | `MemorySnapshotCoordinator` | 可用 |
-| 多环境并行推演 | `ParallelRolloutRunner` | 可用 |
-| Godot 聚光灯强化学习环境 | `online_interactive_environments.godot` | 已恢复；需要 Godot 4.6 .NET、NumPy、Gymnasium 和 Stable-Baselines3 |
-| 协议动作到 CraftGround 动作的适配 | `CraftGroundKeyboardMouseAdapter` | 可用 |
-| 四分支同策略轨迹 | `environment_validation_tools.run_four_teacher_trajectories` | 可用；限定 WSL 2 Ubuntu-24.04 |
-| 轨迹审核与相对优势比较 | `interaction_trajectory_review_agents`、`relative_advantage_comparison_training` | 可用 |
-| 比较结论复核 | `model_judgment_review_agents` | 可用 |
-| 视觉行为克隆 | `python -m behavior_cloning_training.train` | 已恢复；需要 GPU、Unsloth、TRL 和模型依赖 |
-| 2+6 策略 RLHF | `python -m relative_advantage_comparison_training.train_policy` | 已恢复；要求生成时记录 on-policy token logprob |
-
-## 协议与执行后端
-
-项目当前动作文本协议统一命名为 **标准输入动作协议 v1**。协议版本描述文本格式、tick、设备和输入语义。
-
-CraftGround Python 包中的 `ActionSpaceVersion.V2_MINERL_HUMAN` 是上游枚举名称。本项目将该执行后端统一称为 **`keyboard_and_mouse_only`**。它表示 CraftGround 当前只接收键盘和鼠标动作，不是本项目的 v2 协议，也不表示标准输入动作协议已经升级到 v2。
-
-两者关系如下：
-
-| 层级 | 当前名称 | 含义 |
-| --- | --- | --- |
-| 文本协议 | 标准输入动作协议 v1 | 模型输出的设备、tick 和动作文本合同 |
-| 项目执行后端 | `keyboard_and_mouse_only` | 当前允许接入 CraftGround 的设备范围 |
-| CraftGround 上游枚举 | `V2_MINERL_HUMAN` | 创建环境时必须传递的第三方 API 标识 |
-
-编译器把设备信息写入 `TickDecision`，`TeacherTrajectoryExecutor` 校验 `KeyboardMouse` 设备并通过
-`CraftGroundKeyboardMouseAdapter` 转换为完整的 CraftGround V2 动作字典。每个已接受协议 tick 对应
-一次 `environment.step()`。后端声明见 `online_interactive_environments/CRAFTGROUND_KEYBOARD_AND_MOUSE_ONLY_BACKEND.md`。
-
-## 代码结构
-
-| 路径 | 职责 | 当前内容 |
-| --- | --- | --- |
-| `external_dataset_loaders_and_protocol_adapters/` | 外部数据集加载、预处理和项目协议适配 | 迁移占位 |
-| `behavior_cloning_dataset_converters/` | 行为克隆数据集转换 | 迁移占位 |
-| `behavior_cloning_training/` | 标准输入动作协议视觉行为克隆 | JSONL/HDF5 conversation、MineStudio 流式数据和 LoRA SFT |
-| `online_interactive_environments/` | 在线环境实现、环境配置和环境协议 | 动作编译器、CraftGround 运行时、快照、并行推演和环境协议 |
-| `online_interactive_environments/godot/` | Godot 在线强化学习环境 | 40 环境共享内存通信、Godot 引擎工程、SB3 向量环境和 PPO 训练入口 |
-| `interaction_trajectory_review_agents/` | 交互轨迹审核代理 | 协议、预算、生成状态和任务结果审核 |
-| `online_environment_interaction_agents/` | 在线环境交互代理、动作生成、执行和轨迹记录 | 在线轨迹生成 Agent 提示词结构 |
-| `model_judgment_review_agents/` | 模型判断结果审核代理 | 比较均值、排序和选择结论复核 |
-| `relative_advantage_comparison_training/` | 相对优势样本、计算和训练 | 同起点 2+6 样本、on-policy 采样和 clipped LoRA 更新 |
-| `environment_validation_tools/` | 环境接口、协议链路和项目结构验证 | 项目结构校验工具 |
-| `shared_tools/` | 跨职责共享且无领域语义的基础设施 | 环境变量与 `.env` 配置读取 |
-| `tests/` | 当前已迁移模块的自动化测试 | 动作编译器、CraftGround 组件和项目结构测试 |
-
-旧入口仍然不可用；BC 与 RLHF 必须通过当前职责目录运行。
-
-## BC 与 RLHF
-
-行为克隆读取标准协议 v1 的 JSONL/HDF5 conversation，或直接从 MineStudio LMDB 流式读取：
+纯逻辑开发和静态检查只需要 Python 和 uv：
 
 ```bash
-python -m behavior_cloning_training.train \
-  --model unsloth/gemma-4-26B-A4B-it \
-  --dataset runs/datasets/minestudio-data-10xx-v110 \
-  --streaming \
-  --output runs/training/bc
+pip install uv
 ```
 
-RLHF execution group 必须包含同一起点的 2 条 `reference_expert` 与 6 条 `policy_sample`；
-policy 样本必须携带生成时的 `response_token_ids`、`old_logprobs`、`policy_version` 和采样参数：
+真实 CraftGround 需要 JDK、CMake、Ninja、JNI 和 OpenGL 开发包（非 macOS 还需 GLEW）。
+Ubuntu / WSL 2 Ubuntu：
 
 ```bash
-python -m relative_advantage_comparison_training.train_policy \
-  --model unsloth/gemma-4-26B-A4B-it \
-  --adapter runs/training/bc/lora_adapter \
-  --execution runs/rlhf/iteration-0001/execution.json \
-  --intent "Approach the visible tree" \
-  --output runs/training/rlhf-iteration-0001
+sudo apt-get update
+sudo apt-get install -y openjdk-21-jdk cmake ninja-build \
+  libglew-dev libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev xorg-dev \
+  mesa-utils xserver-xorg-core x11-xserver-utils pciutils
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ```
 
-这些训练入口需要在 GPU Linux 环境验收；离线测试不能替代真实训练结论。
+CUDA 渲染与 GPU 训练额外需要 NVIDIA 驱动和 CUDA Toolkit，`nvidia-smi` 必须可用。
+无桌面服务器还要自建 NVIDIA Xorg 并设置 `DISPLAY`，`glxinfo -B` 必须显示
+`direct rendering: Yes` 与真实 NVIDIA renderer；出现 `llvmpipe` 表示软件渲染，不算通过。
 
-在 GPU Linux 上可用一条命令运行 2B 视觉模型的真实推理、单步 BC 和单轮 2+6 相对优势训练：
+Godot 环境需要 Godot .NET 版与匹配的 .NET SDK，可执行文件路径通过 `GODOT_EXE` 指定
+（默认取 `PATH` 中的 `godot`）。
+
+### 2. Python 环境
 
 ```bash
-python -m environment_validation_tools.run_gpu_training_validation \
-  --output runs/gpu_training_validation/qwen3-vl-2b
+uv venv --python 3.13
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
 ```
 
-该命令即时构造公开合同数据，并在策略生成阶段使用显式记录的合法协议候选集约束解码。它用于验证
-本地模型训练链路，不替代 CraftGround 环境轨迹的任务成功验收。
-
-## 安装
-
-默认 GPU Linux 服务器使用以下一条命令安装完整 CraftGround 与训练环境：
+CPU 或纯逻辑开发：
 
 ```bash
-bash scripts/bootstrap_gpu_craftground.sh
+uv pip install torch torchvision torchaudio \
+  --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install huggingface-hub httpx numpy pillow pyarrow tenacity \
+  pyright pytest ruff
+uv pip install -e . --no-deps
 ```
 
-不需要 CraftGround 时使用通用安装脚本。项目提供锁定版本和最新兼容版本两种方式，脚本按已安装
-PyTorch 的真实 CUDA 可用性自动选择 CPU 或 CUDA；CPU 路径不会安装 Unsloth、Flash Attention、
-xFormers 或 CUDA runtime 等 GPU 专用包：
+GPU Linux。PyPI 默认 torch wheel 已自带 CUDA runtime，不需要额外索引。unsloth 对
+torch 与 transformers 的约束最紧，放在最前面让解析器先满足它：
 
 ```bash
-bash scripts/bootstrap.sh
-bash scripts/bootstrap.sh --latest
+uv pip install unsloth torch torchvision torchaudio \
+  transformers trl peft accelerate tensorboard \
+  huggingface-hub httpx numpy pillow pyarrow tenacity \
+  pyright pytest ruff
+uv pip install -e . --no-deps
 ```
 
-两个脚本都在安装后校验 Python 版本、核心依赖导入和目标计算后端。项目源码不包含环境检查与鉴权
-检查模块。本地 GitHub 和 Hugging Face 按需自行执行 `gh auth login` 与 `hf auth login`；教师模型
-API 通过根目录 `.env` 或进程环境变量配置。完整安装、鉴权与配置合同见 `docs/INSTALLATION.md`。
-
-创建真实 CraftGround 环境还需要 JDK 21。CraftGround Python 包与 mc121 runtime 均锁定到
-`OopsYouDiedE/CraftGround` 的同一精确提交；首次创建环境时会复制维护版 runtime 并执行 Gradle 构建。
-
-## 动作编译器
-
-```python
-from online_interactive_environments import ActionSequenceCompiler
-
-compiler = ActionSequenceCompiler(record_generations=True)
-compiler.begin_generation(provider="openai", model="model-name")
-
-compiler.feed("Device KeyboardMouse\nTick 0\n<action>W ; MouseMove 12 -4 ; NoOp</action>")
-
-record = compiler.end_generation()
-decision = compiler.pull()
-```
-
-`record_generations` 在编译器创建时确定。启用后，每次生成按开始顺序保存完整输入分片、提交结果、首段内容时间、首个可执行动作时间和等待 tick 指标。
-
-## CraftGround
-
-默认入口会从已安装的维护版 CraftGround 准备构建模板，为每个环境复制独立可写 runtime，并创建
-`keyboard_and_mouse_only` 后端环境。环境默认使用共享内存 IPC 和固定端口，避免 SocketIPC 的全局
-孤儿进程扫描影响并行实例：
-
-```python
-from online_interactive_environments.craftground import create_environment
-
-environment = create_environment()
-observation, info = environment.reset(options={"fast_reset": False})
-```
-
-也可以使用已经准备好的 runtime：
-
-```python
-environment = create_environment(
-    runtime_path="C:/craftground/maintained-runtime",
-)
-```
-
-CraftGround fork、依赖锁定、快照和并行推演说明见
-`online_interactive_environments/craftground/README.md`。
-
-## 四分支轨迹
-
-四分支入口默认从 `TEACHER_BACKEND` 选择一个后端，四个 arm 复用同一后端配置与模型。API 配置使用
-`TEACHER_API_URL`、`TEACHER_API_KEY` 和 `TEACHER_MODEL`；CLI 配置使用 `TEACHER_CLI_EXECUTABLE`、
-`TEACHER_MODEL` 和可选的 `TEACHER_CLI_ARGUMENTS`。入口不读取 `~/.codex/auth.json` 或
-`~/.claude/settings.json`。
+只有需要非默认 CUDA 版本时才指定索引，`cuXXX` 替换为匹配本机驱动的版本：
 
 ```bash
-export TEACHER_BACKEND=openai-api
-export TEACHER_API_URL=https://example.invalid/v1
-export TEACHER_API_KEY=replace-me
-export TEACHER_MODEL=model-name
-python -m environment_validation_tools.run_four_teacher_trajectories --output runs/four-arm
+uv pip install torch --extra-index-url https://download.pytorch.org/whl/cuXXX
 ```
 
-该入口会冻结昼夜、天气、生物生成和随机 tick，清除普通实体，验证四实例玩家状态一致，按玩家实际
-位置计算快照区域，并在正式推演前执行一次“扰动 → 倒档 → 状态比对”。输出包含轨迹、逐轨迹审核、
-相对优势比较样本和比较结论复核。
+### 3. CraftGround
 
-`--trajectory-count` 控制 arm 数，`--environment-count` 控制并行 CraftGround 环境槽位数。内存不足
-以为每个 arm 各开一个客户端时调小槽位数；超额 arm 由 `ParallelRolloutRunner` 在环境池外排队。
-
-WSL 上「轨迹完全由云端模型生成 + 统一相对优势评估」的封装入口、`responses` wire 要求、内存槽位
-建议和已知评分缺陷见 [`docs/CLOUD_RELATIVE_ADVANTAGE_RUN.md`](docs/CLOUD_RELATIVE_ADVANTAGE_RUN.md)：
+只有 CraftGround 使用项目自维护版本。核心包与 mc121 runtime 必须锁定到
+`OopsYouDiedE/CraftGround` `tao-maintained` 分支的同一精确提交，不得改为 PyPI 范围依赖
+或只锁分支名。提交号取自 `pyproject.toml` 的 `craftground` extra：
 
 ```bash
-export TEACHER_API_KEY=replace-me
-TRAJECTORY_COUNT=8 ENVIRONMENT_COUNT=2 MAX_GENERATIONS=10 \
-  bash scripts/run_wsl_cloud_relative_advantage.sh
+uv pip install -e '.[craftground]' --no-deps
+uv pip install gymnasium protobuf psutil typing_extensions
 ```
 
-## 验证
+首次创建环境会把维护版 runtime 复制到 `~/.cache/tao/` 并执行一次 Gradle 构建，因此这一步
+要求 JDK 与 native 依赖已就绪。
 
-检查重组目录和 README 路径合同：
+### 4. 可视化控制台
+
+在 Linux 或 WSL 的项目根目录启动：
 
 ```bash
-python -m environment_validation_tools.validate_project_structure
+source .venv/bin/activate
+python -m trajectory_visualization --slots 1 --host 0.0.0.0 --port 8000 --socket-ipc
 ```
 
-运行测试和静态检查：
+Windows PowerShell 可从项目根目录直接进入 WSL 2 并启动：
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd "$PWD" bash -lc `
+  'source .venv/bin/activate && exec python -m trajectory_visualization --slots 1 --host 0.0.0.0 --port 8000 --socket-ipc'
+```
+
+浏览器访问 `http://localhost:8000`。首次启动 CraftGround 可能需要完成 Gradle 构建。
+
+### 5. Godot（可选）
+
+Godot 环境依赖未纳入 `pyproject.toml`，单独安装：
+
+```bash
+uv pip install gymnasium stable-baselines3
+```
+
+### 6. 一次性完整安装
+
+GPU Linux 上装齐系统依赖与全部 Python 路径：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y openjdk-21-jdk cmake ninja-build \
+  libglew-dev libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev xorg-dev \
+  mesa-utils xserver-xorg-core x11-xserver-utils pciutils
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+
+uv venv --python 3.13 && source .venv/bin/activate
+uv pip install unsloth torch torchvision torchaudio \
+  transformers trl peft accelerate tensorboard \
+  huggingface-hub httpx numpy pillow pyarrow tenacity \
+  gymnasium stable-baselines3 protobuf psutil typing_extensions \
+  pyright pytest ruff
+uv pip install -e '.[craftground]' --no-deps
+```
+
+### 7. Node 与编码 CLI 工具（可选）
+
+项目源码不依赖 Node；以下工具用于开发期的 CLI 辅助。教师模型 CLI 后端
+（`TEACHER_BACKEND=*-cli`）需要其中之一，可执行文件路径通过 `TEACHER_CLI_EXECUTABLE` 指定。
+
+用 nvm 装当前 LTS Node，避免污染系统 apt 包：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+source ~/.bashrc
+nvm install --lts
+nvm use --lts
+node --version && npm --version
+```
+
+安装常用编码 CLI：
+
+```bash
+npm install -g @anthropic-ai/claude-code
+npm install -g @openai/codex
+npm install -g opencode-ai
+```
+
+各工具首次运行时自行完成登录，凭证不写入本仓库：
+
+```bash
+claude
+codex login
+gemini
+```
+
+### 8. 凭证与配置
+
+教师模型通过项目根目录 `.env` 或进程环境变量配置，参照 `.env.example`。
+GitHub 与 Hugging Face 按需自行登录，项目源码不包含鉴权检查模块：
+
+```bash
+cp .env.example .env
+gh auth login
+hf auth login
+```
+
+### 9. 安装校验
 
 ```bash
 python -m pytest -q
 python -m ruff check .
 ```
 
-## 运行产物
-
-环境执行产生的轨迹、观察帧、截图、模型生成记录和结果报告统一写入项目根目录的
-`runs/`。该目录不属于源码，不进入版本控制，可以在每轮验证结束后整体清理。
-模块目录中不得创建 `test_runs/`、`runs/` 或其他持久化运行产物目录。
+真实 CraftGround、云端模型、BC 和相对优势训练必须在各自权威环境用真实依赖验证，
+上述命令只覆盖纯逻辑部分。
